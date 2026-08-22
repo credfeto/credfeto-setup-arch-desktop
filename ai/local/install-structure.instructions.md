@@ -40,6 +40,7 @@ Examples already applied:
 | `remove_aur_helpers` | `remove-aur-helpers` |
 | `harden_system` | `harden-system` |
 | `install_pacman_hooks` | `pacman-hooks` |
+| `configure_pacman` | `configure-pacman` |
 | `install_security_tools` | `security-tools` |
 | `install_dash` | `dash` |
 | `configure_network` | `configure-network` |

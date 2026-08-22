@@ -1,0 +1,38 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$SCRIPTDIR")"
+
+# shellcheck source=../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+# Overridable so tests can point this at a fixture file instead of the real
+# system file; defaults to the live pacman.conf for a real install run.
+PACMAN_CONF="${PACMAN_CONF:-/etc/pacman.conf}"
+
+# Ensures a single-word pacman.conf option (e.g. CheckSpace) is active inside
+# the [options] section: uncomments it if present but commented out, inserts
+# it right after the [options] header if it has no line at all, or leaves it
+# alone if already active. Scoped to the [options] section (up to the next
+# "[section]" header) so a same-named line elsewhere in the file is never
+# touched.
+ensure_pacman_option() {
+    option="$1"
+    options_section="$(sed -n '/^\[options\]/,/^\[/p' "$PACMAN_CONF")"
+    match="$(printf '%s\n' "$options_section" | grep -E "^#?${option}\$" | head -n 1)"
+
+    case "$match" in
+        "$option") return 0 ;;
+        "#$option") sudo sed -i "/^\[options\]/,/^\[/{s/^#${option}\$/${option}/}" "$PACMAN_CONF" ;;
+        *) sudo sed -i "/^\[options\]/a ${option}" "$PACMAN_CONF" ;;
+    esac
+}
+
+configure_pacman() {
+    info "Configuring pacman options"
+    ensure_pacman_option ILoveCandy
+    ensure_pacman_option CheckSpace
+    ensure_pacman_option VerbosePkgLists
+}
+
+configure_pacman
