@@ -1,0 +1,17 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$SCRIPTDIR")"
+
+# shellcheck source=../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+disable_baloo() {
+    if command -v balooctl6 >/dev/null 2>&1; then
+        info "Disabling and purging baloo file indexer"
+        balooctl6 disable
+        balooctl6 purge
+    fi
+}
+
+disable_baloo
