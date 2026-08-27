@@ -20,6 +20,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Migrated desktop-scoped dev scripts (dbappsettings, dbenv, querydb, pre-commit-check, and a batch of build/git/linux tooling scripts) from credfeto/scripts and credfeto-orchestrator into a new install.d/dev-scripts step, symlinking them into /usr/local/bin so a fresh desktop setup needs only this one repo; also added a new install.d/git-environment step for git identity/signing/behaviour config
 - Added a new install.d/configure-pacman step that enables pacman's ILoveCandy, CheckSpace, and VerbosePkgLists options, giving package operations a progress indicator, a pre-flight disk-space check, and full package lists on every machine this repo sets up
 - Disable and purge the baloo file indexer (balooctl6) during install when present, reducing background indexing overhead
+- Set CLAUDE_CODE_TMPDIR to the XDG runtime directory so Claude Code uses the per-session tmpfs instead of the shared system temp directory
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Removed tracked .idea/.gitignore file that was already in .gitignore
@@ -33,7 +34,9 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
 ### Deployment Changes
+
 <!--
 Releases that have at least been deployed to staging, BUT NOT necessarily released to live.  Changes should be moved from [Unreleased] into here as they are merged into the appropriate release branch
 -->
+
 ## [0.0.0] - Project created
