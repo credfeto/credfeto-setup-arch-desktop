@@ -9,4 +9,5 @@ if [ -n "$XDG_RUNTIME_DIR" ]; then
     [ -z "$TMPDIR" ] && export TMPDIR="$XDG_RUNTIME_DIR"
     [ -z "$TEMP" ] && export TEMP="$XDG_RUNTIME_DIR"
     [ -z "$TEMPDIR" ] && export TEMPDIR="$XDG_RUNTIME_DIR"
+    [ -z "$CLAUDE_CODE_TMPDIR" ] && export CLAUDE_CODE_TMPDIR="$XDG_RUNTIME_DIR"
 fi
