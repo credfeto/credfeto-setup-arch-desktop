@@ -1,29 +1,10 @@
 #! /bin/bash
 
-die() {
-    if [ -t 2 ]; then
-        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    else
-        printf '\n✗ %s\n' "$*" >&2
-    fi
-    exit 1
-}
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
-success() {
-    if [ -t 1 ]; then
-        printf '\n\033[32m✓\033[0m %s\n' "$*"
-    else
-        printf '\n✓ %s\n' "$*"
-    fi
-}
-
-info() {
-    if [ -t 1 ]; then
-        printf '\n\033[32m→\033[0m %s\n' "$*"
-    else
-        printf '\n→ %s\n' "$*"
-    fi
-}
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
 
 
 
@@ -189,9 +170,7 @@ get_latest_dotnet_sdk_version() {
 temporary_file_template="${TMPDIR:-/tmp}/dotnet.XXXXXXXXX"
 
 
-BASEDIR=$(dirname "$(readlink -f "$0")")
-
-[ -z "$BASEDIR" ] && die "BASEDIR Not defiled"
+[ -z "$SCRIPTDIR" ] && die "SCRIPTDIR Not defiled"
 
 USER_AGENT="DotnetVersionChecker/1.0.0"
 #PROXY_HOST=http://builds.dotnet.local:5554

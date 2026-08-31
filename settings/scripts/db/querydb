@@ -10,14 +10,22 @@ if [ -z "$TESTDB_LOGGING" ]; then
   exit "${PIPESTATUS[0]:-$?}"
 fi
 
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+# Extends lib/common's die with the log file location, since this script's
+# output is captured to $TESTDB_LOG via the re-exec above.
 die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
     printf '(full log: %s)\n' "$TESTDB_LOG" >&2
     exit 1
-}
-
-info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
 }
 
 SERVER=

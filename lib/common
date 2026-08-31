@@ -1,16 +1,36 @@
 # shellcheck shell=sh
 
 die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
     exit 1
 }
 
 success() {
-    printf '\n\033[32m✓\033[0m %s\n' "$*"
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+warn() {
+    if [ -t 2 ]; then
+        printf '\n\033[33m⚠\033[0m %s\n' "$*" >&2
+    else
+        printf '\n⚠ %s\n' "$*" >&2
+    fi
 }
 
 info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
 }
 
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
