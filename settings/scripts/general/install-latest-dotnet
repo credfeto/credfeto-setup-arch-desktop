@@ -6,8 +6,6 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-
-
 # args:
 # zip_path - $1
 # out_path - $2
@@ -168,9 +166,6 @@ get_latest_dotnet_sdk_version() {
 
 
 temporary_file_template="${TMPDIR:-/tmp}/dotnet.XXXXXXXXX"
-
-
-[ -z "$SCRIPTDIR" ] && die "SCRIPTDIR Not defiled"
 
 USER_AGENT="DotnetVersionChecker/1.0.0"
 #PROXY_HOST=http://builds.dotnet.local:5554

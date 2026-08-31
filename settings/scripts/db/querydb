@@ -16,17 +16,11 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-# Extends lib/common's die with the log file location, since this script's
-# output is captured to $TESTDB_LOG via the re-exec above.
-die() {
-    if [ -t 2 ]; then
-        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    else
-        printf '\n✗ %s\n' "$*" >&2
-    fi
-    printf '(full log: %s)\n' "$TESTDB_LOG" >&2
-    exit 1
-}
+# Reports the log file location on die, since this script's output is
+# captured to $TESTDB_LOG via the re-exec above. Consumed by lib/common's
+# die(), not this file, so shellcheck can't see the use.
+# shellcheck disable=SC2034
+DIE_LOG_PATH="$TESTDB_LOG"
 
 SERVER=
 DB=

@@ -6,6 +6,7 @@ die() {
     else
         printf '\n✗ %s\n' "$*" >&2
     fi
+    [ -n "$DIE_LOG_PATH" ] && printf '(full log: %s)\n' "$DIE_LOG_PATH" >&2
     exit 1
 }
 
