@@ -1,37 +1,33 @@
 # shellcheck shell=sh
 
-die() {
-    if [ -t 2 ]; then
-        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+_emit() {
+    symbol="$1"
+    color="$2"
+    fd="$3"
+    shift 3
+    if [ -t "$fd" ]; then
+        printf '\n\033[%sm%s\033[0m %s\n' "$color" "$symbol" "$*" >&"$fd"
     else
-        printf '\n✗ %s\n' "$*" >&2
+        printf '\n%s %s\n' "$symbol" "$*" >&"$fd"
     fi
+}
+
+die() {
+    _emit '✗' 31 2 "$@"
     [ -n "$DIE_LOG_PATH" ] && printf '(full log: %s)\n' "$DIE_LOG_PATH" >&2
     exit 1
 }
 
 success() {
-    if [ -t 1 ]; then
-        printf '\n\033[32m✓\033[0m %s\n' "$*"
-    else
-        printf '\n✓ %s\n' "$*"
-    fi
+    _emit '✓' 32 1 "$@"
 }
 
 warn() {
-    if [ -t 2 ]; then
-        printf '\n\033[33m⚠\033[0m %s\n' "$*" >&2
-    else
-        printf '\n⚠ %s\n' "$*" >&2
-    fi
+    _emit '⚠' 33 2 "$@"
 }
 
 info() {
-    if [ -t 1 ]; then
-        printf '\n\033[32m→\033[0m %s\n' "$*"
-    else
-        printf '\n→ %s\n' "$*"
-    fi
+    _emit '→' 32 1 "$@"
 }
 
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
