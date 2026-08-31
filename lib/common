@@ -14,7 +14,6 @@ _emit() {
 
 die() {
     _emit '✗' 31 2 "$@"
-    [ -n "$DIE_LOG_PATH" ] && printf '(full log: %s)\n' "$DIE_LOG_PATH" >&2
     exit 1
 }
 

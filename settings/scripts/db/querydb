@@ -7,7 +7,11 @@ TESTDB_LOG="$TMPBASE/testdb-last.log"
 # The outer invocation sets TESTDB_LOGGING=1 to prevent infinite recursion.
 if [ -z "$TESTDB_LOGGING" ]; then
   TESTDB_LOGGING=1 "$0" "$@" 2>&1 | tee "$TESTDB_LOG"
-  exit "${PIPESTATUS[0]:-$?}"
+  status="${PIPESTATUS[0]:-$?}"
+  # Reported here, not via lib/common's die(), since only this outer
+  # invocation (not the re-exec'd inner one) knows the log capture succeeded.
+  [ "$status" -ne 0 ] && printf '(full log: %s)\n' "$TESTDB_LOG" >&2
+  exit "$status"
 fi
 
 SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
@@ -15,12 +19,6 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
-
-# Reports the log file location on die, since this script's output is
-# captured to $TESTDB_LOG via the re-exec above. Consumed by lib/common's
-# die(), not this file, so shellcheck can't see the use.
-# shellcheck disable=SC2034
-DIE_LOG_PATH="$TESTDB_LOG"
 
 SERVER=
 DB=
