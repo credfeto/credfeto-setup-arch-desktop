@@ -31,6 +31,30 @@ hook_in() {
     [ -n "$1" ] && [ -x "$1/pre-commit" ] && printf '%s/pre-commit\n' "$1"
 }
 
+# No origin remote at all (e.g. a scratch local-only repo) - nothing to
+# compare against, so skip the up-to-date check entirely.
+if git remote get-url origin >/dev/null 2>&1; then
+    git fetch origin --quiet || die "Could not fetch origin - check your network/credentials"
+
+    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+    [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH="main"
+
+    # Check against the current branch's own upstream (if it has one) *and*
+    # against the remote's default branch, so a feature branch that's fully
+    # merged with its own upstream but stale against main still gets caught.
+    OWN_UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+
+    if [ -n "$OWN_UPSTREAM" ]; then
+        BEHIND=$(git rev-list --count HEAD.."$OWN_UPSTREAM")
+        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind $OWN_UPSTREAM - pull/rebase first"
+    fi
+
+    if git rev-parse --verify --quiet "origin/$DEFAULT_BRANCH" >/dev/null && [ "$OWN_UPSTREAM" != "origin/$DEFAULT_BRANCH" ]; then
+        BEHIND=$(git rev-list --count HEAD.."origin/$DEFAULT_BRANCH")
+        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind origin/$DEFAULT_BRANCH - pull/rebase first"
+    fi
+fi
+
 GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null)
 REPO_HOOKS_DIR=""
 [ -n "$GIT_DIR" ] && REPO_HOOKS_DIR="$GIT_DIR/hooks"
