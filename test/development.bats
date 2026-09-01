@@ -81,6 +81,94 @@ EOF
     [[ "${output}" == *"pre-commit hook failed"* ]]
 }
 
+# Creates a bare "origin.git" plus a working repo remote-added and pushed to
+# it, with a commit already made and identity configured. Returns via globals
+# ORIGIN and REPO (both under BATS_TEST_TMPDIR).
+setup_origin_and_repo() {
+    ORIGIN="${BATS_TEST_TMPDIR}/origin.git"
+    REPO="${BATS_TEST_TMPDIR}/repo"
+    git init --quiet --bare "${ORIGIN}"
+    git init --quiet "${REPO}"
+    git -C "${REPO}" config user.email "test@example.com"
+    git -C "${REPO}" config user.name "Test"
+    git -C "${REPO}" commit --quiet --allow-empty -m "initial"
+    git -C "${REPO}" remote add origin "${ORIGIN}"
+    git -C "${REPO}" push --quiet -u origin HEAD:main
+    git -C "${ORIGIN}" symbolic-ref HEAD refs/heads/main
+}
+
+add_passing_hook() {
+    cat > "$1/.git/hooks/pre-commit" <<'EOF'
+#!/bin/sh
+echo "ran with: $*"
+exit 0
+EOF
+    chmod +x "$1/.git/hooks/pre-commit"
+}
+
+# Pushes an extra commit to origin's main branch via a throwaway clone, so
+# REPO (which doesn't fetch it) becomes behind.
+advance_origin_main() {
+    ADVANCER="${BATS_TEST_TMPDIR}/advancer"
+    git clone --quiet "${ORIGIN}" "${ADVANCER}"
+    git -C "${ADVANCER}" config user.email "test@example.com"
+    git -C "${ADVANCER}" config user.name "Test"
+    git -C "${ADVANCER}" commit --quiet --allow-empty -m "advance"
+    git -C "${ADVANCER}" push --quiet origin HEAD:main
+}
+
+@test "pre-commit-check passes when branch is up to date with its upstream" {
+    setup_origin_and_repo
+    add_passing_hook "${REPO}"
+    cd "${REPO}"
+    run "${PRE_COMMIT_CHECK}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Pre-commit checks passed"* ]]
+}
+
+@test "pre-commit-check dies when branch is behind its own upstream" {
+    setup_origin_and_repo
+    add_passing_hook "${REPO}"
+    advance_origin_main
+    cd "${REPO}"
+    run "${PRE_COMMIT_CHECK}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"behind origin/main"* ]]
+}
+
+@test "pre-commit-check checks against the default branch when current branch has no upstream" {
+    setup_origin_and_repo
+    git -C "${REPO}" checkout --quiet -b feature --no-track origin/main
+    add_passing_hook "${REPO}"
+    advance_origin_main
+    cd "${REPO}"
+    run "${PRE_COMMIT_CHECK}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"behind origin/main"* ]]
+}
+
+@test "pre-commit-check dies when up to date with its own upstream but behind the default branch" {
+    setup_origin_and_repo
+    git -C "${REPO}" checkout --quiet -b feature
+    git -C "${REPO}" push --quiet -u origin feature
+    add_passing_hook "${REPO}"
+    advance_origin_main
+    cd "${REPO}"
+    run "${PRE_COMMIT_CHECK}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"behind origin/main"* ]]
+}
+
+@test "pre-commit-check dies when origin cannot be fetched" {
+    setup_origin_and_repo
+    add_passing_hook "${REPO}"
+    git -C "${REPO}" remote set-url origin "${BATS_TEST_TMPDIR}/does-not-exist.git"
+    cd "${REPO}"
+    run "${PRE_COMMIT_CHECK}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not fetch origin"* ]]
+}
+
 @test "pre-commit-check falls back to the globally configured hooksPath" {
     mkdir -p "${BATS_TEST_TMPDIR}/global-hooks"
     cat > "${BATS_TEST_TMPDIR}/global-hooks/pre-commit" <<'EOF'
