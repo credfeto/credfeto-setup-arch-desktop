@@ -1,17 +1,10 @@
 #! /bin/sh
 
-die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    exit 1
-}
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
-success() {
-    printf '\n\033[32m✓\033[0m %s\n' "$*"
-}
-
-info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
-}
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
 
 local_packages=$(dotnet tool list --local | tail -n +3 | cut -f 1 -d " " | sort)
 

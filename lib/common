@@ -1,16 +1,32 @@
 # shellcheck shell=sh
 
+_emit() {
+    symbol="$1"
+    color="$2"
+    fd="$3"
+    shift 3
+    if [ -t "$fd" ]; then
+        printf '\n\033[%sm%s\033[0m %s\n' "$color" "$symbol" "$*" >&"$fd"
+    else
+        printf '\n%s %s\n' "$symbol" "$*" >&"$fd"
+    fi
+}
+
 die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    _emit '✗' 31 2 "$@"
     exit 1
 }
 
 success() {
-    printf '\n\033[32m✓\033[0m %s\n' "$*"
+    _emit '✓' 32 1 "$@"
+}
+
+warn() {
+    _emit '⚠' 33 2 "$@"
 }
 
 info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
+    _emit '→' 32 1 "$@"
 }
 
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on

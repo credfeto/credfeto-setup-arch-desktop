@@ -1,19 +1,16 @@
 #! /bin/sh
 # Sourced from https://github.com/credfeto/scripts/blob/main/development/buildtest
 
-die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    exit 1
-}
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
 
 cleanup() {
     [ "$RESTORE" = "1" ] && git checkout "$RULESET_FILE"
 }
 trap cleanup EXIT
-
-info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
-}
 
 # Returns true (0) when running inside a Claude Code Bash-tool session.
 # Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
@@ -60,11 +57,9 @@ SOLUTION=$(find "$PWD" -type f -iname "*.sln" | head -1)
 SOURCE_DIR=$(dirname "$SOLUTION")
 [ -z "$SOURCE_DIR" ] && die "No Solution dir found in $SOURCE_DIR"
 
-# Resolved before the cd below so a relative $0 is not re-resolved against the
-# wrong working directory.
-BENCH_AFFECTED_SCRIPT="$(dirname "$(readlink -f "$0")")/benchmark-test-affected"
-LATEST_FRAMEWORK_SCRIPT="$(dirname "$(readlink -f "$0")")/latest-target-framework"
-DACPAC_ONLY_SCRIPT="$(dirname "$(readlink -f "$0")")/dacpac-only-solution"
+BENCH_AFFECTED_SCRIPT="$SCRIPTDIR/benchmark-test-affected"
+LATEST_FRAMEWORK_SCRIPT="$SCRIPTDIR/latest-target-framework"
+DACPAC_ONLY_SCRIPT="$SCRIPTDIR/dacpac-only-solution"
 
 PACK=0
 HAS_PACKED=$(grep -R "<IsPackable>true</IsPackable>" . --include "*.csproj" | head -1)

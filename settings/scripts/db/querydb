@@ -7,18 +7,18 @@ TESTDB_LOG="$TMPBASE/testdb-last.log"
 # The outer invocation sets TESTDB_LOGGING=1 to prevent infinite recursion.
 if [ -z "$TESTDB_LOGGING" ]; then
   TESTDB_LOGGING=1 "$0" "$@" 2>&1 | tee "$TESTDB_LOG"
-  exit "${PIPESTATUS[0]:-$?}"
+  status="${PIPESTATUS[0]:-$?}"
+  # Reported here, not via lib/common's die(), since only this outer
+  # invocation (not the re-exec'd inner one) knows the log capture succeeded.
+  [ "$status" -ne 0 ] && printf '(full log: %s)\n' "$TESTDB_LOG" >&2
+  exit "$status"
 fi
 
-die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    printf '(full log: %s)\n' "$TESTDB_LOG" >&2
-    exit 1
-}
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
-info() {
-    printf '\n\033[32m→\033[0m %s\n' "$*"
-}
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
 
 SERVER=
 DB=

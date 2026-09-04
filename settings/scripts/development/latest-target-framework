@@ -7,10 +7,11 @@
 #
 # Usage: latest-target-framework <csproj-file>
 
-die() {
-    printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
-    exit 1
-}
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
 
 CSPROJ="$1"
 [ -n "$CSPROJ" ] || die "usage: latest-target-framework <csproj-file>"
