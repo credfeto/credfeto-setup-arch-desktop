@@ -19,14 +19,19 @@ configure_network() {
     info "Configuring network manager DNS"
     sudo cp "$BASEDIR/settings/networkmanager/dns.conf" /etc/NetworkManager/conf.d/dns.conf
 
-    info "Installing dnsmasq"
-    sudo pacman -S --needed --noconfirm dnsmasq
+    info "Enabling systemd-resolved"
+    sudo systemctl enable --now systemd-resolved
+    sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-    info "Configuring dnsmasq"
-    sudo cp "$BASEDIR/settings/dnsmasq/00-caching.conf" /etc/NetworkManager/dnsmasq.d/00-caching.conf
-    sudo cp "$BASEDIR/settings/dnsmasq/01-async-logs.conf" /etc/NetworkManager/dnsmasq.d/01-async-logs.conf
-    sudo cp "$BASEDIR/settings/dnsmasq/02-netflix.conf" /etc/NetworkManager/dnsmasq.d/02-netflix.conf
-    sudo cp "$BASEDIR/settings/dnsmasq/03-allow-doh.conf" /etc/NetworkManager/dnsmasq.d/03-allow-doh.conf
+    info "Removing dnsmasq"
+    if systemctl is-enabled dnsmasq >/dev/null 2>&1; then
+        sudo systemctl disable --now dnsmasq
+    fi
+    sudo rm -f /etc/NetworkManager/dnsmasq.d/00-caching.conf
+    sudo rm -f /etc/NetworkManager/dnsmasq.d/01-async-logs.conf
+    sudo rm -f /etc/NetworkManager/dnsmasq.d/02-netflix.conf
+    sudo rm -f /etc/NetworkManager/dnsmasq.d/03-allow-doh.conf
+    pacman -Qq dnsmasq 2>/dev/null && sudo pacman -Rns --noconfirm dnsmasq
 
     info "Installing Network Manager hook"
     sudo cp "$BASEDIR/hooks/networkmanager/10-update-timesyncd" /etc/NetworkManager/dispatcher.d/10-update-timesyncd

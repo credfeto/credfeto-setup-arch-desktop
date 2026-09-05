@@ -31,6 +31,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
 - Deduplicated die/success/info/warn helper scripts across settings/scripts/* by sourcing the shared lib/common (now with a TTY-guarded warn added), instead of each script hand-rolling its own copy
+- NetworkManager now uses systemd-resolved instead of dnsmasq for DNS resolution; the previous dnsmasq drop-ins, service, and package are removed on next install run if present
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
