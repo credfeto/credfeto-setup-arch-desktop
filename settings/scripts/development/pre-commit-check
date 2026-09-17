@@ -1,10 +1,35 @@
 #! /bin/sh
 
-SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
-BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+# Standalone by design: no lib/ dependency, no assumption about where this
+# script itself lives on disk. It used to source a lib/common shared by
+# credfeto-setup-arch-desktop's own install.d/* scripts (DOCKER_INSTALLED and
+# other desktop-installer flags this script never used), copied in by mistake
+# and never actually deployed anywhere alongside it - die/info/success are
+# inlined here instead.
+die() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+    exit 1
+}
 
-# shellcheck source=../../../lib/common disable=SC1091
-. "$BASEDIR/lib/common"
+success() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+info() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
+}
 
 # Same check at every level: does <hooks-folder>/pre-commit exist and is it
 # executable? Tried in order: repo's own hooks folder, system, global.
