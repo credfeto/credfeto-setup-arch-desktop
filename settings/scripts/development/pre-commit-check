@@ -37,6 +37,12 @@ hook_in() {
     [ -n "$1" ] && [ -x "$1/pre-commit" ] && printf '%s/pre-commit\n' "$1"
 }
 
+die_if_behind() {
+    ref=$1
+    behind=$2
+    [ "$behind" -gt 0 ] && die "Local branch is $behind commit(s) behind $ref - pull/rebase first"
+}
+
 # No origin remote at all (e.g. a scratch local-only repo) - nothing to
 # compare against, so skip the up-to-date check entirely.
 if git remote get-url origin >/dev/null 2>&1; then
@@ -58,16 +64,14 @@ if git remote get-url origin >/dev/null 2>&1; then
     if [ -n "$OWN_UPSTREAM" ]; then
         # shellcheck disable=SC2046 # intentional word split of "N M" into $1 $2
         set -- $(git rev-list --left-right --count "$OWN_UPSTREAM"...HEAD)
-        BEHIND=$1
-        AHEAD=$2
-        if [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -eq 0 ]; then
-            die "Local branch is $BEHIND commit(s) behind $OWN_UPSTREAM - pull/rebase first"
-        fi
+        OWN_BEHIND=$1
+        OWN_AHEAD=$2
+        [ "$OWN_AHEAD" -eq 0 ] && die_if_behind "$OWN_UPSTREAM" "$OWN_BEHIND"
     fi
 
     if git rev-parse --verify --quiet "origin/$DEFAULT_BRANCH" >/dev/null && [ "$OWN_UPSTREAM" != "origin/$DEFAULT_BRANCH" ]; then
-        BEHIND=$(git rev-list --count HEAD.."origin/$DEFAULT_BRANCH")
-        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind origin/$DEFAULT_BRANCH - pull/rebase first"
+        DEFAULT_BEHIND=$(git rev-list --count HEAD.."origin/$DEFAULT_BRANCH")
+        die_if_behind "origin/$DEFAULT_BRANCH" "$DEFAULT_BEHIND"
     fi
 fi
 
