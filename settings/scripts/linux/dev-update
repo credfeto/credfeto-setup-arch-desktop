@@ -6,6 +6,12 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+wait_for_network() {
+    while ! nm-online -q -t 30; do
+        info "Waiting for network..."
+    done
+}
+
 update_repo() {
     REPO_PATH="$1"
 
@@ -17,6 +23,8 @@ update_repo() {
     info "Pulling ${REPO_PATH}..."
     git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
 }
+
+wait_for_network
 
 update_repo "${HOME}/work/personal/credfeto-setup-arch-desktop"
 update_repo "${HOME}/work/personal/credfeto-global-pre-commit"
@@ -41,5 +49,7 @@ fi
 
 info "Installing claude hooks"
 "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
+
+update-dotnet-tools
 
 success "Dev environment updated"
