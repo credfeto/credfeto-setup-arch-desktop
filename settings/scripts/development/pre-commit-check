@@ -50,9 +50,18 @@ if git remote get-url origin >/dev/null 2>&1; then
     # merged with its own upstream but stale against main still gets caught.
     OWN_UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
 
+    # Left/right counts rather than a single HEAD..upstream count: after a
+    # local rebase every commit gets a new SHA, so HEAD and its unpushed
+    # upstream ref diverge (both ahead and behind) even though there's no
+    # missing work. Only a pure behind (nothing ahead) means the branch
+    # itself is stale and needs pulling/rebasing.
     if [ -n "$OWN_UPSTREAM" ]; then
-        BEHIND=$(git rev-list --count HEAD.."$OWN_UPSTREAM")
-        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind $OWN_UPSTREAM - pull/rebase first"
+        read -r BEHIND AHEAD <<EOF
+$(git rev-list --left-right --count "$OWN_UPSTREAM"...HEAD)
+EOF
+        if [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -eq 0 ]; then
+            die "Local branch is $BEHIND commit(s) behind $OWN_UPSTREAM - pull/rebase first"
+        fi
     fi
 
     if git rev-parse --verify --quiet "origin/$DEFAULT_BRANCH" >/dev/null && [ "$OWN_UPSTREAM" != "origin/$DEFAULT_BRANCH" ]; then
