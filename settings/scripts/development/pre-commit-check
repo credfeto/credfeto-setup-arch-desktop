@@ -1,15 +1,46 @@
 #! /bin/sh
 
-SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
-BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+# Standalone by design: no lib/ dependency, no assumption about where this
+# script itself lives on disk. It used to source a lib/common shared by
+# credfeto-setup-arch-desktop's own install.d/* scripts (DOCKER_INSTALLED and
+# other desktop-installer flags this script never used), copied in by mistake
+# and never actually deployed anywhere alongside it - die/info/success are
+# inlined here instead.
+_emit() {
+    fd=$1
+    color=$2
+    symbol=$3
+    shift 3
+    if [ -t "$fd" ]; then
+        printf '\n\033[%sm%s\033[0m %s\n' "$color" "$symbol" "$*"
+    else
+        printf '\n%s %s\n' "$symbol" "$*"
+    fi
+}
 
-# shellcheck source=../../../lib/common disable=SC1091
-. "$BASEDIR/lib/common"
+die() {
+    _emit 2 31 '✗' "$*" >&2
+    exit 1
+}
+
+success() {
+    _emit 1 32 '✓' "$*"
+}
+
+info() {
+    _emit 1 32 '→' "$*"
+}
 
 # Same check at every level: does <hooks-folder>/pre-commit exist and is it
 # executable? Tried in order: repo's own hooks folder, system, global.
 hook_in() {
     [ -n "$1" ] && [ -x "$1/pre-commit" ] && printf '%s/pre-commit\n' "$1"
+}
+
+die_if_behind() {
+    ref=$1
+    behind=$2
+    [ "$behind" -gt 0 ] && die "Local branch is $behind commit(s) behind $ref - pull/rebase first"
 }
 
 # No origin remote at all (e.g. a scratch local-only repo) - nothing to
@@ -25,14 +56,22 @@ if git remote get-url origin >/dev/null 2>&1; then
     # merged with its own upstream but stale against main still gets caught.
     OWN_UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
 
+    # Left/right counts rather than a single HEAD..upstream count: after a
+    # local rebase every commit gets a new SHA, so HEAD and its unpushed
+    # upstream ref diverge (both ahead and behind) even though there's no
+    # missing work. Only a pure behind (nothing ahead) means the branch
+    # itself is stale and needs pulling/rebasing.
     if [ -n "$OWN_UPSTREAM" ]; then
-        BEHIND=$(git rev-list --count HEAD.."$OWN_UPSTREAM")
-        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind $OWN_UPSTREAM - pull/rebase first"
+        # shellcheck disable=SC2046 # intentional word split of "N M" into $1 $2
+        set -- $(git rev-list --left-right --count "$OWN_UPSTREAM"...HEAD)
+        OWN_BEHIND=$1
+        OWN_AHEAD=$2
+        [ "$OWN_AHEAD" -eq 0 ] && die_if_behind "$OWN_UPSTREAM" "$OWN_BEHIND"
     fi
 
     if git rev-parse --verify --quiet "origin/$DEFAULT_BRANCH" >/dev/null && [ "$OWN_UPSTREAM" != "origin/$DEFAULT_BRANCH" ]; then
-        BEHIND=$(git rev-list --count HEAD.."origin/$DEFAULT_BRANCH")
-        [ "$BEHIND" -gt 0 ] && die "Local branch is $BEHIND commit(s) behind origin/$DEFAULT_BRANCH - pull/rebase first"
+        DEFAULT_BEHIND=$(git rev-list --count HEAD.."origin/$DEFAULT_BRANCH")
+        die_if_behind "origin/$DEFAULT_BRANCH" "$DEFAULT_BEHIND"
     fi
 fi
 
