@@ -24,6 +24,8 @@ install_shell_environment() {
     sudo install -m 0644 "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/bash.bashrc.d/25_xdg-tool-paths.sh
     sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/profile.d/30_ssh-agent.sh
     sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/bash.bashrc.d/30_ssh-agent.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/profile.d/35_dotnet-preview.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/bash.bashrc.d/35_dotnet-preview.sh
 
     info "Installing interactive-bash-only config"
     sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/00_shell-options.sh" /etc/bash.bashrc.d/00_shell-options.sh
