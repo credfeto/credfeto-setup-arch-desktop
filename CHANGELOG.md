@@ -38,6 +38,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
+- Removed dead ~/work/personal/scripts/* PATH entries from the shell environment config; that directory was never populated and the repo's own dev-scripts are already installed onto PATH via /usr/local/bin
 ### Deployment Changes
 
 <!--
