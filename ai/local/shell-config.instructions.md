@@ -25,7 +25,7 @@ Do **not** put aliases/functions/env vars needed by ordinary desktop terminals i
 
 1. Decide the tier: does anything outside interactive bash need it? If yes → `settings/shell-env/`; otherwise → `settings/bash.bashrc.d/`.
 2. Add the file with the next free number in the right range, `# shellcheck shell=sh` or `# shellcheck shell=bash` as appropriate.
-3. Add its `sudo cp` line(s) to `install.d/shell-environment` (explicit per-file, matching the repo's established `settings/*` deployment convention - not a directory glob).
+3. Add its `sudo install -m 0644` line(s) to `install.d/shell-environment` (explicit per-file, matching the repo's established `settings/*` deployment convention - not a directory glob). **Never `sudo cp`**: when the destination does not already exist, `cp` gives it the *source* file's mode, so the file lands with whatever mode the working tree was checked out as (`0640` under a `027` umask) and no ordinary user can source it; when the destination does exist, `cp` silently keeps the destination's mode instead, so the result also depends on what was there before. `install -m` sets the mode explicitly in both cases. `test/shell-environment.bats` enforces this, and also fails if a new section file is added without a deployment line.
 4. If porting from the source `.bashrc`: fix real bugs found along the way (e.g. a `mkdir` targeting the wrong path, an unguarded var that can resolve to empty) rather than porting them faithfully, but call out the fix rather than silently changing behaviour beyond what was asked.
 
 ## Known Accepted Policy Conflict
