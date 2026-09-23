@@ -1,0 +1,40 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+# tmux forbids '.' and ':' in a session name, so the directory's basename is
+# reduced to a safe character set. The checksum of the full path is appended
+# so two same-named directories in different places never share a session,
+# and one directory always maps to the same session.
+session_name_for() {
+    DIR_BASENAME=$(printf '%s' "$(basename "$1")" | tr -c 'A-Za-z0-9_-' '_')
+    DIR_CHECKSUM=$(printf '%s' "$1" | cksum | cut -d ' ' -f 1)
+
+    printf '%s-%s' "$DIR_BASENAME" "$DIR_CHECKSUM"
+}
+
+tmux_here() {
+    command -v tmux >/dev/null 2>&1 || die "tmux is not installed"
+
+    DIR=$(pwd -P)
+    SESSION=$(session_name_for "$DIR")
+
+    # The leading '=' makes the target an exact match rather than a prefix.
+    if ! tmux has-session -t "=$SESSION" 2>/dev/null; then
+        info "Creating tmux session $SESSION in $DIR"
+        tmux new-session -d -s "$SESSION" -c "$DIR" || die "Failed to create tmux session $SESSION"
+    fi
+
+    # Inside tmux already: attaching would nest a client, so move this one.
+    if [ -n "${TMUX:-}" ]; then
+        tmux switch-client -t "=$SESSION"
+    else
+        tmux attach-session -t "=$SESSION"
+    fi
+}
+
+tmux_here

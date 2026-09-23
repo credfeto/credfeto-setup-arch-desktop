@@ -178,3 +178,69 @@ EOF
     [[ "${output}" == *"streamlink found, starting stream"* ]]
     assert_fake_called '^stream paults_aquaescape$'
 }
+
+# -- tmux-here ----------------------------------------------------------------
+
+# A fake tmux that logs every call and reports has-session as failing (no
+# session) unless the marker file $BATS_TEST_TMPDIR/session-exists is present.
+setup_fake_tmux() {
+    setup_fake_bin tmux
+    # FAKE_EXIT_tmux applies to every subcommand, so the stock fake is
+    # replaced with one that fails only has-session.
+    cat > "${FAKE_BIN_DIR}/tmux" <<EOF
+#!/bin/sh
+printf 'tmux %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; then
+    exit 1
+fi
+exit 0
+EOF
+    unset TMUX
+}
+
+@test "tmux-here creates a session in the current directory then attaches when none exists" {
+    setup_fake_tmux
+    mkdir -p "${BATS_TEST_TMPDIR}/my.project"
+    cd "${BATS_TEST_TMPDIR}/my.project"
+
+    run "${LINUX_DIR}/tmux-here"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^tmux new-session -d -s my_project-[0-9]+ -c .*/my\.project$'
+    assert_fake_called '^tmux attach-session -t =my_project-[0-9]+$'
+}
+
+@test "tmux-here only attaches when the session already exists" {
+    setup_fake_tmux
+    touch "${BATS_TEST_TMPDIR}/session-exists"
+    mkdir -p "${BATS_TEST_TMPDIR}/proj"
+    cd "${BATS_TEST_TMPDIR}/proj"
+
+    run "${LINUX_DIR}/tmux-here"
+    [ "${status}" -eq 0 ]
+    refute_fake_called 'new-session'
+    assert_fake_called '^tmux attach-session -t =proj-[0-9]+$'
+}
+
+@test "tmux-here switches client instead of attaching when already inside tmux" {
+    setup_fake_tmux
+    touch "${BATS_TEST_TMPDIR}/session-exists"
+    mkdir -p "${BATS_TEST_TMPDIR}/proj"
+    cd "${BATS_TEST_TMPDIR}/proj"
+
+    TMUX=/tmp/fake,1,0 run "${LINUX_DIR}/tmux-here"
+    [ "${status}" -eq 0 ]
+    refute_fake_called 'attach-session'
+    assert_fake_called '^tmux switch-client -t =proj-[0-9]+$'
+}
+
+@test "tmux-here gives same-named directories in different places different sessions" {
+    setup_fake_tmux
+    mkdir -p "${BATS_TEST_TMPDIR}/a/proj" "${BATS_TEST_TMPDIR}/b/proj"
+
+    cd "${BATS_TEST_TMPDIR}/a/proj"
+    run "${LINUX_DIR}/tmux-here"
+    cd "${BATS_TEST_TMPDIR}/b/proj"
+    run "${LINUX_DIR}/tmux-here"
+
+    [ "$(grep '^tmux attach-session' "${FAKE_BIN_LOG}" | sort -u | wc -l)" -eq 2 ]
+}
