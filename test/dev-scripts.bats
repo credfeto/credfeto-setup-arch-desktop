@@ -116,13 +116,11 @@ EOF
     run git config --global commit.gpgsign
     [ "${output}" = "true" ]
 
-    run git config --global tag.gpgSign
-    [ "${output}" = "true" ]
-
     run git config --global pull.rebase
     [ "${output}" = "true" ]
 
     local -A _expected=(
+        [tag.gpgSign]="true"
         [init.defaultBranch]="main"
         [rebase.updateRefs]="true"
         [rerere.enabled]="true"
@@ -141,7 +139,9 @@ EOF
     local _key
     for _key in "${!_expected[@]}"; do
         run git config --global "${_key}"
-        [ "${output}" = "${_expected[${_key}]}" ]
+        # Name the key on failure: the associative array's iteration order
+        # is arbitrary, so the bare assertion alone would not say which key.
+        [ "${output}" = "${_expected[${_key}]}" ] || { echo "${_key}: expected '${_expected[${_key}]}', got '${output}'" >&2; return 1; }
     done
 
     run git config --global url."git@github.com:".insteadOf
