@@ -29,6 +29,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Fix Starship prompt colours being silently disabled by the bash.bashrc.d PROMPT_COMMAND overwrite
 - pre-commit-check now fails fast when the current branch is behind its own upstream or the remote default branch, instead of running checks against stale code
 - pre-commit-check no longer blocks commits as behind immediately after a local rebase that has not yet been pushed
+- dev-update now waits for network via systemd-networkd (using systemd-networkd-wait-online) as well as NetworkManager (using nm-online), so it works on hosts that don't run NetworkManager
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently

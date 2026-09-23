@@ -7,9 +7,17 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 . "$BASEDIR/lib/common"
 
 wait_for_network() {
-    while ! nm-online -q -t 30; do
-        info "Waiting for network..."
-    done
+    if systemctl is-active --quiet NetworkManager.service; then
+        while ! nm-online -q -t 30; do
+            info "Waiting for network..."
+        done
+    elif systemctl is-active --quiet systemd-networkd.service; then
+        while ! /usr/lib/systemd/systemd-networkd-wait-online -q --timeout=30; do
+            info "Waiting for network..."
+        done
+    else
+        die "Neither NetworkManager nor systemd-networkd is active"
+    fi
 }
 
 update_repo() {
