@@ -116,8 +116,33 @@ EOF
     run git config --global commit.gpgsign
     [ "${output}" = "true" ]
 
+    run git config --global tag.gpgSign
+    [ "${output}" = "true" ]
+
     run git config --global pull.rebase
     [ "${output}" = "true" ]
+
+    local -A _expected=(
+        [init.defaultBranch]="main"
+        [rebase.updateRefs]="true"
+        [rerere.enabled]="true"
+        [merge.conflictStyle]="zdiff3"
+        [fetch.parallel]="16"
+        [fetch.writeCommitGraph]="true"
+        [submodule.recurse]="true"
+        [push.followTags]="true"
+        [transfer.fsckObjects]="true"
+        [feature.manyFiles]="true"
+        [diff.algorithm]="histogram"
+        [diff.colorMoved]="default"
+        [branch.sort]="-committerdate"
+        [tag.sort]="version:refname"
+    )
+    local _key
+    for _key in "${!_expected[@]}"; do
+        run git config --global "${_key}"
+        [ "${output}" = "${_expected[${_key}]}" ]
+    done
 
     run git config --global url."git@github.com:".insteadOf
     [ "${output}" = "https://github.com/" ]
@@ -139,5 +164,8 @@ EOF
     [[ "${output}" == *"No GPG key found"* ]]
 
     run git config --global commit.gpgsign
+    [ "${status}" -ne 0 ]
+
+    run git config --global tag.gpgSign
     [ "${status}" -ne 0 ]
 }
