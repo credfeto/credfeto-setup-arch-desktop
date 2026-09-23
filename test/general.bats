@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # Acceptance tests for settings/scripts/general/.
 
+bats_require_minimum_version 1.5.0
+
 load test_helper
 
 GENERAL_DIR="${SCRIPTS_DIR}/general"
@@ -170,4 +172,73 @@ EOF
     assert_fake_called '^dotnet tool uninstall --global globaltool'
     assert_fake_called '^dotnet tool install --local globaltool'
     assert_fake_called '^dotnet tool update --local localtool'
+}
+
+# ── install-latest-dotnet ────────────────────────────────────────────────────
+# Static assertions over the script rather than an end-to-end run: it installs
+# to the hard-coded /usr/share/dotnet and opens by deleting it, so running it
+# here would destroy the host's dotnet install - the same reasoning as
+# shell-environment.bats.
+
+INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
+
+# Line number of the first line matching the given grep -E pattern, so a test
+# can assert ordering rather than mere presence.
+first_line_matching() {
+    grep -nE -e "$1" "${INSTALL_LATEST_DOTNET}" | head -1 | cut -d: -f1
+}
+
+@test "install-latest-dotnet sets a umask that leaves the install world-readable" {
+    # tar applies the caller's umask for a non-root user, and cp masks the
+    # source mode again on the way out, so under the 027 umask this repo is
+    # checked out with the whole SDK landed 0750/0640 root:root and
+    # /usr/share/dotnet/dotnet was unrunnable by any ordinary user.
+    grep -qE '^umask 022$' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet sets the umask before it touches the filesystem" {
+    # Presence alone is not enough: a umask set after the install directory is
+    # created no longer governs anything that matters. sudo mkdir is the first
+    # thing the script does to the filesystem, and everything that extracts or
+    # copies happens after it.
+    umask_line="$(first_line_matching '^umask ')"
+    mkdir_line="$(first_line_matching '^sudo mkdir ')"
+
+    [ -n "${umask_line}" ]
+    [ -n "${mkdir_line}" ]
+    [ "${umask_line}" -lt "${mkdir_line}" ]
+}
+
+@test "install-latest-dotnet makes the installed tree readable and traversable by everyone" {
+    # Belt to the umask's braces: this one also covers an archive member the
+    # SDK ships with a restrictive mode of its own.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
+    grep -qE 'sudo chmod -R a\+rX "\$out_path"' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet verifies the install unprivileged" {
+    # Under sudo this would only prove root can run dotnet, hiding the exact
+    # fault it is there to catch.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
+    grep -qE '^[[:space:]]*"\$DOTNET" --list-sdks' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet never invokes a bare dotnet from PATH" {
+    # 60_dotnet.sh only adds /usr/share/dotnet to PATH when the directory
+    # already exists, evaluated when the shell started - so on a first install
+    # a bare `dotnet` is not on PATH at all.
+    run ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet ensures a tool manifest before any --local call" {
+    # dotnet tool update/install/restore --local all need a manifest in the
+    # current directory or an ancestor; there is none by default.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
+    manifest_line="$(first_line_matching '\[ -f "\$DOTNET_TOOL_MANIFEST" \]')"
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
+    local_line="$(first_line_matching '"\$DOTNET" tool [a-z]+ --local')"
+
+    [ -n "${manifest_line}" ]
+    [ -n "${local_line}" ]
+    [ "${manifest_line}" -lt "${local_line}" ]
 }

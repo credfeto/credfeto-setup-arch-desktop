@@ -16,34 +16,36 @@ install_shell_environment() {
     # Shared: deployed to both /etc/profile.d (login shells, GUI sessions,
     # systemd units) and /etc/bash.bashrc.d (every interactive bash shell) so
     # tools that aren't interactive-bash-only still see them.
-    sudo cp "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/profile.d/20_xdg-dirs.sh
-    sudo cp "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/bash.bashrc.d/20_xdg-dirs.sh
-    sudo cp "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/profile.d/21_tmp-dirs.sh
-    sudo cp "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/bash.bashrc.d/21_tmp-dirs.sh
-    sudo cp "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/profile.d/25_xdg-tool-paths.sh
-    sudo cp "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/bash.bashrc.d/25_xdg-tool-paths.sh
-    sudo cp "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/profile.d/30_ssh-agent.sh
-    sudo cp "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/bash.bashrc.d/30_ssh-agent.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/profile.d/20_xdg-dirs.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/bash.bashrc.d/20_xdg-dirs.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/profile.d/21_tmp-dirs.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/bash.bashrc.d/21_tmp-dirs.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/profile.d/25_xdg-tool-paths.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/bash.bashrc.d/25_xdg-tool-paths.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/profile.d/30_ssh-agent.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/bash.bashrc.d/30_ssh-agent.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/profile.d/35_dotnet-preview.sh
+    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/bash.bashrc.d/35_dotnet-preview.sh
 
     info "Installing interactive-bash-only config"
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/00_shell-options.sh" /etc/bash.bashrc.d/00_shell-options.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/05_ls-grep-colors.sh" /etc/bash.bashrc.d/05_ls-grep-colors.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/06_less-colors.sh" /etc/bash.bashrc.d/06_less-colors.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/10_aliases.sh" /etc/bash.bashrc.d/10_aliases.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/12_safe-aliases.sh" /etc/bash.bashrc.d/12_safe-aliases.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/14_cd-aliases.sh" /etc/bash.bashrc.d/14_cd-aliases.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/40_bash-completion.sh" /etc/bash.bashrc.d/40_bash-completion.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/50_paths.sh" /etc/bash.bashrc.d/50_paths.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/55_go.sh" /etc/bash.bashrc.d/55_go.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh" /etc/bash.bashrc.d/60_dotnet.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/70_nvm.sh" /etc/bash.bashrc.d/70_nvm.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/75_bun.sh" /etc/bash.bashrc.d/75_bun.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/77_autojump.sh" /etc/bash.bashrc.d/77_autojump.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/78_socket-cli.sh" /etc/bash.bashrc.d/78_socket-cli.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/80_docker.sh" /etc/bash.bashrc.d/80_docker.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/85_pacman.sh" /etc/bash.bashrc.d/85_pacman.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/90_shutdown.sh" /etc/bash.bashrc.d/90_shutdown.sh
-    sudo cp "$BASEDIR/settings/bash.bashrc.d/95_update.sh" /etc/bash.bashrc.d/95_update.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/00_shell-options.sh" /etc/bash.bashrc.d/00_shell-options.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/05_ls-grep-colors.sh" /etc/bash.bashrc.d/05_ls-grep-colors.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/06_less-colors.sh" /etc/bash.bashrc.d/06_less-colors.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/10_aliases.sh" /etc/bash.bashrc.d/10_aliases.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/12_safe-aliases.sh" /etc/bash.bashrc.d/12_safe-aliases.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/14_cd-aliases.sh" /etc/bash.bashrc.d/14_cd-aliases.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/40_bash-completion.sh" /etc/bash.bashrc.d/40_bash-completion.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/50_paths.sh" /etc/bash.bashrc.d/50_paths.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/55_go.sh" /etc/bash.bashrc.d/55_go.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh" /etc/bash.bashrc.d/60_dotnet.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/70_nvm.sh" /etc/bash.bashrc.d/70_nvm.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/75_bun.sh" /etc/bash.bashrc.d/75_bun.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/77_autojump.sh" /etc/bash.bashrc.d/77_autojump.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/78_socket-cli.sh" /etc/bash.bashrc.d/78_socket-cli.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/80_docker.sh" /etc/bash.bashrc.d/80_docker.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/85_pacman.sh" /etc/bash.bashrc.d/85_pacman.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/90_shutdown.sh" /etc/bash.bashrc.d/90_shutdown.sh
+    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/95_update.sh" /etc/bash.bashrc.d/95_update.sh
 
     if grep -qF "# BEGIN credfeto-setup-arch-desktop bash.bashrc.d" /etc/bash.bashrc 2>/dev/null; then
         info "bash.bashrc.d loader block already present in /etc/bash.bashrc, skipping"

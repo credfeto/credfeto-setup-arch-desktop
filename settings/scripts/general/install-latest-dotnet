@@ -29,6 +29,13 @@ extract_dotnet_package() {
     find "$temp_out_path" -type f | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false
     find "$temp_out_path" -type f | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files"
 
+    # Stated here rather than left to the umask set at the top of the script,
+    # so the guarantee lives with the code that creates the files, and holds
+    # even for an archive member the SDK ships with a restrictive mode of its
+    # own. +X only adds execute where some class already has it, or on a
+    # directory, so a data file cannot become executable.
+    sudo chmod -R a+rX "$out_path" || say_err "Could not make $out_path readable"
+
     rm -rf "$temp_out_path"
     rm -f "$zip_path" && say_verbose "Temporary archive file $zip_path was removed"
 
@@ -167,6 +174,18 @@ get_latest_dotnet_sdk_version() {
 
 temporary_file_template="${TMPDIR:-/tmp}/dotnet.XXXXXXXXX"
 
+DOTNET_INSTALL_DIR=/usr/share/dotnet
+DOTNET="$DOTNET_INSTALL_DIR/dotnet"
+DOTNET_TOOL_MANIFEST="$HOME/.config/dotnet-tools.json"
+
+# Both halves of the install take their modes from whatever umask this runs
+# under: as an ordinary user tar applies the umask unless given -p, and cp
+# masks the source mode a second time on the way out (sudo inherits the
+# caller's umask rather than replacing it). Under a 027 umask that installs
+# the whole SDK root-only, so the dotnet this script exists to provide cannot
+# be run by the user it is being installed for.
+umask 022
+
 USER_AGENT="DotnetVersionChecker/1.0.0"
 #PROXY_HOST=http://builds.dotnet.local:5554
 PROXY_HOST=https://dotnet.markridgwell.com
@@ -181,10 +200,10 @@ VERSIONS_TO_INSTALL="8.0 \
                      11.0"
 verbose=false
 
-[ -d "/usr/share/dotnet" ] && sudo rm -fr /usr/share/dotnet
+[ -d "$DOTNET_INSTALL_DIR" ] && sudo rm -fr "$DOTNET_INSTALL_DIR"
 
-sudo mkdir /usr/share/dotnet || die "Could not create dotnet folder"
-sudo chmod 755 /usr/share/dotnet || die "Could not set permissions for dotnet folder"
+sudo mkdir "$DOTNET_INSTALL_DIR" || die "Could not create dotnet folder"
+sudo chmod 755 "$DOTNET_INSTALL_DIR" || die "Could not set permissions for dotnet folder"
 
 # update to latest dotnet core
 for VERSION in $VERSIONS_TO_INSTALL; do
@@ -211,16 +230,27 @@ for VERSION in $VERSIONS_TO_INSTALL; do
     "$DOWNLOAD_URL" \
     -o "$TEMPORARY_FILE" || die "Could not download: $DOWNLOAD_URL"
 
-  extract_dotnet_package "$TEMPORARY_FILE" "/usr/share/dotnet" || die "Could not install"
+  extract_dotnet_package "$TEMPORARY_FILE" "$DOTNET_INSTALL_DIR" || die "Could not install"
 
-  /usr/share/dotnet/dotnet --list-sdks
+  # Deliberately unprivileged: the point of the install is a dotnet an
+  # ordinary user can run, and running this under sudo would only prove root
+  # can run it.
+  "$DOTNET" --list-sdks || die "Could not run $DOTNET - check the installed permissions"
 
 done
 
 info "Install/update powershell"
-/usr/share/dotnet/dotnet tool update --local PowerShell || dotnet tool install --local PowerShell
+
+# Every --local call needs a tool manifest in the current directory or an
+# ancestor of it. Anchored to $HOME, as install-dotnet-tools does, so the step
+# acts on the user's own manifest rather than on whichever directory the
+# script happened to be launched from.
+cd "$HOME" || die "Could not change to $HOME"
+[ -f "$DOTNET_TOOL_MANIFEST" ] || "$DOTNET" new tool-manifest || die "Could not create $DOTNET_TOOL_MANIFEST"
+
+"$DOTNET" tool update --local PowerShell || "$DOTNET" tool install --local PowerShell || die "Could not install PowerShell"
 
 info "Restoring tools"
-/usr/share/dotnet/dotnet tool restore
+"$DOTNET" tool restore || die "Could not restore dotnet tools"
 
 success "Done"
