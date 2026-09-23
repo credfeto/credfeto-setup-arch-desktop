@@ -13,6 +13,7 @@ SHELL_ENVIRONMENT="${REPO_DIR}/install.d/shell-environment"
 
 # Lists the source path of every settings file the script deploys.
 deployed_sources() {
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -oE '\$BASEDIR/settings/[^"]+' "${SHELL_ENVIRONMENT}"
 }
 
@@ -41,7 +42,9 @@ deployed_sources() {
 @test "shell-environment deploys every file world-readable" {
     # 0644, not the 0640 these files used to land as: /etc/profile.d and
     # /etc/bash.bashrc.d are sourced by every user's shell, not just root's.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     deployments="$(grep -cE '^\s*sudo install -m 0644 "\$BASEDIR/settings/' "${SHELL_ENVIRONMENT}")"
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     total="$(grep -cE '^\s*sudo install .*"\$BASEDIR/settings/' "${SHELL_ENVIRONMENT}")"
 
     [ "${deployments}" -eq "${total}" ]

@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # Acceptance tests for settings/scripts/general/.
 
+bats_require_minimum_version 1.5.0
+
 load test_helper
 
 GENERAL_DIR="${SCRIPTS_DIR}/general"
@@ -210,12 +212,14 @@ first_line_matching() {
 @test "install-latest-dotnet makes the installed tree readable and traversable by everyone" {
     # Belt to the umask's braces: this one also covers an archive member the
     # SDK ships with a restrictive mode of its own.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -qE 'sudo chmod -R a\+rX "\$out_path"' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet verifies the install unprivileged" {
     # Under sudo this would only prove root can run dotnet, hiding the exact
     # fault it is there to catch.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -qE '^[[:space:]]*"\$DOTNET" --list-sdks' "${INSTALL_LATEST_DOTNET}"
 }
 
@@ -223,13 +227,15 @@ first_line_matching() {
     # 60_dotnet.sh only adds /usr/share/dotnet to PATH when the directory
     # already exists, evaluated when the shell started - so on a first install
     # a bare `dotnet` is not on PATH at all.
-    ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
+    run ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet ensures a tool manifest before any --local call" {
     # dotnet tool update/install/restore --local all need a manifest in the
     # current directory or an ancestor; there is none by default.
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     manifest_line="$(first_line_matching '\[ -f "\$DOTNET_TOOL_MANIFEST" \]')"
+    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     local_line="$(first_line_matching '"\$DOTNET" tool [a-z]+ --local')"
 
     [ -n "${manifest_line}" ]
