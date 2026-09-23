@@ -12,7 +12,7 @@ wait_for_network() {
             info "Waiting for network..."
         done
     elif systemctl is-active --quiet systemd-networkd.service; then
-        while ! /usr/lib/systemd/systemd-networkd-wait-online -q --timeout=30; do
+        while ! /usr/lib/systemd/systemd-networkd-wait-online -q --any --timeout=30; do
             info "Waiting for network..."
         done
     else
