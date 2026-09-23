@@ -184,10 +184,9 @@ EOF
 # A fake tmux that logs every call and reports has-session as failing (no
 # session) unless the marker file $BATS_TEST_TMPDIR/session-exists is present.
 setup_fake_tmux() {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
+    setup_fake_bin tmux
+    # FAKE_EXIT_tmux applies to every subcommand, so the stock fake is
+    # replaced with one that fails only has-session.
     cat > "${FAKE_BIN_DIR}/tmux" <<EOF
 #!/bin/sh
 printf 'tmux %s\n' "\$*" >> "${FAKE_BIN_LOG}"
@@ -196,8 +195,6 @@ if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; t
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/tmux"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
     unset TMUX
 }
 
