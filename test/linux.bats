@@ -10,6 +10,12 @@ setup() {
     mkdir -p "${HOME}"
     export GIT_CONFIG_GLOBAL=/dev/null
     export GIT_CONFIG_SYSTEM=/dev/null
+    # With global/system config blanked above, git has no identity to fall
+    # back on unless the host account's GECOS full name happens to be set,
+    # which it is not on every machine - so the fixtures below need their
+    # own, independent of what the host is configured with.
+    export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+    export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 }
 
 # ── dev-update ───────────────────────────────────────────────────────────────
@@ -27,6 +33,10 @@ make_pullable_repo() {
 }
 
 @test "dev-update skips every repo that is not present, still runs install-claude-hooks via \$HOME" {
+    # dev-update's final step, update-dotnet-tools, would otherwise run real
+    # dotnet tool restores over the network.
+    setup_fake_bin dotnet
+
     # credfeto-orchestrator is itself one of the update_repo() targets, so it
     # has to be a genuinely pullable repo for this "everything else is
     # skipped" scenario to reach the unconditional install-claude-hooks step.
@@ -58,6 +68,10 @@ EOF
 }
 
 @test "dev-update runs the credfeto-ai-skills installer when that repo is present" {
+    # dev-update's final step, update-dotnet-tools, would otherwise run real
+    # dotnet tool restores over the network.
+    setup_fake_bin dotnet
+
     make_pullable_repo "${HOME}/work/personal/credfeto-orchestrator"
     printf '#!/bin/sh\nexit 0\n' > "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
     chmod +x "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
