@@ -27,11 +27,9 @@ TOOLS="sleet \
        Credfeto.DotNet.Repo.Formatter \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
-       JetBrains.ReSharper.GlobalTools \
        powershell \
        dotnet-script \
        dotnet-reportgenerator-globaltool \
-       csharpier \
        ilspycmd"
 
 for TOOL in $TOOLS; do
