@@ -45,7 +45,7 @@ CREDFETO_AI_SKILLS="${HOME}/work/personal/credfeto-ai-skills"
 if [ -d "${CREDFETO_AI_SKILLS}" ]; then
     update_repo "${CREDFETO_AI_SKILLS}"
 
-    INSTALL_SCRIPT="${CREDFETO_AI_SKILLS}/ai/skills/install"
+    INSTALL_SCRIPT="${CREDFETO_AI_SKILLS}install"
 
     [ -x "${INSTALL_SCRIPT}" ] || die "Install script not found or not executable: ${INSTALL_SCRIPT}"
 
