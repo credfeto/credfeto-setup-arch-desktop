@@ -21,8 +21,14 @@ Then run `dev-install` once, outside a Claude Code session, with the network up 
 
 - clones any missing reference repositories into `~/work/reference/` over SSH (`git@github.com:credfeto/<repo>.git`): `credfeto-setup-arch-desktop`, `credfeto-global-pre-commit`, `cs-template`, `credfeto-orchestrator`, `claude` and `credfeto-ai-skills`;
 - runs `install-dotnet-tools` from `$HOME`;
-- symlinks `units/dev-update/dev-update.service` and `dev-update.timer` from the reference clone into `~/.config/systemd/user/` and enables the timer, which starts from the next login;
+- symlinks `units/dev-update/dev-update.service` and `dev-update.timer` from the reference clone into `~/.config/systemd/user/` and enables the timer;
 - runs `dev-update`, which covers the first update until the timer starts.
+
+The timer starts when the user systemd manager next starts: a reboot, or a fresh login once no other session, lingering or leftover process (such as a tmux server) keeps the manager running. To start it at once, which also triggers a run straight away:
+
+```sh
+systemctl --user start dev-update.timer
+```
 
 Any failure stops `dev-install`.
 
