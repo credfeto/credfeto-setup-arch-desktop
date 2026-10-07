@@ -47,27 +47,36 @@ check_no_collisions() {
     fi
 }
 
-# Removes any symlink in DEV_SCRIPTS_BIN_DIR that points into this repo's
-# settings/scripts/ tree but whose target no longer exists (the script was
-# renamed or removed there since a prior install run). Leaves every other
-# symlink/file in DEV_SCRIPTS_BIN_DIR untouched.
+# Succeeds when the given symlink points into a settings/scripts/ tree of
+# this repo: this checkout's, or any other checkout of it. The links can
+# point into either the working checkout or the reference clone, whichever
+# ran dev-scripts last, so a run from one has to recognise the other's. The
+# stored target is matched as well as the resolved one, because readlink -f
+# gives nothing once the other checkout's directory is gone.
+is_dev_script_link() {
+    case "$(readlink "$1")" in
+        "$BASEDIR"/settings/scripts/* | */credfeto-setup-arch-desktop/settings/scripts/*) return 0 ;;
+    esac
+    case "$(readlink -f "$1" 2>/dev/null)" in
+        "$BASEDIR"/settings/scripts/*) return 0 ;;
+    esac
+    return 1
+}
+
+# Removes any dangling symlink in DEV_SCRIPTS_BIN_DIR that points into a
+# settings/scripts/ tree of this repo (the script was renamed or removed
+# there since a prior install run, or that checkout is gone). Leaves every
+# live symlink, and every symlink/file pointing anywhere else, untouched.
 prune_stale_symlinks() {
     [ -d "$DEV_SCRIPTS_BIN_DIR" ] || return 0
 
     for LINK in "$DEV_SCRIPTS_BIN_DIR"/*; do
         [ -L "$LINK" ] || continue
+        [ ! -e "$LINK" ] || continue
+        is_dev_script_link "$LINK" || continue
 
-        TARGET=$(readlink -f "$LINK" 2>/dev/null)
-        [ -n "$TARGET" ] || continue
-
-        case "$TARGET" in
-            "$BASEDIR"/settings/scripts/*)
-                if [ ! -e "$TARGET" ]; then
-                    info "Removing stale symlink $LINK"
-                    dev_scripts_sudo rm -f "$LINK" || die "Failed to remove stale symlink $LINK"
-                fi
-                ;;
-        esac
+        info "Removing stale symlink $LINK"
+        dev_scripts_sudo rm -f "$LINK" || die "Failed to remove stale symlink $LINK"
     done
 }
 
