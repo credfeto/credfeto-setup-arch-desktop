@@ -30,12 +30,15 @@ run_locked() {
 }
 
 # The dev-update units are symlinks into the reference clone, so a pull can
-# change them; systemd only sees that after a reload. Not fatal because a
-# manual run (e.g. over ssh) may have no user manager to reach, and the
-# changes are still picked up when the user manager next starts.
+# change them; systemd only sees that after a reload, which also re-arms an
+# already running timer with any changed settings. Starting the timer is a
+# no-op when it is already running, and arms one that was enabled but never
+# started. Neither is fatal because a manual run (e.g. over ssh) may have no
+# user manager to reach, and both happen when the user manager next starts.
 reload_user_units() {
     info "Reloading systemd user units..."
     systemctl --user daemon-reload || warn "Could not reload systemd user units; changes to the dev-update units apply when the user manager next starts"
+    systemctl --user start dev-update.timer || warn "Could not start dev-update.timer; it starts when the user manager next starts"
 }
 
 dev_update() {
