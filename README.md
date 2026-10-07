@@ -50,6 +50,8 @@ It finishes with `update-dotnet-tools`. A lock in `$XDG_RUNTIME_DIR/dev-update.l
 
 Timer runs pull the reference clones over SSH. The service sets `SSH_AUTH_SOCK` to the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
 
+Timer runs have no terminal, so the `sudo` calls in `dev-scripts`, the `cfwf` copy and `install --system` need passwordless `sudo`. Without it the timer run fails at `dev-scripts`.
+
 ```sh
 systemctl --user list-timers dev-update.timer
 journalctl --user -u dev-update.service
