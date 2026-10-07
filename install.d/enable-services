@@ -11,6 +11,7 @@ enable_services() {
     systemctl enable --now --user ssh-agent || die "Failed to enable the ssh-agent user service"
 
     info "Enabling apparmor"
+    sudo pacman -S --needed --noconfirm apparmor || die "Failed to install apparmor"
     sudo systemctl enable --now apparmor.service || die "Failed to enable apparmor.service"
     sudo aa-enforce firejail-default || die "Failed to enforce the firejail-default apparmor profile"
 
