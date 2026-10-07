@@ -29,11 +29,14 @@ setup() {
     run ! grep -q '^Persistent=' "${DEV_UPDATE_UNITS}/dev-update.timer"
 }
 
-@test "dev-update.service is skipped when offline and runs dev-update from /usr/local/bin" {
+@test "dev-update.service is skipped when offline and runs dev-update from /usr/local/bin through a login shell" {
     local _service="${DEV_UPDATE_UNITS}/dev-update.service"
     grep -qx 'Type=oneshot' "${_service}"
     grep -qx 'ExecCondition=/usr/local/bin/network-online' "${_service}"
-    grep -qx 'ExecStart=/usr/local/bin/dev-update' "${_service}"
+    # A login shell reads /etc/profile, and so /etc/profile.d, which the user
+    # manager does not.
+    grep -qx 'ExecStart=/bin/sh -lc /usr/local/bin/dev-update' "${_service}"
+    [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
 }
 
 @test "dev-update.service points SSH_AUTH_SOCK at the user ssh-agent socket" {
