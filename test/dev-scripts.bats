@@ -90,6 +90,72 @@ run_dev_scripts_against_fake_repo() {
     [ "${first_count}" -eq "${second_count}" ]
 }
 
+# Puts a fake sudo first on PATH that exits 1 when its first argument (the
+# wrapped command) is the given name, and exits 0 without doing anything
+# otherwise, then makes DEV_SCRIPTS_BIN_DIR read-only so dev-scripts routes
+# its changes through sudo. Lets a test fail exactly one dev_scripts_sudo
+# step without any real root/sudo.
+# Usage: fail_sudo_for <command-name>
+fail_sudo_for() {
+    mkdir -p "${BATS_TEST_TMPDIR}/fakesudo"
+    cat > "${BATS_TEST_TMPDIR}/fakesudo/sudo" <<EOF
+#!/bin/sh
+[ "\$1" = "$1" ] && exit 1
+exit 0
+EOF
+    chmod +x "${BATS_TEST_TMPDIR}/fakesudo/sudo"
+    export PATH="${BATS_TEST_TMPDIR}/fakesudo:${PATH}"
+    chmod 555 "${DEV_SCRIPTS_BIN_DIR}"
+}
+
+teardown() {
+    # Restored so bats can clean up a bin dir a test made read-only.
+    chmod 755 "${DEV_SCRIPTS_BIN_DIR}" 2>/dev/null || true
+}
+
+# A single executable fixture script in the fake repo, so the link step has
+# exactly one deterministic target.
+add_fake_dev_script() {
+    mkdir -p "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db"
+    printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
+    chmod +x "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
+}
+
+@test "dev-scripts fails, naming the bin dir, when creating it fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    add_fake_dev_script
+    fail_sudo_for install
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_BIN_DIR}"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts fails, naming the link, when linking a script fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    add_fake_dev_script
+    fail_sudo_for ln
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to link ${DEV_SCRIPTS_BIN_DIR}/dbtool"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts fails, naming the link, when removing a stale symlink fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    add_fake_dev_script
+    ln -s "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/no-longer-here" "${DEV_SCRIPTS_BIN_DIR}/no-longer-here"
+    fail_sudo_for rm
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to remove stale symlink ${DEV_SCRIPTS_BIN_DIR}/no-longer-here"* ]]
+    [[ "${output}" != *"Linking"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
 # ── git-environment ──────────────────────────────────────────────────────────
 
 @test "git-environment configures the expected global git identity and behaviour" {

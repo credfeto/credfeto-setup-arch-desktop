@@ -64,7 +64,7 @@ prune_stale_symlinks() {
             "$BASEDIR"/settings/scripts/*)
                 if [ ! -e "$TARGET" ]; then
                     info "Removing stale symlink $LINK"
-                    dev_scripts_sudo rm -f "$LINK"
+                    dev_scripts_sudo rm -f "$LINK" || die "Failed to remove stale symlink $LINK"
                 fi
                 ;;
         esac
@@ -78,17 +78,21 @@ install_dev_scripts() {
 
     check_no_collisions
 
-    dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR"
+    dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
 
     prune_stale_symlinks
 
-    printf '%s\n' "$DEV_SCRIPT_PATHS" | while IFS= read -r SCRIPT; do
+    # Fed from a here-doc rather than a pipe so the loop runs in this shell
+    # and a die inside it stops the whole script instead of just a subshell.
+    while IFS= read -r SCRIPT; do
         [ -n "$SCRIPT" ] || continue
 
         NAME=$(basename "$SCRIPT")
         info "Linking $NAME"
-        dev_scripts_sudo ln -sf "$SCRIPT" "$DEV_SCRIPTS_BIN_DIR/$NAME"
-    done
+        dev_scripts_sudo ln -sf "$SCRIPT" "$DEV_SCRIPTS_BIN_DIR/$NAME" || die "Failed to link $DEV_SCRIPTS_BIN_DIR/$NAME"
+    done <<EOF
+$DEV_SCRIPT_PATHS
+EOF
 
     success "Dev scripts installed"
 }
