@@ -3,6 +3,11 @@ Description=Update the reference development repositories and tools
 
 [Service]
 Type=oneshot
+# Fallback for a machine where install has not deployed
+# /etc/profile.d/30_ssh-agent.sh, which sets the same value.
 Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
 ExecCondition=/usr/local/bin/network-online
-ExecStart=/usr/local/bin/dev-update
+# The user manager does not read /etc/profile.d, so run through a login shell
+# to give timer runs the same environment (NUGET_PACKAGES, GNUPGHOME, ...) as
+# interactive shells.
+ExecStart=/bin/sh -lc /usr/local/bin/dev-update
