@@ -8,16 +8,16 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_shell_prompt() {
     info "Installing Starship prompt"
-    sudo pacman -S --needed --noconfirm starship
+    sudo pacman -S --needed --noconfirm starship || die "Failed to install starship"
 
     info "Deploying Starship theme"
-    sudo cp "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml
+    sudo cp "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml || die "Failed to copy /etc/starship.toml"
 
     if grep -qF "# BEGIN credfeto-systemd starship" /etc/bash.bashrc 2>/dev/null; then
         info "Starship block already present in /etc/bash.bashrc, skipping"
     else
         info "Enabling Starship prompt in /etc/bash.bashrc"
-        sudo tee -a /etc/bash.bashrc > /dev/null << 'STARSHIP_BLOCK'
+        sudo tee -a /etc/bash.bashrc > /dev/null << 'STARSHIP_BLOCK' || die "Failed to add the Starship block to /etc/bash.bashrc"
 # BEGIN credfeto-systemd starship
 if command -v starship >/dev/null 2>&1; then
     # Resolve the real home directory from the effective UID rather than

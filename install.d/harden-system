@@ -8,36 +8,43 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 harden_system() {
     info "Securing /etc/sudoers.d"
-    sudo chmod -R 640 /etc/sudoers.d
-    sudo chown -R root:root /etc/sudoers.d
-    sudo chmod 750 /etc/sudoers.d
+    sudo chmod -R 640 /etc/sudoers.d || die "Failed to set the mode of the files in /etc/sudoers.d"
+    sudo chown -R root:root /etc/sudoers.d || die "Failed to set the owner of /etc/sudoers.d"
+    sudo chmod 750 /etc/sudoers.d || die "Failed to set the mode of /etc/sudoers.d"
 
     info "Installing issue and motd"
-    sudo cp "$BASEDIR/settings/issue/contents" /etc/issue
-    sudo cp "$BASEDIR/settings/issue/contents" /etc/issue.net
-    sudo cp "$BASEDIR/settings/issue/contents" /etc/motd
+    sudo cp "$BASEDIR/settings/issue/contents" /etc/issue || die "Failed to copy /etc/issue"
+    sudo cp "$BASEDIR/settings/issue/contents" /etc/issue.net || die "Failed to copy /etc/issue.net"
+    sudo cp "$BASEDIR/settings/issue/contents" /etc/motd || die "Failed to copy /etc/motd"
 
     info "Blacklisting modules"
-    sudo cp "$BASEDIR/settings/modprobe/blacklist-firewire.conf" /etc/modprobe.d/blacklist-firewire.conf
-    sudo cp "$BASEDIR/settings/modprobe/disable-protocols.conf" /etc/modprobe.d/disable-protocols.conf
+    sudo cp "$BASEDIR/settings/modprobe/blacklist-firewire.conf" /etc/modprobe.d/blacklist-firewire.conf || die "Failed to copy /etc/modprobe.d/blacklist-firewire.conf"
+    sudo cp "$BASEDIR/settings/modprobe/disable-protocols.conf" /etc/modprobe.d/disable-protocols.conf || die "Failed to copy /etc/modprobe.d/disable-protocols.conf"
 
     info "Installing mkinitcpio config"
-    sudo cp "$BASEDIR/settings/mkinitcpio/01_compression.conf" /etc/mkinitcpio.conf.d/01_compression.conf
+    sudo cp "$BASEDIR/settings/mkinitcpio/01_compression.conf" /etc/mkinitcpio.conf.d/01_compression.conf || die "Failed to copy /etc/mkinitcpio.conf.d/01_compression.conf"
 
     info "Defining sysctl"
-    sudo cp "$BASEDIR/settings/sysctl/dmesg_restrict.conf" /etc/sysctl.d/dmesg_restrict.conf
-    sudo cp "$BASEDIR/settings/sysctl/harden_bpf.conf" /etc/sysctl.d/harden_bpf.conf
-    sudo cp "$BASEDIR/settings/sysctl/kptr_restrict.conf" /etc/sysctl.d/kptr_restrict.conf
-    sudo cp "$BASEDIR/settings/sysctl/ptrace_scope.conf" /etc/sysctl.d/ptrace_scope.conf
-    sudo cp "$BASEDIR/settings/sysctl/fs.conf" /etc/sysctl.d/fs.conf
-    sudo cp "$BASEDIR/settings/sysctl/kernel_modules.conf" /etc/sysctl.d/kernel_modules.conf
+    sudo cp "$BASEDIR/settings/sysctl/dmesg_restrict.conf" /etc/sysctl.d/dmesg_restrict.conf || die "Failed to copy /etc/sysctl.d/dmesg_restrict.conf"
+    sudo cp "$BASEDIR/settings/sysctl/harden_bpf.conf" /etc/sysctl.d/harden_bpf.conf || die "Failed to copy /etc/sysctl.d/harden_bpf.conf"
+    sudo cp "$BASEDIR/settings/sysctl/kptr_restrict.conf" /etc/sysctl.d/kptr_restrict.conf || die "Failed to copy /etc/sysctl.d/kptr_restrict.conf"
+    sudo cp "$BASEDIR/settings/sysctl/ptrace_scope.conf" /etc/sysctl.d/ptrace_scope.conf || die "Failed to copy /etc/sysctl.d/ptrace_scope.conf"
+    sudo cp "$BASEDIR/settings/sysctl/fs.conf" /etc/sysctl.d/fs.conf || die "Failed to copy /etc/sysctl.d/fs.conf"
+    sudo cp "$BASEDIR/settings/sysctl/kernel_modules.conf" /etc/sysctl.d/kernel_modules.conf || die "Failed to copy /etc/sysctl.d/kernel_modules.conf"
 
-    sudo cp "$BASEDIR/settings/sysctl/unprivileged_userns_clone.conf" /etc/sysctl.d/unprivileged_userns_clone.conf
-    [ "$DOCKER_INSTALLED" = 1 ] && sudo rm /etc/sysctl.d/unprivileged_userns_clone.conf
-    [ "$INCUS_INSTALLED" = 1 ] && sudo rm /etc/sysctl.d/unprivileged_userns_clone.conf
+    sudo cp "$BASEDIR/settings/sysctl/unprivileged_userns_clone.conf" /etc/sysctl.d/unprivileged_userns_clone.conf || die "Failed to copy /etc/sysctl.d/unprivileged_userns_clone.conf"
+    # One condition, not one per tool: with both installed a second rm would
+    # fail on the file the first one already removed.
+    if [ "$DOCKER_INSTALLED" = 1 ] || [ "$INCUS_INSTALLED" = 1 ]; then
+        sudo rm /etc/sysctl.d/unprivileged_userns_clone.conf || die "Failed to remove /etc/sysctl.d/unprivileged_userns_clone.conf"
+    fi
 
-    sudo cp "$BASEDIR/settings/sysctl/kexec.conf" /etc/sysctl.d/kexec.conf
-    [ "$ZOOM_INSTALLED" = 1 ] && sudo rm /etc/sysctl.d/kexec.conf
+    sudo cp "$BASEDIR/settings/sysctl/kexec.conf" /etc/sysctl.d/kexec.conf || die "Failed to copy /etc/sysctl.d/kexec.conf"
+    if [ "$ZOOM_INSTALLED" = 1 ]; then
+        sudo rm /etc/sysctl.d/kexec.conf || die "Failed to remove /etc/sysctl.d/kexec.conf"
+    fi
+
+    success "System hardened"
 }
 
 harden_system

@@ -18,13 +18,13 @@ PACMAN_CONF="${PACMAN_CONF:-/etc/pacman.conf}"
 # touched.
 ensure_pacman_option() {
     option="$1"
-    options_section="$(sed -n '/^\[options\]/,/^\[/p' "$PACMAN_CONF")"
+    options_section="$(sed -n '/^\[options\]/,/^\[/p' "$PACMAN_CONF")" || die "Failed to read $PACMAN_CONF"
     match="$(printf '%s\n' "$options_section" | grep -E "^#?${option}\$" | head -n 1)"
 
     case "$match" in
         "$option") return 0 ;;
-        "#$option") sudo sed -i "/^\[options\]/,/^\[/{s/^#${option}\$/${option}/}" "$PACMAN_CONF" ;;
-        *) sudo sed -i "/^\[options\]/a ${option}" "$PACMAN_CONF" ;;
+        "#$option") sudo sed -i "/^\[options\]/,/^\[/{s/^#${option}\$/${option}/}" "$PACMAN_CONF" || die "Failed to enable $option in $PACMAN_CONF" ;;
+        *) sudo sed -i "/^\[options\]/a ${option}" "$PACMAN_CONF" || die "Failed to add $option to $PACMAN_CONF" ;;
     esac
 }
 
@@ -33,6 +33,8 @@ configure_pacman() {
     ensure_pacman_option ILoveCandy
     ensure_pacman_option CheckSpace
     ensure_pacman_option VerbosePkgLists
+
+    success "Pacman configured"
 }
 
 configure_pacman

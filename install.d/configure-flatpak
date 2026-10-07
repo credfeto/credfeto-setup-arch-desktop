@@ -12,14 +12,16 @@ configure_flatpak() {
     info "Configuring flatpak"
     HUBS=$(flatpak remotes | cut -f 1 | grep ^flathub$)
     if [ -n "$HUBS" ]; then
-        sudo flatpak remote-delete flathub
+        sudo flatpak remote-delete flathub || die "Failed to delete the flathub flatpak remote"
     fi
-    sudo flatpak remote-add --if-not-exists --subset=verified flathub-verified https://dl.flathub.org/repo
-    sudo flatpak remote-add --if-not-exists --filter=/home/markr/work/personal/credfeto-flatpak-filter/flatpak.filter flathub-whitelist https://dl.flathub.org/repo/
+    sudo flatpak remote-add --if-not-exists --subset=verified flathub-verified https://dl.flathub.org/repo || die "Failed to add the flathub-verified flatpak remote"
+    sudo flatpak remote-add --if-not-exists --filter=/home/markr/work/personal/credfeto-flatpak-filter/flatpak.filter flathub-whitelist https://dl.flathub.org/repo/ || die "Failed to add the flathub-whitelist flatpak remote"
 
     # TODO: If can access https://flathub.markridgwell.com/repo/ then switch url
-    sudo flatpak remote-modify --url=https://flathub.markridgwell.com/repo/ flathub-verified
-    sudo flatpak remote-modify --url=https://flathub.markridgwell.com/repo/ flathub-whitelist
+    sudo flatpak remote-modify --url=https://flathub.markridgwell.com/repo/ flathub-verified || die "Failed to point the flathub-verified flatpak remote at its mirror"
+    sudo flatpak remote-modify --url=https://flathub.markridgwell.com/repo/ flathub-whitelist || die "Failed to point the flathub-whitelist flatpak remote at its mirror"
+
+    success "Flatpak configured"
 }
 
 configure_flatpak
