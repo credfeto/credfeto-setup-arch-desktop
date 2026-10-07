@@ -62,6 +62,14 @@ EOF
     chmod +x "${FAKE_BIN_DIR}/sudo"
 }
 
+# Replaces a fake created by setup_fake_bin with a script read from stdin,
+# for a tool whose fake has to do more than log and echo canned output.
+# Usage: replace_fake <tool-name> <<'EOF' ... EOF
+replace_fake() {
+    cat > "${FAKE_BIN_DIR}/$1"
+    chmod +x "${FAKE_BIN_DIR}/$1"
+}
+
 # Seeds canned stdout for a fake tool created by setup_fake_bin.
 # Usage: seed_fake_output <tool-name> <<< "canned output"
 seed_fake_output() {
