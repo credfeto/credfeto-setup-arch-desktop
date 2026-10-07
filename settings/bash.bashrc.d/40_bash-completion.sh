@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC1091
+# shellcheck shell=bash
 # Enable bash programmable completion features in interactive shells.
 # (The other half of the upstream zachbrowne.me block this was drawn from
 # sourced /etc/bashrc, which doesn't exist on Arch - intentionally left out.)
