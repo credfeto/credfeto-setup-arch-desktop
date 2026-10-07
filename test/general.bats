@@ -242,3 +242,29 @@ first_line_matching() {
     [ -n "${local_line}" ]
     [ "${manifest_line}" -lt "${local_line}" ]
 }
+
+@test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
+    setup_fake_sudo curl tar
+    # Only the 8.0 channel exists, so a run that wrongly carried on would
+    # stop at the next channel rather than go on to the tool steps.
+    seed_fake_output curl <<'EOF'
+{"releases-index":[{"channel-version":"8.0","latest-sdk":"0.0.0-bats"}]}
+EOF
+    # Extracts one versioned SDK folder into the -C directory, so the copy
+    # loop has something to copy. The version is one no real install has.
+    replace_fake tar <<'EOF'
+#!/bin/sh
+while [ $# -gt 0 ]; do
+    [ "$1" = "-C" ] && out="$2"
+    shift
+done
+mkdir -p "$out/sdk/0.0.0-bats"
+printf 'sdk\n' > "$out/sdk/0.0.0-bats/file"
+EOF
+
+    run env TMPDIR="${BATS_TEST_TMPDIR}" FAKE_SUDO_FAIL='^cp -R ' "${INSTALL_LATEST_DOTNET}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not copy /usr/share/dotnet/sdk/0.0.0-bats/"* ]]
+    [[ "${output}" == *"Could not copy the versioned SDK folders into /usr/share/dotnet"* ]]
+    [[ "${output}" != *"Restoring tools"* ]]
+}
