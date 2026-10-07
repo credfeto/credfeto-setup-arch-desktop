@@ -27,8 +27,9 @@ extract_dotnet_package() {
     fi
 
     # copy_files_or_dirs_from_list is the last stage of each pipeline, so it
-    # runs in a subshell: a die inside it only ends that subshell, and the
-    # "||" here is what stops the install.
+    # runs in a subshell: a die inside it only ends that subshell. Its exit
+    # status becomes the pipeline's, and the "||" here is what stops the
+    # install.
     find "$temp_out_path" -type f | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false || say_err "Could not copy the versioned SDK folders into $out_path"
     find "$temp_out_path" -type f | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files" || say_err "Could not copy the SDK files into $out_path"
 
@@ -61,14 +62,7 @@ copy_files_or_dirs_from_list() {
     out_path="$(remove_trailing_slash "$2")"
     override_switch="$(get_cp_options "$override")" || say_err "Could not work out the cp options to use"
 
-    local file_list
-    file_list="$(uniq)"
-
-    # Fed from a here-string rather than a pipe so the loop runs in this
-    # shell and a die inside it ends the function, not just a subshell.
-    while read -r file_path; do
-        [ -n "$file_path" ] || continue
-
+    uniq | while read -r file_path; do
         local path_suffix
         local path
         local target
@@ -89,7 +83,7 @@ copy_files_or_dirs_from_list() {
                 sudo cp -R "$root_path/$path" "$target" || say_err "Could not copy $target"
             fi
         fi
-    done <<< "$file_list"
+    done
 }
 
 # args:
