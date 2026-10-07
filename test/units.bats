@@ -41,11 +41,7 @@ setup() {
     run "${DEV_UPDATE_UNITS}/install"
     [ "${status}" -eq 0 ]
 
-    local _unit
-    for _unit in dev-update.service dev-update.timer; do
-        [ -L "${HOME}/.config/systemd/user/${_unit}" ]
-        [ "$(readlink -f "${HOME}/.config/systemd/user/${_unit}")" = "$(readlink -f "${DEV_UPDATE_UNITS}/${_unit}")" ]
-    done
+    assert_dev_update_units_linked_to "${DEV_UPDATE_UNITS}"
 }
 
 @test "dev-update units install replaces an existing unit file with the symlink" {

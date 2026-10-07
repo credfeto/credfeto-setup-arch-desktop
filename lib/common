@@ -51,11 +51,22 @@ require_network() {
     "$1" || die "No network connection"
 }
 
-# Reference clone layout, consumed by the settings/scripts/ that source this
-# file rather than by lib/common itself, hence the per-declaration SC2034
-# disables.
-# shellcheck disable=SC2034
+# Runs a script from a reference clone, passing any further arguments on.
+# Usage: run_reference_step <repo>/<path-in-repo> [<arg> ...]
+run_reference_step() {
+    STEP="${DEV_REFERENCE_DIR}/$1"
+    shift
+
+    [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
+
+    info "Running ${STEP}${*:+ $*}..."
+    "${STEP}" "$@" || die "Failed to run ${STEP}"
+}
+
+# Reference clone layout.
 DEV_REFERENCE_DIR="${HOME}/work/reference"
+# Consumed by the settings/scripts/ that source this file rather than by
+# lib/common itself, hence the SC2034 disable.
 # shellcheck disable=SC2034
 DEV_REFERENCE_REPOS="credfeto-setup-arch-desktop credfeto-global-pre-commit cs-template credfeto-orchestrator claude credfeto-ai-skills"
 

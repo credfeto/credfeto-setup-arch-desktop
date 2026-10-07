@@ -27,16 +27,6 @@ update_repo() {
     git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
 }
 
-run_install_step() {
-    INSTALL_SCRIPT="${DEV_REFERENCE_DIR}/$1"
-    shift
-
-    [ -x "${INSTALL_SCRIPT}" ] || die "Install script not found or not executable: ${INSTALL_SCRIPT}"
-
-    info "Running ${INSTALL_SCRIPT} $*..."
-    "${INSTALL_SCRIPT}" "$@" || die "Failed to run ${INSTALL_SCRIPT}"
-}
-
 dev_update() {
     refuse_ai_agent dev-update
     acquire_lock
@@ -46,11 +36,11 @@ dev_update() {
         update_repo "${REPO}"
     done
 
-    run_install_step credfeto-setup-arch-desktop/install.d/dev-scripts
-    run_install_step credfeto-global-pre-commit/install --system
-    run_install_step claude/install
-    run_install_step credfeto-ai-skills/install
-    run_install_step credfeto-orchestrator/install-claude-hooks
+    run_reference_step credfeto-setup-arch-desktop/install.d/dev-scripts
+    run_reference_step credfeto-global-pre-commit/install --system
+    run_reference_step claude/install
+    run_reference_step credfeto-ai-skills/install
+    run_reference_step credfeto-orchestrator/install-claude-hooks
 
     update-dotnet-tools
 
