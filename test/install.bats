@@ -19,3 +19,19 @@ INSTALL="${REPO_DIR}/install"
 
     [ -z "${missing}" ]
 }
+
+@test "install wraps every install.d/ step in || die, so a failed step stops it" {
+    # Every step exits non-zero only on a real failure, so a bare call would
+    # let install carry on and print "Done" over a step that did not finish.
+    unguarded=""
+    while IFS= read -r line; do
+        step_name="${line#*install.d/}"
+        step_name="${step_name%%\"*}"
+        case "${line}" in
+            *"|| die \"install.d/${step_name} failed\"") ;;
+            *) unguarded="${unguarded} ${step_name}" ;;
+        esac
+    done < <(grep -E 'install\.d/' "${INSTALL}")
+
+    [ -z "${unguarded}" ]
+}
