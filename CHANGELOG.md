@@ -23,6 +23,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Set CLAUDE_CODE_TMPDIR to the XDG runtime directory so Claude Code uses the per-session tmpfs instead of the shared system temp directory
 - Extended the global git configuration with rerere, zdiff3 conflict markers, histogram diffs, parallel fetch, commit-graph writing, object integrity checks, tag signing and other recommended defaults, so every machine gets safer and faster git behaviour out of the box
 - Added a tmux-here command that attaches to the tmux session for the current directory, creating it first if it does not exist, so each project directory keeps its own persistent terminal session
+- TBD - to be finalized after review
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Removed tracked .idea/.gitignore file that was already in .gitignore
