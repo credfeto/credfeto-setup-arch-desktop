@@ -25,7 +25,7 @@ Do **not** put aliases/functions/env vars needed by ordinary desktop terminals i
 
 1. Decide the tier: does anything outside interactive bash need it? If yes → `settings/shell-env/`; otherwise → `settings/bash.bashrc.d/`.
 2. Add the file with the next free number in the right range, `# shellcheck shell=sh` or `# shellcheck shell=bash` as appropriate.
-3. Add its `sudo install -m 0644` line(s) to `install.d/shell-environment` (explicit per-file, matching the repo's established `settings/*` deployment convention - not a directory glob). Never `sudo cp`; see [file-modes.instructions.md](file-modes.instructions.md) for why, and for the modes to use. `test/shell-environment.bats` enforces this, and also fails if a new section file is added without a deployment line.
+3. Nothing to add to `install.d/shell-environment`: it deploys every `*.sh` file in each directory from a loop, with `sudo install -m 0644`, so a new file is deployed to its tier's targets automatically. Keep it that way rather than adding per-file lines, which can be forgotten and leave a file silently undeployed. Never `sudo cp`; see [file-modes.instructions.md](file-modes.instructions.md) for why, and for the modes to use. `test/shell-environment.bats` runs the script against the fake sudo and fails unless the deployed files match the two directory listings exactly, each with mode `0644`.
 4. If porting from the source `.bashrc`: fix real bugs found along the way (e.g. a `mkdir` targeting the wrong path, an unguarded var that can resolve to empty) rather than porting them faithfully, but call out the fix rather than silently changing behaviour beyond what was asked.
 
 ## Known Accepted Policy Conflict
