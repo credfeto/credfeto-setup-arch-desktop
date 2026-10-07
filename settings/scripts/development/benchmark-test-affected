@@ -47,9 +47,14 @@ CSPROJ_EOF
 # Prints every benchmark project path relative to $SOLUTION_DIR -- the "run
 # all" fallback used whenever the affected set cannot be narrowed down.
 print_all() {
-    printf '%s\n' "$BENCH_PROJECTS" | sed '/^$/d' | while IFS= read -r p; do
+    # Fed from a here-doc rather than a pipe so the loop runs in this shell,
+    # like every other loop in this script.
+    while IFS= read -r p; do
+        [ -n "$p" ] || continue
         printf '%s\n' "${p#"$SOLUTION_DIR"/}"
-    done
+    done <<PRINT_ALL_EOF
+$BENCH_PROJECTS
+PRINT_ALL_EOF
 }
 
 REPO_ROOT=$(git -C "$SOLUTION_DIR" rev-parse --show-toplevel 2>/dev/null)
@@ -91,12 +96,18 @@ BENCH_FILE=$(mktemp "${TMPDIR:-/tmp}/benchmark-test-affected.bench.XXXXXXXXXX") 
 UNRESOLVABLE_FILE=$(mktemp "${TMPDIR:-/tmp}/benchmark-test-affected.unresolved.XXXXXXXXXX") || die "mktemp failed"
 trap 'rm -f "$EDGES_FILE" "$BENCH_FILE" "$UNRESOLVABLE_FILE"' EXIT
 
-printf '%s\n' "$BENCH_PROJECTS" | sed '/^$/d' > "$BENCH_FILE"
+printf '%s\n' "$BENCH_PROJECTS" | sed '/^$/d' > "$BENCH_FILE" || die "Failed to write the benchmark project list to $BENCH_FILE"
 
 while IFS= read -r proj; do
     [ -f "$proj" ] || continue
     proj_dir=$(dirname "$proj")
-    grep -o '<ProjectReference[^>]*>' "$proj" 2>/dev/null | while IFS= read -r tag; do
+    # A project with no ProjectReference makes grep exit 1, which is a valid
+    # answer rather than a failure, so its status is not checked.
+    REF_TAGS=$(grep -o '<ProjectReference[^>]*>' "$proj" 2>/dev/null)
+    # Fed from a here-doc rather than a pipe so the loop runs in this shell
+    # and a die inside it stops the whole script instead of just a subshell.
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
         ref=$(printf '%s\n' "$tag" \
             | grep -oE 'Include[[:space:]]*=[[:space:]]*"[^"]*"' \
             | sed 's/.*"\(.*\)"$/\1/')
@@ -105,18 +116,20 @@ while IFS= read -r proj; do
         case "$ref" in
             *'$('* | *'*'* | *'?'*)
                 # MSBuild property expansion or a glob -- cannot resolve statically.
-                printf 'x\n' >> "$UNRESOLVABLE_FILE"
+                printf 'x\n' >> "$UNRESOLVABLE_FILE" || die "Failed to record an unresolvable reference in $UNRESOLVABLE_FILE"
                 continue
                 ;;
         esac
         ref_native=$(printf '%s' "$ref" | tr '\134' '/')
         ref_abs=$(readlink -f "$proj_dir/$ref_native" 2>/dev/null)
         if [ -n "$ref_abs" ] && [ -f "$ref_abs" ]; then
-            printf '%s|%s\n' "$proj" "$ref_abs" >> "$EDGES_FILE"
+            printf '%s|%s\n' "$proj" "$ref_abs" >> "$EDGES_FILE" || die "Failed to record the reference from $proj in $EDGES_FILE"
         else
-            printf 'x\n' >> "$UNRESOLVABLE_FILE"
+            printf 'x\n' >> "$UNRESOLVABLE_FILE" || die "Failed to record an unresolvable reference in $UNRESOLVABLE_FILE"
         fi
-    done
+    done <<TAGS_EOF
+$REF_TAGS
+TAGS_EOF
 done <<PROJECTS_EOF
 $ALL_CSPROJ
 PROJECTS_EOF
