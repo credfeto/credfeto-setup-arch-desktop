@@ -6,16 +6,27 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-# Non-blocking so an overlapping timer tick or manual run exits cleanly
-# instead of queueing up behind the one already running.
-acquire_lock() {
+# flock's exit status when another run holds the lock; anything else is the
+# locked run's own exit status, which is only ever 0 or 1.
+LOCK_CONFLICT=75
+
+# Re-runs this script under the lock and exits with its status. Non-blocking
+# so an overlapping timer tick or manual run exits cleanly instead of queueing
+# up behind the one already running. flock -o closes the lock fd before
+# running the script, so nothing the run starts inherits it: a process left
+# behind (an ssh ControlPersist master, a gpg-agent, a dotnet build server)
+# cannot keep holding the lock once the run has ended.
+run_locked() {
     [ -n "${XDG_RUNTIME_DIR}" ] || die "XDG_RUNTIME_DIR is not set"
 
-    exec 9>"${XDG_RUNTIME_DIR}/dev-update.lock"
-    if ! flock -n 9; then
+    DEV_UPDATE_LOCKED=1 flock -n -o -E "${LOCK_CONFLICT}" "${XDG_RUNTIME_DIR}/dev-update.lock" "$0"
+    LOCKED_STATUS=$?
+
+    if [ "${LOCKED_STATUS}" -eq "${LOCK_CONFLICT}" ]; then
         info "dev-update is already running"
         exit 0
     fi
+    exit "${LOCKED_STATUS}"
 }
 
 # The dev-update units are symlinks into the reference clone, so a pull can
@@ -29,7 +40,11 @@ reload_user_units() {
 
 dev_update() {
     refuse_ai_agent dev-update
-    acquire_lock
+    # Set only by run_locked, for the copy of this script it runs under the
+    # lock; unset so nothing the run starts sees it.
+    [ "${DEV_UPDATE_LOCKED}" = 1 ] || run_locked
+    unset DEV_UPDATE_LOCKED
+
     require_network "$SCRIPTDIR/network-online"
 
     for REPO in $DEV_REFERENCE_REPOS; do
