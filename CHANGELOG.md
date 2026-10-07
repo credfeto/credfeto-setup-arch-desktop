@@ -24,8 +24,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Extended the global git configuration with rerere, zdiff3 conflict markers, histogram diffs, parallel fetch, commit-graph writing, object integrity checks, tag signing and other recommended defaults, so every machine gets safer and faster git behaviour out of the box
 - Added a tmux-here command that attaches to the tmux session for the current directory, creating it first if it does not exist, so each project directory keeps its own persistent terminal session
 - Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
-- Added a user systemd timer that runs dev-update shortly after login and then every 30 minutes, skipping quietly when offline
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
+- Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Removed tracked .idea/.gitignore file that was already in .gitignore
@@ -42,8 +42,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Deduplicated die/success/info/warn helper scripts across settings/scripts/* by sourcing the shared lib/common (now with a TTY-guarded warn added), instead of each script hand-rolling its own copy
 - NetworkManager now uses systemd-resolved instead of dnsmasq for DNS resolution; the previous dnsmasq drop-ins, service, and package are removed on next install run if present
 - dev-update now waits for the network before pulling repos and runs update-dotnet-tools before completing
-- dev-update now pulls the ~/work/reference clones, runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 - The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
+- dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
