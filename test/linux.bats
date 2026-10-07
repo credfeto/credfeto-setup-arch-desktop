@@ -118,10 +118,15 @@ logged_steps() {
 
 # ── dev-update ───────────────────────────────────────────────────────────────
 
-# Fakes git so `git clone <url> <dest>` copies <dest>'s basename from
-# FAKE_CLONE_SOURCE when present (otherwise creates an empty directory),
-# logs the call and exits with FAKE_EXIT_git.
-setup_fake_git_clone() {
+# Fakes git, logging every call. Any call exits with FAKE_EXIT_git when that
+# is set and non-zero. Otherwise:
+# - `git clone <url> <dest>` copies <dest>'s basename from FAKE_CLONE_SOURCE
+#   when present, or else creates an empty directory;
+# - `git -C <path> status --porcelain` reports a modified file when <path>'s
+#   basename is FAKE_GIT_DIRTY, and a clean tree otherwise;
+# - `git -C <path> switch` and `git -C <path> pull` exit with
+#   FAKE_EXIT_git_switch and FAKE_EXIT_git_pull (default 0).
+setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
     cat > "${FAKE_BIN_DIR}/git" <<EOF
@@ -134,10 +139,38 @@ if [ "\$1" = "clone" ]; then
     else
         mkdir -p "\$3"
     fi
+    exit 0
+fi
+if [ "\$1" = "-C" ]; then
+    case "\$3" in
+        status)
+            if [ "\$(basename "\$2")" = "\${FAKE_GIT_DIRTY:-}" ]; then
+                printf ' M README.md\n'
+            fi
+            ;;
+        switch) exit "\${FAKE_EXIT_git_switch:-0}" ;;
+        pull) exit "\${FAKE_EXIT_git_pull:-0}" ;;
+    esac
 fi
 exit 0
 EOF
     chmod +x "${FAKE_BIN_DIR}/git"
+}
+
+# Prints the fake log lines expected when a reference clone is brought up
+# to date: a clean status check, a switch to main and a fast-forward pull.
+# Usage: expected_reference_update <repo>
+expected_reference_update() {
+    local _path="${HOME}/work/reference/$1"
+    printf '%s\n' \
+        "git -C ${_path} status --porcelain" \
+        "git -C ${_path} switch main" \
+        "git -C ${_path} pull --ff-only"
+}
+
+# Asserts the run never forced, reset or stashed a reference clone.
+refute_destructive_git() {
+    refute_fake_called '^git .*( reset| stash| --force| -f( |$)| -C [^ ]+ clean)'
 }
 
 # Online under NetworkManager (or the given active unit, as for
@@ -147,7 +180,8 @@ EOF
 # directory it was run from.
 # Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
-    setup_fake_network "${1:-NetworkManager.service}" git
+    setup_fake_network "${1:-NetworkManager.service}"
+    setup_fake_git
     cat > "${FAKE_BIN_DIR}/update-dotnet-tools" <<EOF
 #!/bin/sh
 printf 'update-dotnet-tools %s\n' "\$(pwd)" >> "${FAKE_BIN_LOG}"
@@ -207,7 +241,7 @@ EOF
     [[ "${output}" == *"XDG_RUNTIME_DIR is not set"* ]]
 }
 
-@test "dev-update pulls every reference repo, then runs each install step in order" {
+@test "dev-update switches every reference repo to main and fast-forwards it, then runs each install step in order" {
     setup_dev_update_fixture
     cd "${BATS_TEST_TMPDIR}"
 
@@ -215,22 +249,40 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Dev environment updated"* ]]
 
-    local _ref="${HOME}/work/reference"
-    expected="$(printf '%s\n' \
-        "git -C ${_ref}/credfeto-setup-arch-desktop pull" \
-        "git -C ${_ref}/credfeto-global-pre-commit pull" \
-        "git -C ${_ref}/cs-template pull" \
-        "git -C ${_ref}/credfeto-orchestrator pull" \
-        "git -C ${_ref}/claude pull" \
-        "git -C ${_ref}/credfeto-ai-skills pull" \
-        "systemctl --user daemon-reload" \
-        "credfeto-setup-arch-desktop/install.d/dev-scripts " \
-        "credfeto-global-pre-commit/install --system" \
-        "claude/install " \
-        "credfeto-ai-skills/install " \
-        "credfeto-orchestrator/install-claude-hooks " \
-        "update-dotnet-tools ${HOME}")"
+    local _repo
+    expected="$(
+        for _repo in "${REFERENCE_REPOS[@]}"; do
+            expected_reference_update "${_repo}"
+        done
+        printf '%s\n' \
+            "systemctl --user daemon-reload" \
+            "credfeto-setup-arch-desktop/install.d/dev-scripts " \
+            "credfeto-global-pre-commit/install --system" \
+            "claude/install " \
+            "credfeto-ai-skills/install " \
+            "credfeto-orchestrator/install-claude-hooks " \
+            "update-dotnet-tools ${HOME}"
+    )"
     [ "$(logged_steps)" = "${expected}" ]
+    refute_destructive_git
+}
+
+@test "dev-update dies on a reference clone with uncommitted changes, naming it, and runs nothing after" {
+    setup_dev_update_fixture
+    run env FAKE_GIT_DIRTY=cs-template "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Uncommitted changes in ${HOME}/work/reference/cs-template"* ]]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "git -C ${HOME}/work/reference/cs-template status --porcelain" ]
+    refute_destructive_git
+}
+
+@test "dev-update dies if a reference clone cannot be switched to main, and runs nothing after" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_git_switch=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to switch ${HOME}/work/reference/credfeto-setup-arch-desktop to main"* ]]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "git -C ${HOME}/work/reference/credfeto-setup-arch-desktop switch main" ]
+    refute_destructive_git
 }
 
 @test "dev-update warns and still completes when the systemd user reload fails" {
@@ -245,7 +297,7 @@ EOF
 
 @test "dev-update does not reload systemd if a pull fails" {
     setup_dev_update_fixture
-    run env FAKE_EXIT_git=1 "${LINUX_DIR}/dev-update"
+    run env FAKE_EXIT_git_pull=1 "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
     refute_fake_called '^systemctl --user daemon-reload'
 }
@@ -266,17 +318,17 @@ EOF
     [[ "${output}" != *"Dev environment updated"* ]]
 }
 
-@test "dev-update dies if a pull fails" {
+@test "dev-update dies if a reference clone cannot be fast-forwarded, and runs nothing after" {
     setup_dev_update_fixture
-    run env FAKE_EXIT_git=1 "${LINUX_DIR}/dev-update"
+    run env FAKE_EXIT_git_pull=1 "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Failed to pull"*"credfeto-setup-arch-desktop"* ]]
-    refute_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
+    [[ "${output}" == *"Failed to fast-forward ${HOME}/work/reference/credfeto-setup-arch-desktop"* ]]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "git -C ${HOME}/work/reference/credfeto-setup-arch-desktop pull --ff-only" ]
+    refute_destructive_git
 }
 
-@test "dev-update clones a missing reference repo over SSH before pulling it" {
+@test "dev-update clones a missing reference repo over SSH before updating it" {
     setup_dev_update_fixture
-    setup_fake_git_clone
     rm -rf "${HOME}/work/reference/cs-template"
 
     run "${LINUX_DIR}/dev-update"
@@ -288,12 +340,11 @@ EOF
     refute_fake_called 'https://'
     [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq 1 ]
     [ "$(grep -n -m 1 -xF "git clone git@github.com:credfeto/cs-template.git ${_ref}/cs-template" "${FAKE_BIN_LOG}" | cut -d: -f1)" \
-        -lt "$(grep -n -m 1 -xF "git -C ${_ref}/cs-template pull" "${FAKE_BIN_LOG}" | cut -d: -f1)" ]
+        -lt "$(grep -n -m 1 -xF "git -C ${_ref}/cs-template status --porcelain" "${FAKE_BIN_LOG}" | cut -d: -f1)" ]
 }
 
 @test "dev-update creates the reference tree when it is missing" {
     setup_dev_update_fixture
-    setup_fake_git_clone
     # The fake clone copies from FAKE_CLONE_SOURCE into a parent that must
     # already exist, so this also proves dev-update creates the tree.
     cp -R "${HOME}/work/reference/." "${FAKE_CLONE_SOURCE}/"
@@ -306,7 +357,6 @@ EOF
 
 @test "dev-update dies if cloning a missing reference repo fails" {
     setup_dev_update_fixture
-    setup_fake_git_clone
     rm -rf "${HOME}/work/reference/credfeto-setup-arch-desktop"
 
     run env FAKE_EXIT_git=128 "${LINUX_DIR}/dev-update"
@@ -357,7 +407,7 @@ EOF
 # install-dotnet-tools logs the directory it was run from.
 setup_dev_install_fixture() {
     setup_fake_network NetworkManager.service dotnet
-    setup_fake_git_clone
+    setup_fake_git
 
     local _clone="${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop"
     mkdir -p "${_clone}/units"
@@ -422,6 +472,79 @@ EOF
         grep -qxF "git clone git@github.com:credfeto/${_repo}.git ${HOME}/work/reference/${_repo}" "${FAKE_BIN_LOG}"
     done
     refute_fake_called 'https://'
+}
+
+@test "dev-install clones each reference repo, switches it to main and fast-forwards it, then installs in order" {
+    setup_dev_install_fixture
+    cd "${BATS_TEST_TMPDIR}"
+
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+
+    local _repo
+    expected="$(
+        for _repo in "${REFERENCE_REPOS[@]}"; do
+            printf '%s\n' "git clone git@github.com:credfeto/${_repo}.git ${HOME}/work/reference/${_repo}"
+            expected_reference_update "${_repo}"
+        done
+        printf '%s\n' \
+            "install-dotnet-tools ${HOME}" \
+            "systemctl --user daemon-reload" \
+            "systemctl --user enable dev-update.timer" \
+            "settings/scripts/linux/dev-update "
+    )"
+    [ "$(logged_steps)" = "${expected}" ]
+    refute_destructive_git
+}
+
+@test "dev-install switches an already-present reference clone to main and fast-forwards it before running the units installer" {
+    setup_dev_install_fixture
+    mkdir -p "${HOME}/work/reference"
+    cp -R "${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop" "${HOME}/work/reference/credfeto-setup-arch-desktop"
+
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+
+    local _path="${HOME}/work/reference/credfeto-setup-arch-desktop"
+    refute_fake_called '^git clone .*/credfeto-setup-arch-desktop\.git'
+    [ "$(grep -A 2 -xF "git -C ${_path} status --porcelain" "${FAKE_BIN_LOG}")" = "$(expected_reference_update credfeto-setup-arch-desktop)" ]
+    [ "$(grep -n -m 1 -xF "git -C ${_path} pull --ff-only" "${FAKE_BIN_LOG}" | cut -d: -f1)" \
+        -lt "$(grep -n -m 1 -xF "systemctl --user daemon-reload" "${FAKE_BIN_LOG}" | cut -d: -f1)" ]
+    refute_destructive_git
+}
+
+@test "dev-install dies on a reference clone that is dirty, cannot be switched to main or cannot be fast-forwarded, and runs nothing after" {
+    local _path _case _override _message _last
+    for _case in dirty switch pull; do
+        setup_dev_install_fixture
+        mkdir -p "${HOME}/work/reference/claude"
+        _path="${HOME}/work/reference/claude"
+        case "${_case}" in
+            dirty)
+                _override="FAKE_GIT_DIRTY=claude"
+                _message="Uncommitted changes in ${_path}"
+                _last="git -C ${_path} status --porcelain"
+                ;;
+            switch)
+                _override="FAKE_EXIT_git_switch=1"
+                _message="Failed to switch ${HOME}/work/reference/credfeto-setup-arch-desktop to main"
+                _last="git -C ${HOME}/work/reference/credfeto-setup-arch-desktop switch main"
+                ;;
+            pull)
+                _override="FAKE_EXIT_git_pull=1"
+                _message="Failed to fast-forward ${HOME}/work/reference/credfeto-setup-arch-desktop"
+                _last="git -C ${HOME}/work/reference/credfeto-setup-arch-desktop pull --ff-only"
+                ;;
+        esac
+
+        run env "${_override}" "${LINUX_DIR}/dev-install"
+        [ "${status}" -eq 1 ]
+        [[ "${output}" == *"${_message}"* ]]
+        [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "${_last}" ]
+        refute_destructive_git
+
+        rm -rf "${HOME}/work/reference" "${FAKE_CLONE_SOURCE}"
+    done
 }
 
 @test "dev-install clones only the reference repos that are missing" {

@@ -15,8 +15,12 @@ dev_install() {
     require_network "$SCRIPTDIR/network-online"
     require_dotnet
 
+    # On a re-run the clones already exist and may be stale or on another
+    # branch, so each is brought to the latest main before anything runs
+    # from it; for a fresh clone this is a no-op pull.
     for REPO in $DEV_REFERENCE_REPOS; do
         clone_reference_repo "${REPO}"
+        update_reference_repo "${REPO}"
     done
 
     info "Installing dotnet tools..."
