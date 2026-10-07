@@ -10,8 +10,24 @@ require_dotnet() {
     command -v dotnet >/dev/null 2>&1 || die "dotnet is not on PATH"
 }
 
+# The dev-update units and 95_update.sh only look in the default location,
+# so clones anywhere else would leave the timer skipping every tick unseen.
+require_default_reference_dir() {
+    [ "${DEV_REFERENCE_DIR}" = "${DEV_REFERENCE_DEFAULT_DIR}" ] || die "DEV_REFERENCE_DIR is set to ${DEV_REFERENCE_DIR}, but only the default ${DEV_REFERENCE_DEFAULT_DIR} is supported; unset it and re-run"
+}
+
+# Started only after dev-install's own dev-update run, so a tick cannot race
+# it for the lock. A timer that has never fired fires at once on start,
+# because OnStartupSec= has already passed, so one more dev-update run
+# follows shortly; it finds everything already up to date.
+start_dev_update_timer() {
+    info "Starting dev-update.timer..."
+    systemctl --user start dev-update.timer || die "Failed to start dev-update.timer"
+}
+
 dev_install() {
     refuse_ai_agent dev-install
+    require_default_reference_dir
     require_network "$SCRIPTDIR/network-online"
     require_dotnet
 
@@ -30,6 +46,7 @@ dev_install() {
     # symlinks and the /usr/local/bin links dev-update creates resolve there.
     run_reference_step credfeto-setup-arch-desktop/units/dev-update/install
     run_reference_step credfeto-setup-arch-desktop/settings/scripts/linux/dev-update
+    start_dev_update_timer
 
     success "Dev environment installed"
 }

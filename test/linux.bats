@@ -46,7 +46,8 @@ setup() {
 }
 
 # Fakes systemctl so `is-active` succeeds only for the given unit (pass
-# "none" for neither network manager) and every other call exits with
+# "none" for neither network manager), `--user start` exits with
+# FAKE_EXIT_systemctl_start when that is set, and every other call exits with
 # FAKE_EXIT_systemctl (default 0), plus
 # nm-online and systemd-networkd-wait-online, whose exit codes come from
 # FAKE_EXIT_nm_online and FAKE_EXIT_systemd_networkd_wait_online. Any extra
@@ -61,6 +62,9 @@ printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
 if [ "\$1" = "is-active" ]; then
     [ "\$3" = "${_active}" ]
     exit
+fi
+if [ "\$2" = "start" ] && [ -n "\${FAKE_EXIT_systemctl_start:-}" ]; then
+    exit "\${FAKE_EXIT_systemctl_start}"
 fi
 exit "\${FAKE_EXIT_systemctl:-0}"
 EOF
@@ -304,6 +308,7 @@ EOF
         done
         printf '%s\n' \
             "systemctl --user daemon-reload" \
+            "systemctl --user start dev-update.timer" \
             "credfeto-setup-arch-desktop/install.d/dev-scripts " \
             "credfeto-global-pre-commit/install --system" \
             "claude/install " \
@@ -340,6 +345,16 @@ EOF
     [[ "${output}" == *"Could not reload systemd user units"* ]]
     [[ "${output}" == *"Dev environment updated"* ]]
     assert_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
+    assert_fake_called '^update-dotnet-tools'
+}
+
+@test "dev-update warns and still completes when starting the timer fails" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_systemctl_start=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not start dev-update.timer"* ]]
+    [[ "${output}" != *"Could not reload systemd user units"* ]]
+    [[ "${output}" == *"Dev environment updated"* ]]
     assert_fake_called '^update-dotnet-tools'
 }
 
@@ -574,7 +589,8 @@ EOF
             "install-dotnet-tools ${HOME}" \
             "systemctl --user daemon-reload" \
             "systemctl --user enable dev-update.timer" \
-            "settings/scripts/linux/dev-update "
+            "settings/scripts/linux/dev-update " \
+            "systemctl --user start dev-update.timer"
     )"
     [ "$(logged_steps)" = "${expected}" ]
     refute_destructive_git
@@ -676,11 +692,41 @@ EOF
     assert_fake_called '^systemctl --user enable dev-update\.timer$'
 }
 
-@test "dev-install runs the reference clone's dev-update as its last step" {
+@test "dev-install runs the reference clone's dev-update, then starts the timer as its last step" {
     setup_dev_install_fixture
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "settings/scripts/linux/dev-update " ]
+    expected="$(printf '%s\n' \
+        "settings/scripts/linux/dev-update " \
+        "systemctl --user start dev-update.timer")"
+    [ "$(tail -n 2 "${FAKE_BIN_LOG}")" = "${expected}" ]
+}
+
+@test "dev-install dies if the timer cannot be started" {
+    setup_dev_install_fixture
+    run env FAKE_EXIT_systemctl_start=1 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to start dev-update.timer"* ]]
+    [[ "${output}" != *"Dev environment installed"* ]]
+    assert_fake_called '^settings/scripts/linux/dev-update '
+}
+
+@test "dev-install dies before doing anything when DEV_REFERENCE_DIR is not the default, naming the default" {
+    setup_dev_install_fixture
+    local _ref="${BATS_TEST_TMPDIR}/elsewhere"
+    run env DEV_REFERENCE_DIR="${_ref}" "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"DEV_REFERENCE_DIR is set to ${_ref}, but only the default ${HOME}/work/reference is supported"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${_ref}" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install accepts DEV_REFERENCE_DIR set to the default" {
+    setup_dev_install_fixture
+    run env DEV_REFERENCE_DIR="${HOME}/work/reference" "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Dev environment installed"* ]]
 }
 
 @test "dev-install dies if dev-update fails" {
@@ -689,6 +735,7 @@ EOF
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to run"*"settings/scripts/linux/dev-update"* ]]
+    refute_fake_called '^systemctl --user start '
 }
 
 # ── install-fp ───────────────────────────────────────────────────────────────
