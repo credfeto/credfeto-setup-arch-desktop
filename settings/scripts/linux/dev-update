@@ -42,7 +42,10 @@ dev_update() {
     run_reference_step credfeto-ai-skills/install
     run_reference_step credfeto-orchestrator/install-claude-hooks
 
-    update-dotnet-tools
+    # From $HOME so the home tool manifest is updated, not one belonging to
+    # whichever repo a manual run happens to be started from.
+    info "Updating dotnet tools..."
+    (cd "${HOME}" && update-dotnet-tools) || die "Failed to update dotnet tools"
 
     success "Dev environment updated"
 }

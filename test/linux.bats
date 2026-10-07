@@ -120,10 +120,17 @@ logged_steps() {
 # Online under NetworkManager (or the given active unit, as for
 # setup_fake_network), every reference clone present, every install step a
 # logging stub; git and update-dotnet-tools are faked so nothing reaches a
-# real remote or the real dotnet tool restore.
+# real remote or the real dotnet tool restore. update-dotnet-tools logs the
+# directory it was run from.
 # Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
-    setup_fake_network "${1:-NetworkManager.service}" git update-dotnet-tools
+    setup_fake_network "${1:-NetworkManager.service}" git
+    cat > "${FAKE_BIN_DIR}/update-dotnet-tools" <<EOF
+#!/bin/sh
+printf 'update-dotnet-tools %s\n' "\$(pwd)" >> "${FAKE_BIN_LOG}"
+exit "\${FAKE_EXIT_update_dotnet_tools:-0}"
+EOF
+    chmod +x "${FAKE_BIN_DIR}/update-dotnet-tools"
     local _repo _step
     for _repo in "${REFERENCE_REPOS[@]}"; do
         mkdir -p "${HOME}/work/reference/${_repo}"
@@ -198,8 +205,24 @@ setup_dev_update_fixture() {
         "claude/install " \
         "credfeto-ai-skills/install " \
         "credfeto-orchestrator/install-claude-hooks " \
-        "update-dotnet-tools ")"
+        "update-dotnet-tools ${HOME}")"
     [ "$(logged_steps)" = "${expected}" ]
+}
+
+@test "dev-update runs update-dotnet-tools from \$HOME" {
+    setup_dev_update_fixture
+    cd "${BATS_TEST_TMPDIR}"
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    grep -qxF "update-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+}
+
+@test "dev-update dies if update-dotnet-tools fails" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_update_dotnet_tools=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to update dotnet tools"* ]]
+    [[ "${output}" != *"Dev environment updated"* ]]
 }
 
 @test "dev-update dies if a pull fails" {
