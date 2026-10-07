@@ -26,6 +26,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
+- dev-install and dev-update now honour DEV_REFERENCE_DIR for the reference clone location, defaulting to ~/work/reference
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -39,6 +40,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Clone the claude reference repo from its real owner (git@github.com:dnyw4l3n13/claude.git) instead of credfeto.
 - Dev-scripts now fails when sudo, install or link steps fail, instead of silently continuing with broken symlinks
 - Install and every install.d script now fail fast with explicit error messages when deployment steps fail, instead of silently continuing; units/auto-update/install, benchmark-test-affected, install-latest-dotnet, update-dotnet-sdk and dbenv were similarly hardened with || die guards and here-doc loops so that subshell exit codes no longer vanish
+- dev-update no longer lets the processes it starts inherit its run lock, so a leftover ssh or gpg process can no longer keep the lock after a run ends and silently stop every later timer run
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
