@@ -1,37 +1,81 @@
 #!/usr/bin/env bats
-# Regression test: install must actually invoke every install.d/ step it
-# ships. install itself is not run end-to-end here - most steps mutate real
-# system state (pacman, sshd, sysctl, ...) and are exercised individually by
-# their own bats suites instead; this only asserts the wiring is present.
+# Regression tests for install's step loop. install runs from a copy in a
+# temp tree whose install.d/ holds logging stubs named after the real steps:
+# the real steps mutate system state (pacman, sshd, sysctl, ...) and are
+# exercised individually by their own bats suites instead.
 
 load test_helper
 
-INSTALL="${REPO_DIR}/install"
+# The order install must run its steps in.
+EXPECTED_STEPS=(
+    remove-aur-helpers
+    disable-baloo
+    harden-system
+    pacman-hooks
+    configure-pacman
+    security-tools
+    dash
+    configure-network
+    harden-ssh
+    btrfs-scrub
+    firejail
+    fail2ban
+    enable-services
+    shell-prompt
+    shell-environment
+    configure-flatpak
+    git-environment
+    dev-scripts
+)
 
-@test "install invokes every script present under install.d/" {
-    missing=""
-    for step in "${REPO_DIR}"/install.d/*; do
-        [ -f "${step}" ] || continue
-        [ -x "${step}" ] || continue
-        step_name="$(basename "${step}")"
-        grep -qF "install.d/${step_name}" "${INSTALL}" || missing="${missing} ${step_name}"
+# Copies install and lib/common into a temp tree and gives it a logging stub
+# for every executable under the real install.d/. Each stub logs its name to
+# STEP_LOG and exits 1 when its name is in FAILING_STEP, 0 otherwise.
+setup() {
+    INSTALL_TREE="${BATS_TEST_TMPDIR}/tree"
+    STEP_LOG="${BATS_TEST_TMPDIR}/steps.log"
+    mkdir -p "${INSTALL_TREE}/install.d" "${INSTALL_TREE}/lib"
+    cp "${REPO_DIR}/install" "${INSTALL_TREE}/install"
+    cp "${REPO_DIR}/lib/common" "${INSTALL_TREE}/lib/common"
+    : > "${STEP_LOG}"
+
+    local _step _name
+    for _step in "${REPO_DIR}"/install.d/*; do
+        [ -f "${_step}" ] && [ -x "${_step}" ] || continue
+        _name="$(basename "${_step}")"
+        cat > "${INSTALL_TREE}/install.d/${_name}" <<EOF
+#!/bin/sh
+printf '%s\n' "${_name}" >> "${STEP_LOG}"
+[ "\${FAILING_STEP:-}" != "${_name}" ]
+EOF
+        chmod +x "${INSTALL_TREE}/install.d/${_name}"
     done
-
-    [ -z "${missing}" ]
 }
 
-@test "install wraps every install.d/ step in || die, so a failed step stops it" {
-    # Every step exits non-zero only on a real failure, so a bare call would
-    # let install carry on and print "Done" over a step that did not finish.
-    unguarded=""
-    while IFS= read -r line; do
-        step_name="${line#*install.d/}"
-        step_name="${step_name%%\"*}"
-        case "${line}" in
-            *"|| die \"install.d/${step_name} failed\"") ;;
-            *) unguarded="${unguarded} ${step_name}" ;;
-        esac
-    done < <(grep -E 'install\.d/' "${INSTALL}")
+@test "install runs every script present under install.d/, once each, in the expected order" {
+    run "${INSTALL_TREE}/install"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Done"* ]]
 
-    [ -z "${unguarded}" ]
+    # Every executable under install.d/ is an expected step, so a new script
+    # cannot be added without deciding where it runs.
+    local _step
+    for _step in "${INSTALL_TREE}"/install.d/*; do
+        printf '%s\n' "${EXPECTED_STEPS[@]}" | grep -qxF "$(basename "${_step}")"
+    done
+    [ "$(cat "${STEP_LOG}")" = "$(printf '%s\n' "${EXPECTED_STEPS[@]}")" ]
+}
+
+@test "install stops at a failed step, naming it, and runs nothing after it" {
+    local _failing _index
+    for _index in "${!EXPECTED_STEPS[@]}"; do
+        _failing="${EXPECTED_STEPS[${_index}]}"
+        : > "${STEP_LOG}"
+
+        run env FAILING_STEP="${_failing}" "${INSTALL_TREE}/install"
+        [ "${status}" -eq 1 ]
+        [[ "${output}" == *"install.d/${_failing} failed"* ]]
+        [[ "${output}" != *"Done"* ]]
+        [ "$(cat "${STEP_LOG}")" = "$(printf '%s\n' "${EXPECTED_STEPS[@]:0:$((_index + 1))}")" ]
+    done
 }

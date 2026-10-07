@@ -8,19 +8,10 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 harden_ssh() {
     info "Hardening SSH"
-    sudo cp "$BASEDIR/settings/sshd/01_ProhibitPermitRootLogin.conf" /etc/ssh/sshd_config.d/01_ProhibitPermitRootLogin.conf || die "Failed to copy /etc/ssh/sshd_config.d/01_ProhibitPermitRootLogin.conf"
-    sudo cp "$BASEDIR/settings/sshd/02_MaxAuthTries.conf" /etc/ssh/sshd_config.d/02_MaxAuthTries.conf || die "Failed to copy /etc/ssh/sshd_config.d/02_MaxAuthTries.conf"
-    sudo cp "$BASEDIR/settings/sshd/03_LoginGraceTime.conf" /etc/ssh/sshd_config.d/03_LoginGraceTime.conf || die "Failed to copy /etc/ssh/sshd_config.d/03_LoginGraceTime.conf"
-    sudo cp "$BASEDIR/settings/sshd/04_PasswordAuthentication.conf" /etc/ssh/sshd_config.d/04_PasswordAuthentication.conf || die "Failed to copy /etc/ssh/sshd_config.d/04_PasswordAuthentication.conf"
-    sudo cp "$BASEDIR/settings/sshd/05_PermitEmptyPasswords.conf" /etc/ssh/sshd_config.d/05_PermitEmptyPasswords.conf || die "Failed to copy /etc/ssh/sshd_config.d/05_PermitEmptyPasswords.conf"
-    sudo cp "$BASEDIR/settings/sshd/06_AlternateAuthentication.conf" /etc/ssh/sshd_config.d/06_AlternateAuthentication.conf || die "Failed to copy /etc/ssh/sshd_config.d/06_AlternateAuthentication.conf"
-    sudo cp "$BASEDIR/settings/sshd/07_X11Forwarding.conf" /etc/ssh/sshd_config.d/07_X11Forwarding.conf || die "Failed to copy /etc/ssh/sshd_config.d/07_X11Forwarding.conf"
-    sudo cp "$BASEDIR/settings/sshd/08_PermitUserEnvironment.conf" /etc/ssh/sshd_config.d/08_PermitUserEnvironment.conf || die "Failed to copy /etc/ssh/sshd_config.d/08_PermitUserEnvironment.conf"
-    sudo cp "$BASEDIR/settings/sshd/09_Tunnelling.conf" /etc/ssh/sshd_config.d/09_Tunnelling.conf || die "Failed to copy /etc/ssh/sshd_config.d/09_Tunnelling.conf"
-    sudo cp "$BASEDIR/settings/sshd/10_ClientAliveCountMax.conf" /etc/ssh/sshd_config.d/10_ClientAliveCountMax.conf || die "Failed to copy /etc/ssh/sshd_config.d/10_ClientAliveCountMax.conf"
-    sudo cp "$BASEDIR/settings/sshd/11_MaxSessions.conf" /etc/ssh/sshd_config.d/11_MaxSessions.conf || die "Failed to copy /etc/ssh/sshd_config.d/11_MaxSessions.conf"
-    sudo cp "$BASEDIR/settings/sshd/12_LogLevel.conf" /etc/ssh/sshd_config.d/12_LogLevel.conf || die "Failed to copy /etc/ssh/sshd_config.d/12_LogLevel.conf"
-    sudo cp "$BASEDIR/settings/sshd/13_TCPKeepAlive.conf" /etc/ssh/sshd_config.d/13_TCPKeepAlive.conf || die "Failed to copy /etc/ssh/sshd_config.d/13_TCPKeepAlive.conf"
+    for SSHD_CONF in "$BASEDIR"/settings/sshd/*.conf; do
+        SSHD_TARGET="/etc/ssh/sshd_config.d/$(basename "$SSHD_CONF")"
+        sudo cp "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
+    done
 
     info "Installing curl for key server AuthorizedKeysCommand"
     sudo pacman -S --needed --noconfirm curl || die "Failed to install curl"
