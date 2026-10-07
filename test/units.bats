@@ -78,3 +78,22 @@ setup() {
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to reload the user systemd manager"* ]]
 }
+
+# ── auto-update units ────────────────────────────────────────────────────────
+
+@test "auto-update units install copies both units and enables the timer" {
+    setup_fake_sudo
+    run "${REPO_DIR}/units/auto-update/install"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^sudo cp .*/auto-update\.timer /etc/systemd/system/auto-update\.timer$'
+    assert_fake_called '^sudo systemctl enable --now auto-update\.timer$'
+}
+
+@test "auto-update units install fails, naming the step, when reloading systemd fails" {
+    setup_fake_sudo
+    export FAKE_SUDO_FAIL='^systemctl daemon-reload'
+    run "${REPO_DIR}/units/auto-update/install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to reload the systemd manager"* ]]
+    refute_fake_called 'enable --now auto-update\.timer'
+}

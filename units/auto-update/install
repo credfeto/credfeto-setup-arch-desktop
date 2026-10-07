@@ -10,9 +10,9 @@ BASEDIR="$(dirname "$(readlink -f "$0")")"
 echo "Script Dir: $BASEDIR"
 
 
-sudo cp "$BASEDIR/auto-update.service" /etc/systemd/system/auto-update.service
-sudo cp "$BASEDIR/auto-update.timer" /etc/systemd/system/auto-update.timer
+sudo cp "$BASEDIR/auto-update.service" /etc/systemd/system/auto-update.service || die "Failed to copy /etc/systemd/system/auto-update.service"
+sudo cp "$BASEDIR/auto-update.timer" /etc/systemd/system/auto-update.timer || die "Failed to copy /etc/systemd/system/auto-update.timer"
 
-sudo systemctl daemon-reload
+sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
 
-sudo systemctl enable --now auto-update.timer
+sudo systemctl enable --now auto-update.timer || die "Failed to enable auto-update.timer"
