@@ -8,7 +8,7 @@
 
 `install` is a thin orchestrator, not a place for feature logic:
 
-- It resolves `BASEDIR`, sources `lib/common`, then calls each `install.d/*` script in order.
+- It resolves `BASEDIR`, sources `lib/common`, then runs each `install.d/*` script from one loop over an ordered list of step names.
 - Each install feature/hardening step lives in its own standalone, executable POSIX `sh` script under `install.d/`.
 - `lib/common` holds helpers and state shared across scripts (`die`/`success`/`info`, the install-state flags) so nothing is duplicated between `install` and the `install.d/*` scripts.
 
@@ -56,16 +56,24 @@ Examples already applied:
 
 ## Calling Convention in `install`
 
-Whether `install` wraps a script's call in `|| die "install.d/<name> failed"` depends on what that script's exit status actually means:
+`install` runs every step from a single `for STEP in ...; do` loop over the step names, in the order they must run, and calls each one as `"$BASEDIR/install.d/$STEP" || die "install.d/$STEP failed"`:
 
-- **`|| die` it** when the script's own body calls `die` on a real failure path (currently `harden-ssh`, whose hostname-lookup guard was already `die`-guarded before this pattern existed) - the script's exit status is meaningful and non-zero means something genuinely went wrong, so `install` must stop rather than silently continue past it.
-- **Call it bare** otherwise - most scripts' exit status is just whatever their function's last statement happens to return, and several end on a short-circuited `[ cond ] && cmd` that legitimately returns non-zero when the condition is false (e.g. `remove-aur-helpers` when no AUR helper is installed, `harden-system` when `ZOOM_INSTALLED=0`). Wrapping those in `|| die` would make `install` abort on cases that are not actually failures.
+- Every step is `|| die`-wrapped, with no bare calls, because every step's exit status is meaningful (see [Failure Handling Inside a Script](#failure-handling-inside-a-script)). A non-zero exit always means the step did not finish, so `install` stops rather than printing `Done` over it.
+- The name list is the only place the order lives, so the call and its error message cannot disagree about which step failed.
+- When adding a new `install.d/*` script, add its name to the list at the point it must run. `test/install.bats` fails until every executable under `install.d/` is in the list and the list matches the order the test expects.
 
-Note the trade-off this involves for a script whose body calls `die`: the caller can only see the child's overall exit status, not *which* statement inside it failed, so `|| die` on the caller side aborts on any non-zero exit from the script, not only the one that goes through the internal `die` guard (e.g. for `harden-ssh`, a plain `sudo cp`/`sudo tee` failure now aborts `install` too, where pre-#17 it would have been silently ignored since `harden_ssh` ran in-process and was called bare). This is an accepted, security-motivated widening, not a bug: preserving "the internal `die` aborts everything" is more important than preserving "an unrelated command failure inside the function doesn't abort", and a plain process boundary can't have both.
+## Failure Handling Inside a Script
 
-`shell-prompt` is `|| die`-wrapped too, from when it was first introduced (#16); it currently has no internal failure path (it always ends on `success`, which returns 0), so the wrapper is inert today rather than load-bearing, but it's pre-existing and out of scope for this pattern's rollout to revisit.
+A step's exit status must mean "finished" or "failed", nothing else:
 
-When adding a new `install.d/*` script, check what its **last statement** returns in the common case before deciding which form to use, and if it calls `die` anywhere, wrap the call in `install` with `|| die`.
+- Guard every command that can fail with `|| die "<what failed, naming the target>"`, so the script stops at the first failure and the message says which file, package or service was involved.
+- Never end the function on a short-circuited `[ cond ] && cmd`, which returns non-zero when the condition is false and so reports a failure that did not happen. Write the condition as an `if`/`fi` block, so a false condition leaves the status at 0.
+- Do not feed a loop whose body calls `die` from a pipe when the script must stop on that `die` and the loop is not the function's last statement: the loop runs in a subshell, and `die` only ends that subshell. Feed it from a here-doc or a glob instead, or check the pipeline's status with `|| die`.
+- End the function on `success "<message>"` and call the function as the script's last line, so the script exits 0 only when every guarded command succeeded.
+
+## Reference Clone Location
+
+`DEV_REFERENCE_DIR` in `lib/common` (default `~/work/reference`) is where the reference clones live, and is overridable so a test can point it at a temp dir. Every script that sources `lib/common` must use it rather than repeat the path. `settings/bash.bashrc.d/95_update.sh` and `units/dev-update/dev-update.service` cannot source `lib/common`, so they repeat the default path, each with a comment saying so; change all three together.
 
 ## Install-State Flags
 
