@@ -25,6 +25,32 @@ make_bare_remote_and_clone() {
     git -C "${_clone}" push --quiet
 }
 
+ORIGINAL_GLOBAL_JSON='{"sdk":{"version":"11.0.0","allowPrerelease":true}}'
+
+# Runs update-dotnet-sdk against a repo holding ORIGINAL_GLOBAL_JSON, with
+# dotnet listing the given SDK version and mv failing.
+# Usage: run_update_dotnet_sdk_with_failing_mv <sdk-version>
+run_update_dotnet_sdk_with_failing_mv() {
+    # Real mv is shadowed only for the script run; the fixture is set up
+    # with the real tools first.
+    mkdir -p "${BATS_TEST_TMPDIR}/repo"
+    printf '%s' "${ORIGINAL_GLOBAL_JSON}" > "${BATS_TEST_TMPDIR}/repo/global.json"
+    cd "${BATS_TEST_TMPDIR}/repo" || exit
+    setup_fake_bin git dotnet mv
+    seed_fake_output dotnet <<< "$1"
+
+    run env DOTNET_PREVIEW_VERSION=11 FAKE_EXIT_mv=1 "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
+}
+
+# Asserts the last run died naming global.json, left it exactly as it was
+# and committed nothing.
+assert_global_json_kept_after_failed_replace() {
+    [ "${status}" -eq 1 ] || return 1
+    [[ "${output}" == *"Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"* ]] || return 1
+    [ "$(cat "${BATS_TEST_TMPDIR}/repo/global.json")" = "${ORIGINAL_GLOBAL_JSON}" ] || return 1
+    refute_fake_called '^git '
+}
+
 # ── fetch ────────────────────────────────────────────────────────────────────
 
 @test "fetch dies on an unrecognised argument" {
@@ -161,19 +187,12 @@ EOF
     [ "${output}" = "false" ]
 }
 
-@test "update-dotnet-sdk fails, naming the file, when global.json cannot be replaced" {
-    # Real mv is shadowed only for the script run; the fixture is set up
-    # with the real tools first.
-    mkdir -p "${BATS_TEST_TMPDIR}/repo"
-    printf '{"sdk":{"version":"11.0.0","allowPrerelease":true}}' > "${BATS_TEST_TMPDIR}/repo/global.json"
-    cd "${BATS_TEST_TMPDIR}/repo" || exit
-    setup_fake_bin git dotnet mv
-    seed_fake_output dotnet <<'EOF2'
-11.0.2
-EOF2
+@test "update-dotnet-sdk fails, naming the file and keeping the original, when global.json cannot be replaced with a GA release" {
+    run_update_dotnet_sdk_with_failing_mv 11.0.2
+    assert_global_json_kept_after_failed_replace
+}
 
-    run env DOTNET_PREVIEW_VERSION=11 FAKE_EXIT_mv=1 "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"* ]]
-    refute_fake_called '^git '
+@test "update-dotnet-sdk fails, naming the file and keeping the original, when global.json cannot be replaced with a preview release" {
+    run_update_dotnet_sdk_with_failing_mv 11.0.3-preview.1
+    assert_global_json_kept_after_failed_replace
 }
