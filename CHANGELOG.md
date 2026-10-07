@@ -23,7 +23,9 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Set CLAUDE_CODE_TMPDIR to the XDG runtime directory so Claude Code uses the per-session tmpfs instead of the shared system temp directory
 - Extended the global git configuration with rerere, zdiff3 conflict markers, histogram diffs, parallel fetch, commit-graph writing, object integrity checks, tag signing and other recommended defaults, so every machine gets safer and faster git behaviour out of the box
 - Added a tmux-here command that attaches to the tmux session for the current directory, creating it first if it does not exist, so each project directory keeps its own persistent terminal session
-- TBD - to be finalized after review
+- Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
+- Added a user systemd timer that runs dev-update shortly after login and then every 30 minutes, skipping quietly when offline
+- Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Removed tracked .idea/.gitignore file that was already in .gitignore
@@ -33,12 +35,15 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pre-commit-check now fails fast when the current branch is behind its own upstream or the remote default branch, instead of running checks against stale code
 - pre-commit-check no longer blocks commits as behind immediately after a local rebase that has not yet been pushed
 - dev-update now waits for network via systemd-networkd (using systemd-networkd-wait-online) as well as NetworkManager (using nm-online), so it works on hosts that don't run NetworkManager
+- Stopped shellcheck following system files sourced by the shell configuration, and updated stale install-dotnet-tools and dev-update test fixtures, so pre-commit-check passes again
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
 - Deduplicated die/success/info/warn helper scripts across settings/scripts/* by sourcing the shared lib/common (now with a TTY-guarded warn added), instead of each script hand-rolling its own copy
 - NetworkManager now uses systemd-resolved instead of dnsmasq for DNS resolution; the previous dnsmasq drop-ins, service, and package are removed on next install run if present
 - dev-update now waits for the network before pulling repos and runs update-dotnet-tools before completing
+- dev-update now pulls the ~/work/reference clones, runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
+- The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
