@@ -160,3 +160,20 @@ EOF
     run jq -r '.sdk.allowPrerelease' "${BATS_TEST_TMPDIR}/repo/global.json"
     [ "${output}" = "false" ]
 }
+
+@test "update-dotnet-sdk fails, naming the file, when global.json cannot be replaced" {
+    # Real mv is shadowed only for the script run; the fixture is set up
+    # with the real tools first.
+    mkdir -p "${BATS_TEST_TMPDIR}/repo"
+    printf '{"sdk":{"version":"11.0.0","allowPrerelease":true}}' > "${BATS_TEST_TMPDIR}/repo/global.json"
+    cd "${BATS_TEST_TMPDIR}/repo" || exit
+    setup_fake_bin git dotnet mv
+    seed_fake_output dotnet <<'EOF2'
+11.0.2
+EOF2
+
+    run env DOTNET_PREVIEW_VERSION=11 FAKE_EXIT_mv=1 "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"* ]]
+    refute_fake_called '^git '
+}
