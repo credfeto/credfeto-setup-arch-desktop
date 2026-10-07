@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC1091
+# shellcheck shell=bash
 
 case $- in
     *i*) iatest=1 ;;

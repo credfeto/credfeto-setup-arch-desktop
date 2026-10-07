@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC1091
+# shellcheck shell=bash
 if [ -f /usr/share/autojump/autojump.sh ]; then
     # shellcheck source=/dev/null
     . /usr/share/autojump/autojump.sh
