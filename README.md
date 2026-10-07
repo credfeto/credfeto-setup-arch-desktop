@@ -37,7 +37,7 @@ Any failure stops `dev-install`.
 
 ### Reference clones
 
-The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. The `/usr/local/bin` symlinks and the systemd units resolve into the reference clones, so the timer never runs code that is mid-change in a working checkout.
+The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. The `/usr/local/bin` symlinks resolve into the reference clones, and the systemd units run `dev-update` and `network-online` straight from the `credfeto-setup-arch-desktop` reference clone, so the timer never runs code that is mid-change in a working checkout. The symlinks remain for running the scripts by hand.
 
 Both `dev-install` and `dev-update` switch each reference clone to `main` and fast-forward it with `git pull --ff-only`. A clone with uncommitted changes, one that cannot be switched to `main`, or one whose `main` has diverged from its upstream stops the run with an error naming the clone. Neither script ever forces, resets or stashes a clone, so fix the clone by hand and re-run.
 
@@ -55,7 +55,7 @@ It finishes with `update-dotnet-tools`. A lock in `$XDG_RUNTIME_DIR/dev-update.l
 
 ### dev-update timer
 
-`dev-update.timer` starts the service 15 seconds after the user manager starts, then every 30 minutes, each with up to 5 minutes of random delay. The service's `ExecCondition=` runs `network-online`, so an offline tick is skipped quietly rather than marking the unit failed.
+`dev-update.timer` starts the service 15 seconds after the user manager starts, then every 30 minutes, each with up to 5 minutes of random delay. The service's `ExecCondition=` runs `network-online` from the reference clone, so an offline tick, or one where the clone is missing, is skipped quietly rather than marking the unit failed.
 
 The service runs `dev-update` through a login shell (`/bin/sh -lc`), because the user manager does not read `/etc/profile.d`. Timer runs therefore get the same environment that `install` deploys for shells, such as `NUGET_PACKAGES` and `GNUPGHOME`.
 
