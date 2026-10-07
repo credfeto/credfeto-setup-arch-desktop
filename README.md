@@ -19,7 +19,7 @@ Run `install` from a checkout of this repository. It runs each step under `insta
 
 Then run `dev-install` once, outside a Claude Code session, with the network up and `dotnet` on `PATH`. It:
 
-- clones any missing reference repositories into `~/work/reference/` over SSH (`git@github.com:credfeto/<repo>.git`): `credfeto-setup-arch-desktop`, `credfeto-global-pre-commit`, `cs-template`, `credfeto-orchestrator`, `claude` and `credfeto-ai-skills`;
+- clones any missing reference repositories into `~/work/reference/<repo>` over SSH only: `credfeto-setup-arch-desktop`, `credfeto-global-pre-commit`, `cs-template`, `credfeto-orchestrator` and `credfeto-ai-skills` from `git@github.com:credfeto/<repo>.git`, and `claude` from `git@github.com:dnyw4l3n13/claude.git`;
 - switches each reference clone to `main` and fast-forwards it (`git pull --ff-only`), so a re-run brings any clone that already existed up to date before anything runs from it;
 - runs `install-dotnet-tools` from `$HOME`;
 - symlinks `units/dev-update/dev-update.service` and `dev-update.timer` from the reference clone into `~/.config/systemd/user/` and enables the timer;
@@ -43,7 +43,7 @@ Both `dev-install` and `dev-update` switch each reference clone to `main` and fa
 
 ### dev-update
 
-`dev-update` refuses to run inside a Claude Code session and dies at once when offline. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH (`git@github.com:credfeto/<repo>.git`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. It then switches every reference clone to `main` and fast-forwards it, as described under [Reference clones](#reference-clones), and runs, stopping on the first failure:
+`dev-update` refuses to run inside a Claude Code session and dies at once when offline. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH only, from the same owners as `dev-install` (`credfeto` for all but `claude`, which comes from `dnyw4l3n13`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. It then switches every reference clone to `main` and fast-forwards it, as described under [Reference clones](#reference-clones), and runs, stopping on the first failure:
 
 - `credfeto-setup-arch-desktop/install.d/dev-scripts`
 - `credfeto-global-pre-commit/install --system`

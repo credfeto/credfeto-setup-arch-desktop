@@ -63,25 +63,27 @@ run_reference_step() {
     "${STEP}" "$@" || die "Failed to run ${STEP}"
 }
 
-# Clones a reference repo over SSH when it is missing; an existing clone is
-# left alone.
-# Usage: clone_reference_repo <repo>
+# Clones a reference repo from GitHub over SSH when it is missing; an existing
+# clone is left alone. The clone directory is named after the repo only, so
+# the owner never appears in a path.
+# Usage: clone_reference_repo <owner>/<repo>
 clone_reference_repo() {
     mkdir -p "${DEV_REFERENCE_DIR}" || die "Failed to create ${DEV_REFERENCE_DIR}"
 
-    CLONE_PATH="${DEV_REFERENCE_DIR}/$1"
+    CLONE_REPO="${1#*/}"
+    CLONE_PATH="${DEV_REFERENCE_DIR}/${CLONE_REPO}"
     [ -d "${CLONE_PATH}" ] && return 0
 
-    info "Cloning $1 into ${CLONE_PATH}..."
-    git clone "git@github.com:credfeto/$1.git" "${CLONE_PATH}" || die "Failed to clone $1"
+    info "Cloning ${CLONE_REPO} into ${CLONE_PATH}..."
+    git clone "git@github.com:$1.git" "${CLONE_PATH}" || die "Failed to clone ${CLONE_REPO}"
 }
 
 # Switches an existing reference clone to main and fast-forwards it. Never
 # forces, resets or stashes: uncommitted changes, a failed switch or a
 # diverged main stop the run so nothing is lost.
-# Usage: update_reference_repo <repo>
+# Usage: update_reference_repo <owner>/<repo>
 update_reference_repo() {
-    CLONE_PATH="${DEV_REFERENCE_DIR}/$1"
+    CLONE_PATH="${DEV_REFERENCE_DIR}/${1#*/}"
 
     CLONE_STATUS="$(git -C "${CLONE_PATH}" status --porcelain)" || die "Failed to read the status of ${CLONE_PATH}"
     [ -z "${CLONE_STATUS}" ] || die "Uncommitted changes in ${CLONE_PATH}; commit or discard them, then re-run"
@@ -93,10 +95,11 @@ update_reference_repo() {
 
 # Reference clone layout.
 DEV_REFERENCE_DIR="${HOME}/work/reference"
-# Consumed by the settings/scripts/ that source this file rather than by
-# lib/common itself, hence the SC2034 disable.
+# Each entry is <owner>/<repo> on GitHub; the clone lands in
+# ${DEV_REFERENCE_DIR}/<repo>. Consumed by the settings/scripts/ that source
+# this file rather than by lib/common itself, hence the SC2034 disable.
 # shellcheck disable=SC2034
-DEV_REFERENCE_REPOS="credfeto-setup-arch-desktop credfeto-global-pre-commit cs-template credfeto-orchestrator claude credfeto-ai-skills"
+DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
 
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
 # every source (not exported from `install`) so a script run standalone still
