@@ -42,8 +42,9 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-update no longer lets the processes it starts inherit its run lock, so a leftover ssh or gpg process can no longer keep the lock after a run ends and silently stop every later timer run
 - Install the audit and apparmor packages before enabling auditd and apparmor, so install no longer stops on a machine without them
 - The dev-update timer now runs with the ~/.local/bin and .NET PATH and DOTNET_ROOT settings from bash.bashrc.d, so timer runs find dotnet and user-installed tools
-- dev-install now starts the dev-update timer once its own run finishes, and dev-update arms it after reloading units, so the timer runs without waiting for the next login
 - update-dotnet-sdk no longer deletes global.json before replacing it, so a failed move leaves the original in place
+- dev-update now starts the dev-update timer once a successful run has released its lock, so the timer runs without waiting for the next login and never collides with the run that started it
+- dev-scripts now removes dangling /usr/local/bin links into either the personal or the reference checkout, so a script removed upstream no longer leaves a broken command on PATH
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
