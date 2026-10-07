@@ -7,7 +7,8 @@ Type=oneshot
 # /etc/profile.d/30_ssh-agent.sh, which sets the same value.
 Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
 # Run straight from the reference clone (%h is the user's home), not through
-# the /usr/local/bin symlinks. If the clone is missing, the condition fails to
+# the /usr/local/bin symlinks. The path mirrors the DEV_REFERENCE_DIR default
+# in lib/common, which a unit cannot source. If the clone is missing, the condition fails to
 # exec with exit 203, which is in the 1 to 254 range that skips the unit, so
 # the tick is skipped quietly rather than marking the unit failed.
 ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online
