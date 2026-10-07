@@ -11,6 +11,11 @@ load test_helper
 
 SHELL_ENVIRONMENT="${REPO_DIR}/install.d/shell-environment"
 
+setup() {
+    export HOME="${BATS_TEST_TMPDIR}/home"
+    mkdir -p "${HOME}"
+}
+
 # Lists the source path of every settings file the script deploys.
 deployed_sources() {
     # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
@@ -70,4 +75,46 @@ deployed_sources() {
     done
 
     [ -z "${missing}" ]
+}
+
+# ── update ───────────────────────────────────────────────────────────────────
+# Only the install-selection helper is exercised: update() itself runs the
+# real system package manager.
+
+# Creates a stub install script under $HOME/work/<tree> that echoes which
+# tree it came from.
+make_setup_install() {
+    local _dir="${HOME}/work/$1/credfeto-setup-arch-desktop"
+    mkdir -p "${_dir}"
+    printf '#!/bin/sh\necho "%s install ran"\n' "$1" > "${_dir}/install"
+    chmod +x "${_dir}/install"
+}
+
+run_update_setup_install() {
+    # shellcheck source=../settings/bash.bashrc.d/95_update.sh disable=SC1091
+    source "${REPO_DIR}/settings/bash.bashrc.d/95_update.sh"
+    run _update_setup_arch_desktop
+}
+
+@test "update runs the reference clone's install when it exists" {
+    make_setup_install reference
+    make_setup_install personal
+
+    run_update_setup_install
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "reference install ran" ]
+}
+
+@test "update falls back to the personal checkout's install without a reference clone" {
+    make_setup_install personal
+
+    run_update_setup_install
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "personal install ran" ]
+}
+
+@test "update runs no install when neither checkout exists" {
+    run_update_setup_install
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
 }

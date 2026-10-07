@@ -5,89 +5,413 @@ load test_helper
 
 LINUX_DIR="${SCRIPTS_DIR}/linux"
 
+REFERENCE_REPOS=(
+    credfeto-setup-arch-desktop
+    credfeto-global-pre-commit
+    cs-template
+    credfeto-orchestrator
+    claude
+    credfeto-ai-skills
+)
+
+DEV_UPDATE_STEPS=(
+    credfeto-setup-arch-desktop/install.d/dev-scripts
+    credfeto-global-pre-commit/install
+    claude/install
+    credfeto-ai-skills/install
+    credfeto-orchestrator/install-claude-hooks
+)
+
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
-    # With global/system config blanked above, git has no identity to fall
-    # back on unless the host account's GECOS full name happens to be set,
-    # which it is not on every machine - so the fixtures below need their
-    # own, independent of what the host is configured with.
-    export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
-    export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+    # These tests run from inside Claude Code sessions too, where CLAUDECODE=1
+    # is inherited and would make dev-update/dev-install refuse to run.
+    unset CLAUDECODE
+    # Keeps the units install and the dev-update lock inside the test tree
+    # rather than the real user config and runtime directories.
+    unset XDG_CONFIG_HOME
+    export XDG_RUNTIME_DIR="${BATS_TEST_TMPDIR}/run"
+    mkdir -p "${XDG_RUNTIME_DIR}"
+}
+
+# Fakes systemctl so `is-active` succeeds only for the given unit (pass
+# "none" for neither network manager) and every other call succeeds, plus
+# nm-online and systemd-networkd-wait-online, whose exit codes come from
+# FAKE_EXIT_nm_online and FAKE_EXIT_systemd_networkd_wait_online. Any extra
+# arguments are further tools to fake via setup_fake_bin.
+setup_fake_network() {
+    local _active="$1"
+    shift
+    setup_fake_bin nm-online systemd-networkd-wait-online "$@"
+    cat > "${FAKE_BIN_DIR}/systemctl" <<EOF
+#!/bin/sh
+printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+if [ "\$1" = "is-active" ]; then
+    [ "\$3" = "${_active}" ]
+    exit
+fi
+exit 0
+EOF
+    chmod +x "${FAKE_BIN_DIR}/systemctl"
+    export SYSTEMD_NETWORKD_WAIT_ONLINE="${FAKE_BIN_DIR}/systemd-networkd-wait-online"
+}
+
+# Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
+# to the fake log and exits with the given code.
+# Usage: make_logging_stub <root> <relpath> [<exit-code>]
+make_logging_stub() {
+    local _path="$1/$2"
+    mkdir -p "$(dirname "${_path}")"
+    cat > "${_path}" <<EOF
+#!/bin/sh
+printf '%s %s\n' "$2" "\$*" >> "${FAKE_BIN_LOG}"
+exit ${3:-0}
+EOF
+    chmod +x "${_path}"
+}
+
+# Lines of the fake log in order, minus the network probes.
+logged_steps() {
+    grep -vE '^(systemctl|nm-online|systemd-networkd-wait-online) ' "${FAKE_BIN_LOG}"
+}
+
+# ── network-online ───────────────────────────────────────────────────────────
+
+@test "network-online exits 0 when NetworkManager reports online" {
+    setup_fake_network NetworkManager.service
+    run "${LINUX_DIR}/network-online"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^nm-online -q -t 0$'
+    refute_fake_called '^systemd-networkd-wait-online'
+}
+
+@test "network-online exits 1 when NetworkManager reports offline" {
+    setup_fake_network NetworkManager.service
+    run env FAKE_EXIT_nm_online=2 "${LINUX_DIR}/network-online"
+    [ "${status}" -eq 1 ]
+}
+
+@test "network-online exits 0 when systemd-networkd reports online" {
+    setup_fake_network systemd-networkd.service
+    run "${LINUX_DIR}/network-online"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^systemd-networkd-wait-online --any --timeout=1 -q$'
+    refute_fake_called '^nm-online'
+}
+
+@test "network-online exits 1 when systemd-networkd reports offline" {
+    setup_fake_network systemd-networkd.service
+    run env FAKE_EXIT_systemd_networkd_wait_online=1 "${LINUX_DIR}/network-online"
+    [ "${status}" -eq 1 ]
+}
+
+@test "network-online exits 255 when neither network manager is active" {
+    setup_fake_network none
+    run "${LINUX_DIR}/network-online"
+    [ "${status}" -eq 255 ]
+    [[ "${output}" == *"Neither NetworkManager nor systemd-networkd is active"* ]]
+    refute_fake_called '^nm-online'
+    refute_fake_called '^systemd-networkd-wait-online'
 }
 
 # ── dev-update ───────────────────────────────────────────────────────────────
 
-make_pullable_repo() {
-    local _path="$1"
-    local _remote
-    _remote="${BATS_TEST_TMPDIR}/remotes/$(basename "${_path}").git"
-    mkdir -p "$(dirname "${_remote}")"
-    git init --quiet --bare "${_remote}"
-    git init --quiet "${_path}"
-    git -C "${_path}" commit --quiet --allow-empty -m initial
-    git -C "${_path}" remote add origin "${_remote}"
-    git -C "${_path}" push --quiet -u origin HEAD:main
+# Online under NetworkManager, every reference clone present, every install
+# step a logging stub; git and update-dotnet-tools are faked so nothing
+# reaches a real remote or the real dotnet tool restore.
+setup_dev_update_fixture() {
+    setup_fake_network NetworkManager.service git update-dotnet-tools
+    local _repo _step
+    for _repo in "${REFERENCE_REPOS[@]}"; do
+        mkdir -p "${HOME}/work/reference/${_repo}"
+    done
+    for _step in "${DEV_UPDATE_STEPS[@]}"; do
+        make_logging_stub "${HOME}/work/reference" "${_step}"
+    done
 }
 
-@test "dev-update skips every repo that is not present, still runs install-claude-hooks via \$HOME" {
-    # dev-update's final step, update-dotnet-tools, would otherwise run real
-    # dotnet tool restores over the network.
-    setup_fake_bin dotnet
-
-    # credfeto-orchestrator is itself one of the update_repo() targets, so it
-    # has to be a genuinely pullable repo for this "everything else is
-    # skipped" scenario to reach the unconditional install-claude-hooks step.
-    make_pullable_repo "${HOME}/work/personal/credfeto-orchestrator"
-    cat > "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks" <<'EOF'
-#!/bin/sh
-echo "install-claude-hooks ran"
-exit 0
-EOF
-    chmod +x "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
-
-    run "${LINUX_DIR}/dev-update"
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"Skipping"*"credfeto-setup-arch-desktop"*"not present"* ]]
-    [[ "${output}" == *"Skipping"*"credfeto-ai-skills"*"not present"* ]]
-    [[ "${output}" == *"install-claude-hooks ran"* ]]
-    [[ "${output}" == *"Dev environment updated"* ]]
+@test "dev-update dies inside a Claude Code session" {
+    setup_dev_update_fixture
+    run env CLAUDECODE=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"must not be run from a Claude Code session"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
 }
 
-@test "dev-update pulls a present repo and dies if the pull fails" {
-    # A present repo dir with no remote configured - `git pull` fails, and
-    # update_repo() must die rather than continue silently.
-    git init --quiet "${HOME}/work/personal/cs-template"
-    git -C "${HOME}/work/personal/cs-template" commit --quiet --allow-empty -m initial
+@test "dev-update dies at once when offline" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_nm_online=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No network connection"* ]]
+    [ -z "$(logged_steps)" ]
+}
 
+@test "dev-update dies when neither network manager is active" {
+    setup_dev_update_fixture
+    setup_fake_network none git update-dotnet-tools
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Failed to pull"*"cs-template"* ]]
+    [[ "${output}" == *"Neither NetworkManager nor systemd-networkd is active"* ]]
+    [ -z "$(logged_steps)" ]
 }
 
-@test "dev-update runs the credfeto-ai-skills installer when that repo is present" {
-    # dev-update's final step, update-dotnet-tools, would otherwise run real
-    # dotnet tool restores over the network.
-    setup_fake_bin dotnet
+@test "dev-update exits 0 without doing anything while another run holds the lock" {
+    setup_dev_update_fixture
+    exec 8>"${XDG_RUNTIME_DIR}/dev-update.lock"
+    flock -n 8
 
-    make_pullable_repo "${HOME}/work/personal/credfeto-orchestrator"
-    printf '#!/bin/sh\nexit 0\n' > "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
-    chmod +x "${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
+    run "${LINUX_DIR}/dev-update"
 
-    make_pullable_repo "${HOME}/work/personal/credfeto-ai-skills"
+    exec 8>&-
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"dev-update is already running"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
 
-    cat > "${HOME}/work/personal/credfeto-ai-skills/install" <<'EOF'
-#!/bin/sh
-echo "ai-skills install ran"
-exit 0
-EOF
-    chmod +x "${HOME}/work/personal/credfeto-ai-skills/install"
+@test "dev-update dies when XDG_RUNTIME_DIR is not set" {
+    setup_dev_update_fixture
+    run env -u XDG_RUNTIME_DIR "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"XDG_RUNTIME_DIR is not set"* ]]
+}
+
+@test "dev-update pulls every reference repo, then runs each install step in order" {
+    setup_dev_update_fixture
+    cd "${BATS_TEST_TMPDIR}"
 
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"ai-skills install ran"* ]]
+    [[ "${output}" == *"Dev environment updated"* ]]
+
+    local _ref="${HOME}/work/reference"
+    expected="$(printf '%s\n' \
+        "git -C ${_ref}/credfeto-setup-arch-desktop pull" \
+        "git -C ${_ref}/credfeto-global-pre-commit pull" \
+        "git -C ${_ref}/cs-template pull" \
+        "git -C ${_ref}/credfeto-orchestrator pull" \
+        "git -C ${_ref}/claude pull" \
+        "git -C ${_ref}/credfeto-ai-skills pull" \
+        "credfeto-setup-arch-desktop/install.d/dev-scripts " \
+        "credfeto-global-pre-commit/install --system" \
+        "claude/install " \
+        "credfeto-ai-skills/install " \
+        "credfeto-orchestrator/install-claude-hooks " \
+        "update-dotnet-tools ")"
+    [ "$(logged_steps)" = "${expected}" ]
+}
+
+@test "dev-update dies if a pull fails" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_git=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to pull"*"credfeto-setup-arch-desktop"* ]]
+    refute_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
+}
+
+@test "dev-update dies if a reference clone is missing" {
+    setup_dev_update_fixture
+    rm -rf "${HOME}/work/reference/cs-template"
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Reference clone not found"*"cs-template"*"run dev-install"* ]]
+    refute_fake_called '^update-dotnet-tools'
+}
+
+@test "dev-update treats every install step failing as fatal" {
+    local _failing
+    for _failing in "${DEV_UPDATE_STEPS[@]}"; do
+        setup_dev_update_fixture
+        make_logging_stub "${HOME}/work/reference" "${_failing}" 3
+
+        run "${LINUX_DIR}/dev-update"
+        [ "${status}" -eq 1 ]
+        [[ "${output}" == *"Failed to run ${HOME}/work/reference/${_failing}"* ]]
+        refute_fake_called '^update-dotnet-tools'
+
+        rm -rf "${HOME}/work/reference"
+    done
+}
+
+@test "dev-update dies if claude/install is missing" {
+    setup_dev_update_fixture
+    rm "${HOME}/work/reference/claude/install"
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Install script not found or not executable"*"claude/install"* ]]
+    refute_fake_called '^credfeto-ai-skills/install'
+}
+
+@test "dev-update dies if claude/install is not executable" {
+    setup_dev_update_fixture
+    chmod -x "${HOME}/work/reference/claude/install"
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Install script not found or not executable"*"claude/install"* ]]
+}
+
+# ── dev-install ──────────────────────────────────────────────────────────────
+
+# Fakes git so `git clone <url> <dest>` copies <dest>'s basename from
+# FAKE_CLONE_SOURCE when present (otherwise creates an empty directory),
+# logs the call and exits with FAKE_EXIT_git.
+setup_fake_git_clone() {
+    FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
+    mkdir -p "${FAKE_CLONE_SOURCE}"
+    cat > "${FAKE_BIN_DIR}/git" <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+[ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
+if [ "\$1" = "clone" ]; then
+    if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
+        cp -R "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" "\$3"
+    else
+        mkdir -p "\$3"
+    fi
+fi
+exit 0
+EOF
+    chmod +x "${FAKE_BIN_DIR}/git"
+}
+
+# Online under NetworkManager with dotnet present. The cloned
+# credfeto-setup-arch-desktop carries the real units/dev-update and
+# lib/common, so its units install runs for real against the fake
+# systemctl, plus a logging stub in place of dev-update.
+# install-dotnet-tools logs the directory it was run from.
+setup_dev_install_fixture() {
+    setup_fake_network NetworkManager.service dotnet
+    setup_fake_git_clone
+
+    local _clone="${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop"
+    mkdir -p "${_clone}/units"
+    cp -R "${REPO_DIR}/lib" "${_clone}/lib"
+    cp -R "${REPO_DIR}/units/dev-update" "${_clone}/units/dev-update"
+    make_logging_stub "${_clone}" settings/scripts/linux/dev-update
+
+    cat > "${FAKE_BIN_DIR}/install-dotnet-tools" <<EOF
+#!/bin/sh
+printf 'install-dotnet-tools %s\n' "\$(pwd)" >> "${FAKE_BIN_LOG}"
+exit "\${FAKE_EXIT_install_dotnet_tools:-0}"
+EOF
+    chmod +x "${FAKE_BIN_DIR}/install-dotnet-tools"
+}
+
+@test "dev-install dies inside a Claude Code session" {
+    setup_dev_install_fixture
+    run env CLAUDECODE=1 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"must not be run from a Claude Code session"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install dies at once when offline, before cloning anything" {
+    setup_dev_install_fixture
+    run env FAKE_EXIT_nm_online=1 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No network connection"* ]]
+    [ -z "$(logged_steps)" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install dies when dotnet is not on PATH" {
+    setup_dev_install_fixture
+    rm "${FAKE_BIN_DIR}/dotnet"
+    # The real dotnet lives in /usr/bin, so PATH is cut down to the fakes
+    # plus only the tools the scripts need before the dotnet check.
+    local _minbin="${BATS_TEST_TMPDIR}/minbin"
+    mkdir -p "${_minbin}"
+    ln -s "$(which dirname)" "${_minbin}/dirname"
+    ln -s "$(which readlink)" "${_minbin}/readlink"
+
+    run env PATH="${FAKE_BIN_DIR}:${_minbin}" "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"dotnet is not on PATH"* ]]
+    [ -z "$(logged_steps)" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install creates the reference tree, clones every repo over SSH, then installs" {
+    setup_dev_install_fixture
+    cd "${BATS_TEST_TMPDIR}"
+
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Dev environment installed"* ]]
+    [ -d "${HOME}/work/reference" ]
+
+    local _repo
+    for _repo in "${REFERENCE_REPOS[@]}"; do
+        grep -qxF "git clone git@github.com:credfeto/${_repo}.git ${HOME}/work/reference/${_repo}" "${FAKE_BIN_LOG}"
+    done
+    refute_fake_called 'https://'
+}
+
+@test "dev-install clones only the reference repos that are missing" {
+    setup_dev_install_fixture
+    mkdir -p "${HOME}/work/reference/cs-template" "${HOME}/work/reference/claude"
+
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+    refute_fake_called '^git clone .*/cs-template\.git'
+    refute_fake_called '^git clone .*/claude\.git'
+    assert_fake_called '^git clone git@github\.com:credfeto/credfeto-ai-skills\.git '
+    [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq 4 ]
+}
+
+@test "dev-install dies if a clone fails" {
+    setup_dev_install_fixture
+    run env FAKE_EXIT_git=128 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to clone credfeto-setup-arch-desktop"* ]]
+    refute_fake_called '^install-dotnet-tools'
+}
+
+@test "dev-install runs install-dotnet-tools from \$HOME" {
+    setup_dev_install_fixture
+    cd "${BATS_TEST_TMPDIR}"
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+    grep -qxF "install-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+}
+
+@test "dev-install dies if install-dotnet-tools fails" {
+    setup_dev_install_fixture
+    run env FAKE_EXIT_install_dotnet_tools=1 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to install dotnet tools"* ]]
+    refute_fake_called '^systemctl --user'
+}
+
+@test "dev-install symlinks the units from the reference clone and enables the timer" {
+    setup_dev_install_fixture
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+
+    local _units="${HOME}/work/reference/credfeto-setup-arch-desktop/units/dev-update"
+    local _unit
+    for _unit in dev-update.service dev-update.timer; do
+        [ -L "${HOME}/.config/systemd/user/${_unit}" ]
+        [ "$(readlink -f "${HOME}/.config/systemd/user/${_unit}")" = "$(readlink -f "${_units}/${_unit}")" ]
+    done
+    assert_fake_called '^systemctl --user daemon-reload$'
+    assert_fake_called '^systemctl --user enable dev-update\.timer$'
+}
+
+@test "dev-install runs the reference clone's dev-update as its last step" {
+    setup_dev_install_fixture
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "settings/scripts/linux/dev-update " ]
+}
+
+@test "dev-install dies if dev-update fails" {
+    setup_dev_install_fixture
+    make_logging_stub "${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop" settings/scripts/linux/dev-update 1
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to run"*"settings/scripts/linux/dev-update"* ]]
 }
 
 # ── install-fp ───────────────────────────────────────────────────────────────

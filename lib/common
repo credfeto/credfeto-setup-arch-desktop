@@ -29,6 +29,36 @@ info() {
     _emit '→' 32 1 "$@"
 }
 
+# Returns true (0) when running inside a Claude Code Bash-tool session.
+# Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
+# that value is inherited by subprocesses (e.g. git hooks).
+# Source: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables
+is_ai_agent() {
+    [ "${CLAUDECODE}" = "1" ]
+}
+
+# Usage: refuse_ai_agent <script-name>
+refuse_ai_agent() {
+    if is_ai_agent; then
+        die "Prohibited: $1 must not be run from a Claude Code session"
+    fi
+}
+
+# Dies at once rather than waiting for the network, so a manual run fails
+# fast when offline.
+# Usage: require_network <path-to-network-online>
+require_network() {
+    "$1" || die "No network connection"
+}
+
+# Reference clone layout, consumed by the settings/scripts/ that source this
+# file rather than by lib/common itself, hence the per-declaration SC2034
+# disables.
+# shellcheck disable=SC2034
+DEV_REFERENCE_DIR="${HOME}/work/reference"
+# shellcheck disable=SC2034
+DEV_REFERENCE_REPOS="credfeto-setup-arch-desktop credfeto-global-pre-commit cs-template credfeto-orchestrator claude credfeto-ai-skills"
+
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
 # every source (not exported from `install`) so a script run standalone still
 # sees correct values without `install` having run first. Written as `if`

@@ -1,0 +1,57 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+require_dotnet() {
+    command -v dotnet >/dev/null 2>&1 || die "dotnet is not on PATH"
+}
+
+clone_reference_repo() {
+    REPO="$1"
+    REPO_PATH="${DEV_REFERENCE_DIR}/${REPO}"
+
+    if [ -d "${REPO_PATH}" ]; then
+        info "${REPO_PATH} already present"
+        return 0
+    fi
+
+    info "Cloning ${REPO} into ${REPO_PATH}..."
+    git clone "git@github.com:credfeto/${REPO}.git" "${REPO_PATH}" || die "Failed to clone ${REPO}"
+}
+
+# Run from the reference clone rather than this checkout, so the unit
+# symlinks and the /usr/local/bin links dev-update creates resolve there.
+run_reference_step() {
+    STEP="${DEV_REFERENCE_DIR}/credfeto-setup-arch-desktop/$1"
+
+    [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
+
+    info "Running ${STEP}..."
+    "${STEP}" || die "Failed to run ${STEP}"
+}
+
+dev_install() {
+    refuse_ai_agent dev-install
+    require_network "$SCRIPTDIR/network-online"
+    require_dotnet
+
+    mkdir -p "${DEV_REFERENCE_DIR}" || die "Failed to create ${DEV_REFERENCE_DIR}"
+
+    for REPO in $DEV_REFERENCE_REPOS; do
+        clone_reference_repo "${REPO}"
+    done
+
+    info "Installing dotnet tools..."
+    (cd "${HOME}" && install-dotnet-tools) || die "Failed to install dotnet tools"
+
+    run_reference_step units/dev-update/install
+    run_reference_step settings/scripts/linux/dev-update
+
+    success "Dev environment installed"
+}
+
+dev_install
