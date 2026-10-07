@@ -6,14 +6,20 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # shellcheck source=../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Sets one global git option, dying with its name if git cannot write it
+# (e.g. an unwritable ~/.gitconfig), so no option is silently left unset.
+git_config_global() {
+    git config --global "$@" || die "Failed to set git config $1"
+}
+
 # Unlike every other install.d/ step, this deliberately does not use sudo:
 # it configures the invoking user's own ~/.gitconfig, not system state under
 # /etc, so it must run as that user.
 install_git_environment() {
     info "Configuring git identity and behaviour"
 
-    git config --global user.name "Mark Ridgwell"
-    git config --global user.email credfeto@users.noreply.github.com
+    git_config_global user.name "Mark Ridgwell"
+    git_config_global user.email credfeto@users.noreply.github.com
 
     # GPG Signing of commits/Tags etc. --with-colons is gpg's stable
     # machine-readable interface (unlike the human-readable listing, its
@@ -21,49 +27,49 @@ install_git_environment() {
     # directly after a pub record is that key's fingerprint.
     GPG_FINGERPRINT="$(gpg --list-keys --with-colons credfeto@users.noreply.github.com 2>/dev/null | awk -F: '/^fpr:/ {print $10; exit}')"
     [ -n "$GPG_FINGERPRINT" ] || die "No GPG key found for credfeto@users.noreply.github.com; cannot configure commit signing"
-    git config --global user.signingkey "$GPG_FINGERPRINT"
-    git config --global commit.gpgsign true
-    git config --global tag.gpgSign true
+    git_config_global user.signingkey "$GPG_FINGERPRINT"
+    git_config_global commit.gpgsign true
+    git_config_global tag.gpgSign true
 
-    git config --global init.defaultBranch main
+    git_config_global init.defaultBranch main
 
-    git config --global pull.rebase true
-    git config --global merge.ff false
-    git config --global merge.conflictStyle zdiff3
-    git config --global rebase.autosquash true
-    git config --global rebase.updateRefs true
-    git config --global rerere.enabled true
-    git config --global core.autocrlf false
-    git config --global core.ignorecase false
-    git config --global fetch.prune true
-    git config --global fetch.pruneTags true
-    git config --global fetch.recurseSubModules true
-    git config --global submodule.recurse true
-    git config --global fetch.parallel 16
-    git config --global fetch.writeCommitGraph true
-    git config --global push.autoSetupRemote true
-    git config --global push.followTags true
-    git config --global transfer.fsckObjects true
+    git_config_global pull.rebase true
+    git_config_global merge.ff false
+    git_config_global merge.conflictStyle zdiff3
+    git_config_global rebase.autosquash true
+    git_config_global rebase.updateRefs true
+    git_config_global rerere.enabled true
+    git_config_global core.autocrlf false
+    git_config_global core.ignorecase false
+    git_config_global fetch.prune true
+    git_config_global fetch.pruneTags true
+    git_config_global fetch.recurseSubModules true
+    git_config_global submodule.recurse true
+    git_config_global fetch.parallel 16
+    git_config_global fetch.writeCommitGraph true
+    git_config_global push.autoSetupRemote true
+    git_config_global push.followTags true
+    git_config_global transfer.fsckObjects true
 
-    git config --global core.preloadindex true
-    git config --global core.fscache true
-    git config --global feature.manyFiles true
+    git_config_global core.preloadindex true
+    git_config_global core.fscache true
+    git_config_global feature.manyFiles true
 
-    git config --global diff.algorithm histogram
-    git config --global diff.colorMoved default
-    git config --global branch.sort -committerdate
-    git config --global tag.sort version:refname
+    git_config_global diff.algorithm histogram
+    git_config_global diff.colorMoved default
+    git_config_global branch.sort -committerdate
+    git_config_global tag.sort version:refname
 
-    git config --global alias.lg "log --oneline --color --decorate --graph --branches --tags"
+    git_config_global alias.lg "log --oneline --color --decorate --graph --branches --tags"
 
-    git config --global alias.renormalise "add . --renormalize"
-    git config --global alias.renormalize "add . --renormalize"
+    git_config_global alias.renormalise "add . --renormalize"
+    git_config_global alias.renormalize "add . --renormalize"
 
     # Switch to ssh for github etc when an https url is used
-    git config --global url."git@github.com:".insteadOf "https://github.com/"
-    git config --global url."git@gitlab.com:".insteadOf "https://gitlab.com/"
-    git config --global url."git@bitbucket.org:".insteadOf "https://bitbucket.org/"
-    git config --global url."https://aur.markridgwell.com/".insteadOf "https://aur.archlinux.org/"
+    git_config_global url."git@github.com:".insteadOf "https://github.com/"
+    git_config_global url."git@gitlab.com:".insteadOf "https://gitlab.com/"
+    git_config_global url."git@bitbucket.org:".insteadOf "https://bitbucket.org/"
+    git_config_global url."https://aur.markridgwell.com/".insteadOf "https://aur.archlinux.org/"
 
     success "Git environment configured"
 }

@@ -8,28 +8,32 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_security_tools() {
     info "Installing pkgstats"
-    sudo pacman -S --needed --noconfirm pkgstats
-    sudo systemctl enable --now pkgstats.timer
+    sudo pacman -S --needed --noconfirm pkgstats || die "Failed to install pkgstats"
+    sudo systemctl enable --now pkgstats.timer || die "Failed to enable pkgstats.timer"
 
     info "Enabling auditd"
-    sudo cp "$BASEDIR/settings/audit/rules/00_passwd.rules" /etc/audit/rules.d
-    sudo cp "$BASEDIR/settings/audit/rules/01_security.rules" /etc/audit/rules.d
-    sudo cp "$BASEDIR/settings/audit/rules/02_audit-config.rules" /etc/audit/rules.d
-    sudo systemctl enable --now auditd
+    sudo cp "$BASEDIR/settings/audit/rules/00_passwd.rules" /etc/audit/rules.d || die "Failed to copy 00_passwd.rules to /etc/audit/rules.d"
+    sudo cp "$BASEDIR/settings/audit/rules/01_security.rules" /etc/audit/rules.d || die "Failed to copy 01_security.rules to /etc/audit/rules.d"
+    sudo cp "$BASEDIR/settings/audit/rules/02_audit-config.rules" /etc/audit/rules.d || die "Failed to copy 02_audit-config.rules to /etc/audit/rules.d"
+    sudo systemctl enable --now auditd || die "Failed to enable auditd"
 
     info "Enabling usbguard"
-    sudo pacman -S --needed --noconfirm usbguard
-    sudo bash -c "[ ! -f /etc/usbguard/rules.d/00_base.conf ] && usbguard generate-policy > /etc/usbguard/rules.d/00_base.conf"
-    sudo cp "$BASEDIR/settings/usbguard/01_allow_keyboard_and_mouse.conf" /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf
-    sudo cp "$BASEDIR/settings/usbguard/02_mass_storage.conf" /etc/usbguard/rules.d/02_mass_storage.conf
-    sudo bash -c "chmod 0600 /etc/usbguard/rules.d/*"
-    sudo systemctl enable --now usbguard
+    sudo pacman -S --needed --noconfirm usbguard || die "Failed to install usbguard"
+    # "||" rather than "[ ! -f ] &&", so a base policy that already exists
+    # counts as success instead of a failure.
+    sudo bash -c "[ -f /etc/usbguard/rules.d/00_base.conf ] || usbguard generate-policy > /etc/usbguard/rules.d/00_base.conf" || die "Failed to generate /etc/usbguard/rules.d/00_base.conf"
+    sudo cp "$BASEDIR/settings/usbguard/01_allow_keyboard_and_mouse.conf" /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf || die "Failed to copy /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf"
+    sudo cp "$BASEDIR/settings/usbguard/02_mass_storage.conf" /etc/usbguard/rules.d/02_mass_storage.conf || die "Failed to copy /etc/usbguard/rules.d/02_mass_storage.conf"
+    sudo bash -c "chmod 0600 /etc/usbguard/rules.d/*" || die "Failed to set the mode of the usbguard rules"
+    sudo systemctl enable --now usbguard || die "Failed to enable usbguard"
 
     info "Enabling lynis and chkrootkit"
-    sudo pacman -S --needed --noconfirm lynis chkrootkit
+    sudo pacman -S --needed --noconfirm lynis chkrootkit || die "Failed to install lynis and chkrootkit"
 
     info "Installing arch-audit"
-    sudo pacman -S --needed --noconfirm arch-audit
+    sudo pacman -S --needed --noconfirm arch-audit || die "Failed to install arch-audit"
+
+    success "Security tools installed"
 }
 
 install_security_tools

@@ -8,10 +8,12 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_btrfs_scrub() {
     info "Installing btrfs scrub"
-    sudo cp "$BASEDIR/units/btrfs-scrub/btrfs-scrub.service" /etc/systemd/system/
-    sudo cp "$BASEDIR/units/btrfs-scrub/btrfs-scrub.timer" /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now btrfs-scrub.timer
+    sudo cp "$BASEDIR/units/btrfs-scrub/btrfs-scrub.service" /etc/systemd/system/ || die "Failed to copy btrfs-scrub.service to /etc/systemd/system"
+    sudo cp "$BASEDIR/units/btrfs-scrub/btrfs-scrub.timer" /etc/systemd/system/ || die "Failed to copy btrfs-scrub.timer to /etc/systemd/system"
+    sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
+    sudo systemctl enable --now btrfs-scrub.timer || die "Failed to enable btrfs-scrub.timer"
+
+    success "btrfs scrub installed"
 }
 
 install_btrfs_scrub

@@ -8,11 +8,13 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_firejail() {
     info "Installing firejail"
-    sudo pacman -S --needed --noconfirm firejail
-    [ ! -d "$HOME/.config/firejail" ] && mkdir -p "$HOME/.config/firejail"
-    cp "$BASEDIR/settings/firejail/git.local" "$HOME/.config/firejail/git.local"
-    cp "$BASEDIR/settings/firejail/shellcheck.local" "$HOME/.config/firejail/shellcheck.local"
-    cp "$BASEDIR/settings/firejail/ssh.local" "$HOME/.config/firejail/ssh.local"
+    sudo pacman -S --needed --noconfirm firejail || die "Failed to install firejail"
+    mkdir -p "$HOME/.config/firejail" || die "Failed to create $HOME/.config/firejail"
+    cp "$BASEDIR/settings/firejail/git.local" "$HOME/.config/firejail/git.local" || die "Failed to copy $HOME/.config/firejail/git.local"
+    cp "$BASEDIR/settings/firejail/shellcheck.local" "$HOME/.config/firejail/shellcheck.local" || die "Failed to copy $HOME/.config/firejail/shellcheck.local"
+    cp "$BASEDIR/settings/firejail/ssh.local" "$HOME/.config/firejail/ssh.local" || die "Failed to copy $HOME/.config/firejail/ssh.local"
+
+    success "firejail installed"
 }
 
 install_firejail

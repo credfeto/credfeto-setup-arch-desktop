@@ -235,3 +235,16 @@ EOF
     run git config --global tag.gpgSign
     [ "${status}" -ne 0 ]
 }
+
+@test "git-environment fails, naming the option, when the global git config cannot be written" {
+    setup_fake_bin gpg
+    # The lock file git writes beside the config cannot be created in a
+    # directory that does not exist.
+    export GIT_CONFIG_GLOBAL="${BATS_TEST_TMPDIR}/missing-dir/gitconfig"
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to set git config user.name"* ]]
+    [[ "${output}" != *"Git environment configured"* ]]
+    refute_fake_called '^gpg '
+}
