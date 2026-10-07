@@ -12,7 +12,9 @@ Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
 # exec with exit 203, which is in the 1 to 254 range that skips the unit, so
 # the tick is skipped quietly rather than marking the unit failed.
 ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online
-# The user manager does not read /etc/profile.d, so run through a login shell
-# to give timer runs the same environment (NUGET_PACKAGES, GNUPGHOME, ...) as
-# interactive shells.
-ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/dev-update
+# The user manager reads neither /etc/profile.d nor /etc/bash.bashrc.d. The
+# login shell reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), and
+# run-dev-update adds the PATH and dotnet settings dev-update's steps need
+# from the clone's bash.bashrc.d sections, which a non-interactive shell
+# never reads.
+ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update
