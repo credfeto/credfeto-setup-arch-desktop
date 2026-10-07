@@ -104,6 +104,7 @@ assert_step_died() {
     run_step configure-network
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Network configured"* ]]
+    [[ "${output}" == *"Enabling MAC privacy"* ]]
     assert_fake_called '^sudo cp .*/wifi_rand_mac\.conf /etc/NetworkManager/conf\.d/wifi_rand_mac\.conf$'
     assert_fake_called '^sudo systemctl disable --now dnsmasq$'
     assert_fake_called '^sudo pacman -Rns --noconfirm dnsmasq$'
@@ -129,6 +130,8 @@ assert_step_died() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Network configured"* ]]
     refute_fake_called 'wifi_rand_mac'
+    [[ "${output}" == *"Skipping MAC privacy because incus is installed"* ]]
+    [[ "${output}" != *"Enabling MAC privacy"* ]]
     assert_fake_called '^sudo cp .*/connectivity-test\.conf '
 }
 
@@ -164,6 +167,20 @@ assert_step_died() {
     [[ "${output}" == *"baloo disabled"* ]]
     assert_fake_called '^balooctl6 disable$'
     assert_fake_called '^balooctl6 purge$'
+}
+
+@test "disable-baloo reports the skip, not a success, when balooctl6 is not installed" {
+    # A PATH holding only the tools the script needs, so neither the fake nor
+    # any real balooctl6 on the host is found.
+    local _bin="${BATS_TEST_TMPDIR}/no-baloo-bin"
+    mkdir -p "${_bin}"
+    ln -s "$(type -P dirname)" "${_bin}/dirname"
+    ln -s "$(type -P readlink)" "${_bin}/readlink"
+    run_step disable-baloo PATH="${_bin}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"balooctl6 is not installed, so there is no baloo indexer to disable"* ]]
+    [[ "${output}" != *"baloo disabled"* ]]
+    refute_fake_called '^balooctl6 '
 }
 
 @test "disable-baloo stops when disabling the indexer fails" {
