@@ -14,6 +14,16 @@ REFERENCE_REPOS=(
     credfeto-ai-skills
 )
 
+# The SSH clone URL each reference repo is expected to come from: claude is
+# owned by dnyw4l3n13, every other reference repo by credfeto.
+# Usage: expected_clone_url <repo>
+expected_clone_url() {
+    case "$1" in
+        claude) printf '%s\n' "git@github.com:dnyw4l3n13/claude.git" ;;
+        *) printf '%s\n' "git@github.com:credfeto/$1.git" ;;
+    esac
+}
+
 DEV_UPDATE_STEPS=(
     credfeto-setup-arch-desktop/install.d/dev-scripts
     credfeto-global-pre-commit/install
@@ -352,7 +362,12 @@ EOF
 
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
-    [ "$(grep -c '^git clone git@github\.com:credfeto/' "${FAKE_BIN_LOG}")" -eq "${#REFERENCE_REPOS[@]}" ]
+    [ "$(grep -c '^git clone git@github\.com:' "${FAKE_BIN_LOG}")" -eq "${#REFERENCE_REPOS[@]}" ]
+    local _repo
+    for _repo in "${REFERENCE_REPOS[@]}"; do
+        grep -qxF "git clone $(expected_clone_url "${_repo}") ${HOME}/work/reference/${_repo}" "${FAKE_BIN_LOG}"
+    done
+    refute_fake_called 'https://'
 }
 
 @test "dev-update dies if cloning a missing reference repo fails" {
@@ -469,8 +484,23 @@ EOF
 
     local _repo
     for _repo in "${REFERENCE_REPOS[@]}"; do
-        grep -qxF "git clone git@github.com:credfeto/${_repo}.git ${HOME}/work/reference/${_repo}" "${FAKE_BIN_LOG}"
+        grep -qxF "git clone $(expected_clone_url "${_repo}") ${HOME}/work/reference/${_repo}" "${FAKE_BIN_LOG}"
     done
+    refute_fake_called 'https://'
+}
+
+@test "dev-install clones claude from dnyw4l3n13 and the other reference repos from credfeto, into owner-free paths" {
+    setup_dev_install_fixture
+    cd "${BATS_TEST_TMPDIR}"
+
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 0 ]
+
+    local _ref="${HOME}/work/reference"
+    grep -qxF "git clone git@github.com:dnyw4l3n13/claude.git ${_ref}/claude" "${FAKE_BIN_LOG}"
+    refute_fake_called '^git clone git@github\.com:credfeto/claude\.git'
+    [ "$(grep -c '^git clone git@github\.com:credfeto/' "${FAKE_BIN_LOG}")" -eq 5 ]
+    [ "$(grep -c '^git clone git@github\.com:dnyw4l3n13/' "${FAKE_BIN_LOG}")" -eq 1 ]
     refute_fake_called 'https://'
 }
 
@@ -484,7 +514,7 @@ EOF
     local _repo
     expected="$(
         for _repo in "${REFERENCE_REPOS[@]}"; do
-            printf '%s\n' "git clone git@github.com:credfeto/${_repo}.git ${HOME}/work/reference/${_repo}"
+            printf '%s\n' "git clone $(expected_clone_url "${_repo}") ${HOME}/work/reference/${_repo}"
             expected_reference_update "${_repo}"
         done
         printf '%s\n' \
