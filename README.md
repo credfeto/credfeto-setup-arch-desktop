@@ -48,7 +48,7 @@ It finishes with `update-dotnet-tools`. A lock in `$XDG_RUNTIME_DIR/dev-update.l
 
 `dev-update.timer` starts the service 15 seconds after the user manager starts, then every 30 minutes, each with up to 5 minutes of random delay. The service's `ExecCondition=` runs `network-online`, so an offline tick is skipped quietly rather than marking the unit failed.
 
-Timer runs pull the reference clones over SSH, so the user systemd manager needs an SSH agent available through `SSH_AUTH_SOCK`.
+Timer runs pull the reference clones over SSH. The service sets `SSH_AUTH_SOCK` to the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
 
 ```sh
 systemctl --user list-timers dev-update.timer
