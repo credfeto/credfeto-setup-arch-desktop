@@ -36,6 +36,10 @@ setup() {
     grep -qx 'ExecStart=/usr/local/bin/dev-update' "${_service}"
 }
 
+@test "dev-update.service points SSH_AUTH_SOCK at the user ssh-agent socket" {
+    grep -qx 'Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket' "${DEV_UPDATE_UNITS}/dev-update.service"
+}
+
 @test "dev-update units install symlinks both units into the user unit directory" {
     setup_fake_bin systemctl
     run "${DEV_UPDATE_UNITS}/install"
