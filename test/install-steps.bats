@@ -400,6 +400,13 @@ assert_step_died() {
     refute_fake_called '/etc/bash\.bashrc\.d/20_xdg-dirs\.sh'
 }
 
+@test "shell-environment stops when installing an interactive-only script fails" {
+    run_step shell-environment FAKE_SUDO_FAIL='^install -m 0644 .* /etc/bash\.bashrc\.d/00_shell-options\.sh$'
+    assert_step_died "Failed to install /etc/bash.bashrc.d/00_shell-options.sh" "Shell environment installed"
+    refute_fake_called '/etc/bash\.bashrc\.d/05_ls-grep-colors\.sh'
+    refute_fake_called '^sudo tee '
+}
+
 # ── shell-prompt ─────────────────────────────────────────────────────────────
 
 @test "shell-prompt installs starship and deploys its theme" {
