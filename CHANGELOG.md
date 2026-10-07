@@ -28,7 +28,6 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
-- Removed tracked .idea/.gitignore file that was already in .gitignore
 - Use sudo when removing root-owned sysctl config files installed by the install script
 - Fixed install script failing with "hostname: not found" on Arch by using hostnamectl --static instead of the hostname command, which also preserves the full configured hostname (e.g. local domain suffix) instead of truncating it
 - Fix Starship prompt colours being silently disabled by the bash.bashrc.d PROMPT_COMMAND overwrite
@@ -36,6 +35,10 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pre-commit-check no longer blocks commits as behind immediately after a local rebase that has not yet been pushed
 - dev-update now waits for network via systemd-networkd (using systemd-networkd-wait-online) as well as NetworkManager (using nm-online), so it works on hosts that don't run NetworkManager
 - Stopped shellcheck following system files sourced by the shell configuration, and updated stale install-dotnet-tools and dev-update test fixtures, so pre-commit-check passes again
+- Removed tracked .idea/.gitignore file that was already in .gitignore
+- Clone the claude reference repo from its real owner (git@github.com:dnyw4l3n13/claude.git) instead of credfeto.
+- Dev-scripts now fails when sudo, install or link steps fail, instead of silently continuing with broken symlinks
+- Install and every install.d script now fail fast with explicit error messages when deployment steps fail, instead of silently continuing; units/auto-update/install, benchmark-test-affected, install-latest-dotnet, update-dotnet-sdk and dbenv were similarly hardened with || die guards and here-doc loops so that subshell exit codes no longer vanish
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
