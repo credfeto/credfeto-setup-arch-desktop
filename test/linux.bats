@@ -244,6 +244,44 @@ EOF
     [ ! -s "${FAKE_BIN_LOG}" ]
 }
 
+@test "dev-update holds the lock while its steps run" {
+    setup_dev_update_fixture
+    # A second dev-update started from inside a step must find the lock held.
+    cat > "${HOME}/work/reference/claude/install" <<EOF
+#!/bin/sh
+"${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
+printf 'nested dev-update exited %s\n' "\$?" >> "${FAKE_BIN_LOG}"
+EOF
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    grep -qxF "nested dev-update exited 0" "${FAKE_BIN_LOG}"
+    grep -qF "dev-update is already running" "${BATS_TEST_TMPDIR}/nested.out"
+    run grep -qF "Running " "${BATS_TEST_TMPDIR}/nested.out"
+    [ "${status}" -eq 1 ]
+}
+
+@test "dev-update does not pass the lock file descriptor on to the steps it runs" {
+    setup_dev_update_fixture
+    # A process a step leaves behind keeps every fd it inherited, so an
+    # inherited lock fd would keep the lock held after dev-update ends.
+    cat > "${HOME}/work/reference/claude/install" <<EOF
+#!/bin/sh
+for _fd in /proc/\$\$/fd/*; do
+    case "\$(readlink "\${_fd}")" in
+        *dev-update.lock) printf 'lock fd inherited\n' >> "${FAKE_BIN_LOG}" ;;
+    esac
+done
+printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
+EOF
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    grep -qxF "claude/install ran" "${FAKE_BIN_LOG}"
+    run grep -qxF "lock fd inherited" "${FAKE_BIN_LOG}"
+    [ "${status}" -eq 1 ]
+}
+
 @test "dev-update dies when XDG_RUNTIME_DIR is not set" {
     setup_dev_update_fixture
     run env -u XDG_RUNTIME_DIR "${LINUX_DIR}/dev-update"
@@ -351,6 +389,21 @@ EOF
     [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq 1 ]
     [ "$(grep -n -m 1 -xF "git clone git@github.com:credfeto/cs-template.git ${_ref}/cs-template" "${FAKE_BIN_LOG}" | cut -d: -f1)" \
         -lt "$(grep -n -m 1 -xF "git -C ${_ref}/cs-template status --porcelain" "${FAKE_BIN_LOG}" | cut -d: -f1)" ]
+}
+
+@test "dev-update uses the reference tree DEV_REFERENCE_DIR points at" {
+    setup_dev_update_fixture
+    local _ref="${BATS_TEST_TMPDIR}/elsewhere"
+    mv "${HOME}/work/reference" "${_ref}"
+
+    run env DEV_REFERENCE_DIR="${_ref}" "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Running ${_ref}/claude/install..."* ]]
+    local _repo
+    for _repo in "${REFERENCE_REPOS[@]}"; do
+        grep -qxF "git -C ${_ref}/${_repo} pull --ff-only" "${FAKE_BIN_LOG}"
+    done
+    [ ! -e "${HOME}/work/reference" ]
 }
 
 @test "dev-update creates the reference tree when it is missing" {
