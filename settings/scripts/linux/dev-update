@@ -18,13 +18,6 @@ acquire_lock() {
     fi
 }
 
-update_repo() {
-    REPO_PATH="${DEV_REFERENCE_DIR}/$1"
-
-    info "Pulling ${REPO_PATH}..."
-    git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
-}
-
 # The dev-update units are symlinks into the reference clone, so a pull can
 # change them; systemd only sees that after a reload. Not fatal because a
 # manual run (e.g. over ssh) may have no user manager to reach, and the
@@ -41,7 +34,7 @@ dev_update() {
 
     for REPO in $DEV_REFERENCE_REPOS; do
         clone_reference_repo "${REPO}"
-        update_repo "${REPO}"
+        update_reference_repo "${REPO}"
     done
 
     reload_user_units
