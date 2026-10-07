@@ -27,6 +27,15 @@ update_repo() {
     git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
 }
 
+# The dev-update units are symlinks into the reference clone, so a pull can
+# change them; systemd only sees that after a reload. Not fatal because a
+# manual run (e.g. over ssh) may have no user manager to reach, and the
+# changes are still picked up when the user manager next starts.
+reload_user_units() {
+    info "Reloading systemd user units..."
+    systemctl --user daemon-reload || warn "Could not reload systemd user units; changes to the dev-update units apply when the user manager next starts"
+}
+
 dev_update() {
     refuse_ai_agent dev-update
     acquire_lock
@@ -35,6 +44,8 @@ dev_update() {
     for REPO in $DEV_REFERENCE_REPOS; do
         update_repo "${REPO}"
     done
+
+    reload_user_units
 
     run_reference_step credfeto-setup-arch-desktop/install.d/dev-scripts
     run_reference_step credfeto-global-pre-commit/install --system

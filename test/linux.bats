@@ -36,7 +36,8 @@ setup() {
 }
 
 # Fakes systemctl so `is-active` succeeds only for the given unit (pass
-# "none" for neither network manager) and every other call succeeds, plus
+# "none" for neither network manager) and every other call exits with
+# FAKE_EXIT_systemctl (default 0), plus
 # nm-online and systemd-networkd-wait-online, whose exit codes come from
 # FAKE_EXIT_nm_online and FAKE_EXIT_systemd_networkd_wait_online. Any extra
 # arguments are further tools to fake via setup_fake_bin.
@@ -51,7 +52,7 @@ if [ "\$1" = "is-active" ]; then
     [ "\$3" = "${_active}" ]
     exit
 fi
-exit 0
+exit "\${FAKE_EXIT_systemctl:-0}"
 EOF
     chmod +x "${FAKE_BIN_DIR}/systemctl"
     export SYSTEMD_NETWORKD_WAIT_ONLINE="${FAKE_BIN_DIR}/systemd-networkd-wait-online"
@@ -73,7 +74,7 @@ EOF
 
 # Lines of the fake log in order, minus the network probes.
 logged_steps() {
-    grep -vE '^(systemctl|nm-online|systemd-networkd-wait-online) ' "${FAKE_BIN_LOG}"
+    grep -vE '^(systemctl is-active|nm-online|systemd-networkd-wait-online) ' "${FAKE_BIN_LOG}"
 }
 
 # ── network-online ───────────────────────────────────────────────────────────
@@ -200,6 +201,7 @@ EOF
         "git -C ${_ref}/credfeto-orchestrator pull" \
         "git -C ${_ref}/claude pull" \
         "git -C ${_ref}/credfeto-ai-skills pull" \
+        "systemctl --user daemon-reload" \
         "credfeto-setup-arch-desktop/install.d/dev-scripts " \
         "credfeto-global-pre-commit/install --system" \
         "claude/install " \
@@ -207,6 +209,23 @@ EOF
         "credfeto-orchestrator/install-claude-hooks " \
         "update-dotnet-tools ${HOME}")"
     [ "$(logged_steps)" = "${expected}" ]
+}
+
+@test "dev-update warns and still completes when the systemd user reload fails" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_systemctl=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not reload systemd user units"* ]]
+    [[ "${output}" == *"Dev environment updated"* ]]
+    assert_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
+    assert_fake_called '^update-dotnet-tools'
+}
+
+@test "dev-update does not reload systemd if a pull fails" {
+    setup_dev_update_fixture
+    run env FAKE_EXIT_git=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    refute_fake_called '^systemctl --user daemon-reload'
 }
 
 @test "dev-update runs update-dotnet-tools from \$HOME" {
