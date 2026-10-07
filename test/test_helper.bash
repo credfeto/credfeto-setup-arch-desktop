@@ -41,6 +41,27 @@ EOF
     export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
+# Creates the fakes setup_fake_bin would, plus a fake sudo that never runs
+# the command it wraps: it logs "sudo <command line>" to $FAKE_BIN_LOG, then
+# exits 1 when that command line matches the grep -E pattern in
+# $FAKE_SUDO_FAIL (read when sudo runs, so a test sets it before the run) and
+# 0 otherwise. Lets an install.d/ script be run end to end, with exactly one
+# privileged step failing, without real root or any change to the host.
+#
+# Usage: setup_fake_sudo [<tool-name> ...]
+setup_fake_sudo() {
+    setup_fake_bin "$@"
+    cat > "${FAKE_BIN_DIR}/sudo" <<EOF
+#!/bin/sh
+printf 'sudo %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+if [ -n "\${FAKE_SUDO_FAIL:-}" ] && printf '%s\n' "\$*" | grep -qE "\${FAKE_SUDO_FAIL}"; then
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "${FAKE_BIN_DIR}/sudo"
+}
+
 # Seeds canned stdout for a fake tool created by setup_fake_bin.
 # Usage: seed_fake_output <tool-name> <<< "canned output"
 seed_fake_output() {
