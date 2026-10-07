@@ -101,6 +101,11 @@ DEV_REFERENCE_DIR="${HOME}/work/reference"
 # shellcheck disable=SC2034
 DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
 
+# Directory the flag probes below look in. Overridable so a test can point it
+# at a temp dir of its own and control each flag; defaults to the real
+# location of the binaries.
+INSTALL_STATE_BIN_DIR="${INSTALL_STATE_BIN_DIR:-/usr/bin}"
+
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
 # every source (not exported from `install`) so a script run standalone still
 # sees correct values without `install` having run first. Written as `if`
@@ -120,19 +125,19 @@ FLATPAK_INSTALLED=0
 # shellcheck disable=SC2034
 ZOOM_INSTALLED=0
 
-if [ -f /usr/bin/docker ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/docker" ]; then
     # shellcheck disable=SC2034
     DOCKER_INSTALLED=1
 fi
-if [ -f /usr/bin/incus ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/incus" ]; then
     # shellcheck disable=SC2034
     INCUS_INSTALLED=1
 fi
-if [ -f /usr/bin/flatpak ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/flatpak" ]; then
     # shellcheck disable=SC2034
     FLATPAK_INSTALLED=1
 fi
-if [ -f /usr/bin/zoom ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/zoom" ]; then
     # shellcheck disable=SC2034
     ZOOM_INSTALLED=1
 fi
