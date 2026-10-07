@@ -123,3 +123,15 @@ setup() {
     [ "${status}" -eq 0 ]
     assert_fake_called '^sqlcmd -S myserver -d mydb -U myuser -P mypass -Q SELECT 1'
 }
+
+@test "dbenv fails, naming the directory, when ~/.redgate cannot be created" {
+    mkdir -p "${BATS_TEST_TMPDIR}/repo"
+    printf 'SERVER=myserver\nDB=mydb\nUSER=myuser\nPASSWORD=mypass\n' > "${BATS_TEST_TMPDIR}/repo/.database"
+    cd "${BATS_TEST_TMPDIR}/repo" || exit
+    # A file where the directory should be, so mkdir cannot create it.
+    : > "${HOME}/.redgate"
+
+    run "${DBENV}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not create ${HOME}/.redgate"* ]]
+}
