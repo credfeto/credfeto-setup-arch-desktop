@@ -179,6 +179,7 @@ assert_step_died() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Services enabled"* ]]
     assert_fake_called '^systemctl enable --now --user ssh-agent$'
+    assert_fake_called '^sudo pacman -S --needed --noconfirm apparmor$'
     assert_fake_called '^sudo aa-enforce firejail-default$'
     assert_fake_called '^sudo systemctl enable --now logrotate\.timer$'
     assert_fake_called '^sudo systemctl enable --now paccache\.timer$'
@@ -189,6 +190,21 @@ assert_step_died() {
     run_step enable-services FAKE_EXIT_systemctl=1
     assert_step_died "Failed to enable the ssh-agent user service" "Services enabled"
     refute_fake_called 'apparmor\.service'
+}
+
+@test "enable-services installs apparmor before enabling it and enforcing its profile" {
+    run_step enable-services
+    [ "${status}" -eq 0 ]
+    [ "$(grep -E 'apparmor|aa-enforce' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' \
+        'sudo pacman -S --needed --noconfirm apparmor' \
+        'sudo systemctl enable --now apparmor.service' \
+        'sudo aa-enforce firejail-default')" ]
+}
+
+@test "enable-services stops when installing apparmor fails and never enables it" {
+    run_step enable-services FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm apparmor$'
+    assert_step_died "Failed to install apparmor" "Services enabled"
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo pacman -S --needed --noconfirm apparmor" ]
 }
 
 @test "enable-services stops when enforcing the firejail apparmor profile fails" {
@@ -321,10 +337,28 @@ assert_step_died() {
     run_step security-tools
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Security tools installed"* ]]
+    assert_fake_called '^sudo pacman -S --needed --noconfirm audit$'
     assert_fake_called '^sudo systemctl enable --now auditd$'
     assert_fake_called 'usbguard generate-policy'
     assert_fake_called '^sudo systemctl enable --now usbguard$'
     assert_fake_called '^sudo pacman -S --needed --noconfirm arch-audit$'
+}
+
+@test "security-tools installs audit before copying its rules and enabling auditd" {
+    run_step security-tools
+    [ "${status}" -eq 0 ]
+    [ "$(grep -E ' audit$|/etc/audit/|auditd$' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' \
+        'sudo pacman -S --needed --noconfirm audit' \
+        "sudo cp ${REPO_DIR}/settings/audit/rules/00_passwd.rules /etc/audit/rules.d" \
+        "sudo cp ${REPO_DIR}/settings/audit/rules/01_security.rules /etc/audit/rules.d" \
+        "sudo cp ${REPO_DIR}/settings/audit/rules/02_audit-config.rules /etc/audit/rules.d" \
+        'sudo systemctl enable --now auditd')" ]
+}
+
+@test "security-tools stops when installing audit fails and never copies its rules or enables it" {
+    run_step security-tools FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm audit$'
+    assert_step_died "Failed to install audit" "Security tools installed"
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo pacman -S --needed --noconfirm audit" ]
 }
 
 @test "security-tools stops when generating the usbguard base policy fails" {

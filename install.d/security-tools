@@ -12,6 +12,7 @@ install_security_tools() {
     sudo systemctl enable --now pkgstats.timer || die "Failed to enable pkgstats.timer"
 
     info "Enabling auditd"
+    sudo pacman -S --needed --noconfirm audit || die "Failed to install audit"
     sudo cp "$BASEDIR/settings/audit/rules/00_passwd.rules" /etc/audit/rules.d || die "Failed to copy 00_passwd.rules to /etc/audit/rules.d"
     sudo cp "$BASEDIR/settings/audit/rules/01_security.rules" /etc/audit/rules.d || die "Failed to copy 01_security.rules to /etc/audit/rules.d"
     sudo cp "$BASEDIR/settings/audit/rules/02_audit-config.rules" /etc/audit/rules.d || die "Failed to copy 02_audit-config.rules to /etc/audit/rules.d"
