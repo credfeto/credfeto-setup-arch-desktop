@@ -22,8 +22,8 @@ if [ -n "$LATEST_GA_RELEASE" ]; then
       jq --argjson allowPrerelease false '.sdk.allowPrerelease=$allowPrerelease' > \
           "$TMP_JSON"
 
-  rm -f "$GLOBAL_JSON"
-  mv "$TMP_JSON" "$GLOBAL_JSON"
+  rm -f "$GLOBAL_JSON" || die "Could not remove $GLOBAL_JSON"
+  mv "$TMP_JSON" "$GLOBAL_JSON" || die "Could not replace $GLOBAL_JSON"
 
   cat "$GLOBAL_JSON"
 
@@ -37,8 +37,8 @@ elif [ -n "$LATEST_PRE_RELEASE" ]; then
         jq --argjson allowPrerelease true '.sdk.allowPrerelease=$allowPrerelease' > \
             "$TMP_JSON"
 
-  rm -f "$GLOBAL_JSON"
-  mv "$TMP_JSON" "$GLOBAL_JSON"
+  rm -f "$GLOBAL_JSON" || die "Could not remove $GLOBAL_JSON"
+  mv "$TMP_JSON" "$GLOBAL_JSON" || die "Could not replace $GLOBAL_JSON"
 
   cat "$GLOBAL_JSON"
 
