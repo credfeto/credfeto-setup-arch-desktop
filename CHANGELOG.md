@@ -41,6 +41,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Dev-scripts now fails when sudo, install or link steps fail, instead of silently continuing with broken symlinks
 - Install and every install.d script now fail fast with explicit error messages when deployment steps fail, instead of silently continuing; units/auto-update/install, benchmark-test-affected, install-latest-dotnet, update-dotnet-sdk and dbenv were similarly hardened with || die guards and here-doc loops so that subshell exit codes no longer vanish
 - dev-update no longer lets the processes it starts inherit its run lock, so a leftover ssh or gpg process can no longer keep the lock after a run ends and silently stop every later timer run
+- Install the audit and apparmor packages before enabling auditd and apparmor, so install no longer stops on a machine without them
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
