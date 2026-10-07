@@ -118,6 +118,28 @@ logged_steps() {
 
 # ── dev-update ───────────────────────────────────────────────────────────────
 
+# Fakes git so `git clone <url> <dest>` copies <dest>'s basename from
+# FAKE_CLONE_SOURCE when present (otherwise creates an empty directory),
+# logs the call and exits with FAKE_EXIT_git.
+setup_fake_git_clone() {
+    FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
+    mkdir -p "${FAKE_CLONE_SOURCE}"
+    cat > "${FAKE_BIN_DIR}/git" <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+[ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
+if [ "\$1" = "clone" ]; then
+    if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
+        cp -R "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" "\$3"
+    else
+        mkdir -p "\$3"
+    fi
+fi
+exit 0
+EOF
+    chmod +x "${FAKE_BIN_DIR}/git"
+}
+
 # Online under NetworkManager (or the given active unit, as for
 # setup_fake_network), every reference clone present, every install step a
 # logging stub; git and update-dotnet-tools are faked so nothing reaches a
@@ -252,12 +274,47 @@ EOF
     refute_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
 }
 
-@test "dev-update dies if a reference clone is missing" {
+@test "dev-update clones a missing reference repo over SSH before pulling it" {
     setup_dev_update_fixture
+    setup_fake_git_clone
     rm -rf "${HOME}/work/reference/cs-template"
+
     run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Dev environment updated"* ]]
+
+    local _ref="${HOME}/work/reference"
+    grep -qxF "git clone git@github.com:credfeto/cs-template.git ${_ref}/cs-template" "${FAKE_BIN_LOG}"
+    refute_fake_called 'https://'
+    [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq 1 ]
+    [ "$(grep -n -m 1 -xF "git clone git@github.com:credfeto/cs-template.git ${_ref}/cs-template" "${FAKE_BIN_LOG}" | cut -d: -f1)" \
+        -lt "$(grep -n -m 1 -xF "git -C ${_ref}/cs-template pull" "${FAKE_BIN_LOG}" | cut -d: -f1)" ]
+}
+
+@test "dev-update creates the reference tree when it is missing" {
+    setup_dev_update_fixture
+    setup_fake_git_clone
+    # The fake clone copies from FAKE_CLONE_SOURCE into a parent that must
+    # already exist, so this also proves dev-update creates the tree.
+    cp -R "${HOME}/work/reference/." "${FAKE_CLONE_SOURCE}/"
+    rm -rf "${HOME}/work/reference"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c '^git clone git@github\.com:credfeto/' "${FAKE_BIN_LOG}")" -eq "${#REFERENCE_REPOS[@]}" ]
+}
+
+@test "dev-update dies if cloning a missing reference repo fails" {
+    setup_dev_update_fixture
+    setup_fake_git_clone
+    rm -rf "${HOME}/work/reference/credfeto-setup-arch-desktop"
+
+    run env FAKE_EXIT_git=128 "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Reference clone not found"*"cs-template"*"run dev-install"* ]]
+    [[ "${output}" == *"Failed to clone credfeto-setup-arch-desktop"* ]]
+    assert_fake_called '^git clone git@github\.com:credfeto/credfeto-setup-arch-desktop\.git '
+    refute_fake_called '^git -C '
+    refute_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
     refute_fake_called '^update-dotnet-tools'
 }
 
@@ -292,28 +349,6 @@ EOF
 }
 
 # ── dev-install ──────────────────────────────────────────────────────────────
-
-# Fakes git so `git clone <url> <dest>` copies <dest>'s basename from
-# FAKE_CLONE_SOURCE when present (otherwise creates an empty directory),
-# logs the call and exits with FAKE_EXIT_git.
-setup_fake_git_clone() {
-    FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
-    mkdir -p "${FAKE_CLONE_SOURCE}"
-    cat > "${FAKE_BIN_DIR}/git" <<EOF
-#!/bin/sh
-printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
-[ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
-if [ "\$1" = "clone" ]; then
-    if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
-        cp -R "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" "\$3"
-    else
-        mkdir -p "\$3"
-    fi
-fi
-exit 0
-EOF
-    chmod +x "${FAKE_BIN_DIR}/git"
-}
 
 # Online under NetworkManager with dotnet present. The cloned
 # credfeto-setup-arch-desktop carries the real units/dev-update and
