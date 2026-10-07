@@ -78,6 +78,47 @@ run_dev_scripts_against_fake_repo() {
     [ -L "${DEV_SCRIPTS_BIN_DIR}/unrelated" ]
 }
 
+# The links can point into either the working checkout or the reference
+# clone, whichever ran dev-scripts last, so a run from one must also prune
+# the other's dangling links. The other checkout lives outside REPO_DIR.
+OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scripts"
+
+@test "dev-scripts prunes a dangling symlink into another checkout's settings/scripts" {
+    local _scripts="${BATS_TEST_TMPDIR}/${OTHER_CHECKOUT_SCRIPTS}"
+    mkdir -p "${_scripts}/db"
+    # The script was removed from a checkout that still exists.
+    ln -s "${_scripts}/db/removed-script" "${DEV_SCRIPTS_BIN_DIR}/removed-script"
+    # The whole checkout is gone, so not even its directories resolve.
+    ln -s "${BATS_TEST_TMPDIR}/deleted/credfeto-setup-arch-desktop/settings/scripts/db/gone" "${DEV_SCRIPTS_BIN_DIR}/gone"
+
+    run "${DEV_SCRIPTS}"
+    [ "${status}" -eq 0 ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/removed-script" ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/gone" ]
+}
+
+@test "dev-scripts keeps a live symlink into another checkout's settings/scripts" {
+    local _scripts="${BATS_TEST_TMPDIR}/${OTHER_CHECKOUT_SCRIPTS}"
+    mkdir -p "${_scripts}/db"
+    printf '#!/bin/sh\nexit 0\n' > "${_scripts}/db/still-here"
+    chmod +x "${_scripts}/db/still-here"
+    ln -s "${_scripts}/db/still-here" "${DEV_SCRIPTS_BIN_DIR}/still-here"
+
+    run "${DEV_SCRIPTS}"
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/still-here")" = "${_scripts}/db/still-here" ]
+}
+
+@test "dev-scripts keeps a dangling symlink that points outside any settings/scripts tree" {
+    ln -s "${BATS_TEST_TMPDIR}/unrelated-tool/bin/missing" "${DEV_SCRIPTS_BIN_DIR}/missing"
+    ln -s "${BATS_TEST_TMPDIR}/other-repo/settings/scripts/db/missing-too" "${DEV_SCRIPTS_BIN_DIR}/missing-too"
+
+    run "${DEV_SCRIPTS}"
+    [ "${status}" -eq 0 ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/missing" ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/missing-too" ]
+}
+
 @test "dev-scripts is idempotent - a second run leaves the same set of symlinks" {
     run "${DEV_SCRIPTS}"
     [ "${status}" -eq 0 ]
