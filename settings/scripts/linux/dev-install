@@ -23,17 +23,6 @@ clone_reference_repo() {
     git clone "git@github.com:credfeto/${REPO}.git" "${REPO_PATH}" || die "Failed to clone ${REPO}"
 }
 
-# Run from the reference clone rather than this checkout, so the unit
-# symlinks and the /usr/local/bin links dev-update creates resolve there.
-run_reference_step() {
-    STEP="${DEV_REFERENCE_DIR}/credfeto-setup-arch-desktop/$1"
-
-    [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
-
-    info "Running ${STEP}..."
-    "${STEP}" || die "Failed to run ${STEP}"
-}
-
 dev_install() {
     refuse_ai_agent dev-install
     require_network "$SCRIPTDIR/network-online"
@@ -48,8 +37,10 @@ dev_install() {
     info "Installing dotnet tools..."
     (cd "${HOME}" && install-dotnet-tools) || die "Failed to install dotnet tools"
 
-    run_reference_step units/dev-update/install
-    run_reference_step settings/scripts/linux/dev-update
+    # Run from the reference clone rather than this checkout, so the unit
+    # symlinks and the /usr/local/bin links dev-update creates resolve there.
+    run_reference_step credfeto-setup-arch-desktop/units/dev-update/install
+    run_reference_step credfeto-setup-arch-desktop/settings/scripts/linux/dev-update
 
     success "Dev environment installed"
 }
