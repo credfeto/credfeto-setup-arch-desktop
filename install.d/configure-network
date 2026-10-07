@@ -10,9 +10,11 @@ configure_network() {
     info "Enabling IPv6 privacy"
     sudo cp "$BASEDIR/settings/networkmanager/ip6-privacy.conf" /etc/NetworkManager/conf.d/ip6-privacy.conf || die "Failed to copy /etc/NetworkManager/conf.d/ip6-privacy.conf"
 
-    info "Enabling MAC privacy"
     if [ "$INCUS_INSTALLED" != 1 ]; then
+        info "Enabling MAC privacy"
         sudo cp "$BASEDIR/settings/networkmanager/wifi_rand_mac.conf" /etc/NetworkManager/conf.d/wifi_rand_mac.conf || die "Failed to copy /etc/NetworkManager/conf.d/wifi_rand_mac.conf"
+    else
+        info "Skipping MAC privacy because incus is installed"
     fi
 
     info "Configuring network availability check"
