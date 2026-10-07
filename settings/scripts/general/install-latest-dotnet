@@ -26,8 +26,11 @@ extract_dotnet_package() {
         say_err "Extraction failed"
     fi
 
-    find "$temp_out_path" -type f | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false
-    find "$temp_out_path" -type f | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files"
+    # copy_files_or_dirs_from_list is the last stage of each pipeline, so it
+    # runs in a subshell: a die inside it only ends that subshell, and the
+    # "||" here is what stops the install.
+    find "$temp_out_path" -type f | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false || say_err "Could not copy the versioned SDK folders into $out_path"
+    find "$temp_out_path" -type f | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files" || say_err "Could not copy the SDK files into $out_path"
 
     # Stated here rather than left to the umask set at the top of the script,
     # so the guarantee lives with the code that creates the files, and holds
@@ -56,9 +59,16 @@ copy_files_or_dirs_from_list() {
 
     root_path="$(remove_trailing_slash "$1")"
     out_path="$(remove_trailing_slash "$2")"
-    override_switch="$(get_cp_options "$override")"
+    override_switch="$(get_cp_options "$override")" || say_err "Could not work out the cp options to use"
 
-    cat | uniq | while read -r file_path; do
+    local file_list
+    file_list="$(uniq)"
+
+    # Fed from a here-string rather than a pipe so the loop runs in this
+    # shell and a die inside it ends the function, not just a subshell.
+    while read -r file_path; do
+        [ -n "$file_path" ] || continue
+
         local path_suffix
         local path
         local target
@@ -68,18 +78,18 @@ copy_files_or_dirs_from_list() {
         target="$out_path/$path"
 
         if [ "$override" = true ] || { [ ! -d "$target" ] && [ ! -e "$target" ]; }; then
-            sudo mkdir -p "$out_path/$(dirname "$path")"
+            sudo mkdir -p "$out_path/$(dirname "$path")" || say_err "Could not create $out_path/$(dirname "$path")"
             if [ -d "$target" ]; then
-                sudo rm -rf "$target"
+                sudo rm -rf "$target" || say_err "Could not remove $target"
             fi
 
             if [ -n "$override_switch" ]; then
-                sudo cp -R "$override_switch" "$root_path/$path" "$target"
+                sudo cp -R "$override_switch" "$root_path/$path" "$target" || say_err "Could not copy $target"
             else
-                sudo cp -R "$root_path/$path" "$target"
+                sudo cp -R "$root_path/$path" "$target" || say_err "Could not copy $target"
             fi
         fi
-    done
+    done <<< "$file_list"
 }
 
 # args:
@@ -95,7 +105,7 @@ get_cp_options() {
         override_switch="-n"
 
         # create temporary files to check if 'cp -u' is supported
-        tmp_dir="$(sudo mktemp -d)"
+        tmp_dir="$(sudo mktemp -d)" || say_err "Could not create a temporary directory to test cp -u in"
         tmp_file="$tmp_dir/testfile"
         tmp_file2="$tmp_dir/testfile2"
 
@@ -200,7 +210,9 @@ VERSIONS_TO_INSTALL="8.0 \
                      11.0"
 verbose=false
 
-[ -d "$DOTNET_INSTALL_DIR" ] && sudo rm -fr "$DOTNET_INSTALL_DIR"
+if [ -d "$DOTNET_INSTALL_DIR" ]; then
+    sudo rm -fr "$DOTNET_INSTALL_DIR" || die "Could not remove the old dotnet folder"
+fi
 
 sudo mkdir "$DOTNET_INSTALL_DIR" || die "Could not create dotnet folder"
 sudo chmod 755 "$DOTNET_INSTALL_DIR" || die "Could not set permissions for dotnet folder"
