@@ -26,7 +26,6 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
-- dev-install and dev-update now honour DEV_REFERENCE_DIR for the reference clone location, defaulting to ~/work/reference
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -42,6 +41,9 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Install and every install.d script now fail fast with explicit error messages when deployment steps fail, instead of silently continuing; units/auto-update/install, benchmark-test-affected, install-latest-dotnet, update-dotnet-sdk and dbenv were similarly hardened with || die guards and here-doc loops so that subshell exit codes no longer vanish
 - dev-update no longer lets the processes it starts inherit its run lock, so a leftover ssh or gpg process can no longer keep the lock after a run ends and silently stop every later timer run
 - Install the audit and apparmor packages before enabling auditd and apparmor, so install no longer stops on a machine without them
+- The dev-update timer now runs with the ~/.local/bin and .NET PATH and DOTNET_ROOT settings from bash.bashrc.d, so timer runs find dotnet and user-installed tools
+- dev-install now starts the dev-update timer once its own run finishes, and dev-update arms it after reloading units, so the timer runs without waiting for the next login
+- update-dotnet-sdk no longer deletes global.json before replacing it, so a failed move leaves the original in place
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
