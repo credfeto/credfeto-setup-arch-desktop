@@ -6,6 +6,14 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # shellcheck source=../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Deploys one shell config file into a directory every user's shell reads,
+# so it is world-readable whatever the checkout mode or umask.
+# Usage: install_shell_file <source> <target-dir>
+install_shell_file() {
+    SHELL_FILE_TARGET="$2/$(basename "$1")"
+    sudo install -m 0644 "$1" "$SHELL_FILE_TARGET" || die "Failed to install $SHELL_FILE_TARGET"
+}
+
 install_shell_environment() {
     info "Installing autojump"
     sudo pacman -S --needed --noconfirm autojump || die "Failed to install autojump"
@@ -16,36 +24,18 @@ install_shell_environment() {
     # Shared: deployed to both /etc/profile.d (login shells, GUI sessions,
     # systemd units) and /etc/bash.bashrc.d (every interactive bash shell) so
     # tools that aren't interactive-bash-only still see them.
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/profile.d/20_xdg-dirs.sh || die "Failed to install /etc/profile.d/20_xdg-dirs.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/20_xdg-dirs.sh" /etc/bash.bashrc.d/20_xdg-dirs.sh || die "Failed to install /etc/bash.bashrc.d/20_xdg-dirs.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/profile.d/21_tmp-dirs.sh || die "Failed to install /etc/profile.d/21_tmp-dirs.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/21_tmp-dirs.sh" /etc/bash.bashrc.d/21_tmp-dirs.sh || die "Failed to install /etc/bash.bashrc.d/21_tmp-dirs.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/profile.d/25_xdg-tool-paths.sh || die "Failed to install /etc/profile.d/25_xdg-tool-paths.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/25_xdg-tool-paths.sh" /etc/bash.bashrc.d/25_xdg-tool-paths.sh || die "Failed to install /etc/bash.bashrc.d/25_xdg-tool-paths.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/profile.d/30_ssh-agent.sh || die "Failed to install /etc/profile.d/30_ssh-agent.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/30_ssh-agent.sh" /etc/bash.bashrc.d/30_ssh-agent.sh || die "Failed to install /etc/bash.bashrc.d/30_ssh-agent.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/profile.d/35_dotnet-preview.sh || die "Failed to install /etc/profile.d/35_dotnet-preview.sh"
-    sudo install -m 0644 "$BASEDIR/settings/shell-env/35_dotnet-preview.sh" /etc/bash.bashrc.d/35_dotnet-preview.sh || die "Failed to install /etc/bash.bashrc.d/35_dotnet-preview.sh"
+    for SOURCE in "$BASEDIR"/settings/shell-env/*.sh; do
+        [ -f "$SOURCE" ] || continue
+        for TARGET_DIR in /etc/profile.d /etc/bash.bashrc.d; do
+            install_shell_file "$SOURCE" "$TARGET_DIR"
+        done
+    done
 
     info "Installing interactive-bash-only config"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/00_shell-options.sh" /etc/bash.bashrc.d/00_shell-options.sh || die "Failed to install /etc/bash.bashrc.d/00_shell-options.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/05_ls-grep-colors.sh" /etc/bash.bashrc.d/05_ls-grep-colors.sh || die "Failed to install /etc/bash.bashrc.d/05_ls-grep-colors.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/06_less-colors.sh" /etc/bash.bashrc.d/06_less-colors.sh || die "Failed to install /etc/bash.bashrc.d/06_less-colors.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/10_aliases.sh" /etc/bash.bashrc.d/10_aliases.sh || die "Failed to install /etc/bash.bashrc.d/10_aliases.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/12_safe-aliases.sh" /etc/bash.bashrc.d/12_safe-aliases.sh || die "Failed to install /etc/bash.bashrc.d/12_safe-aliases.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/14_cd-aliases.sh" /etc/bash.bashrc.d/14_cd-aliases.sh || die "Failed to install /etc/bash.bashrc.d/14_cd-aliases.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/40_bash-completion.sh" /etc/bash.bashrc.d/40_bash-completion.sh || die "Failed to install /etc/bash.bashrc.d/40_bash-completion.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/50_paths.sh" /etc/bash.bashrc.d/50_paths.sh || die "Failed to install /etc/bash.bashrc.d/50_paths.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/55_go.sh" /etc/bash.bashrc.d/55_go.sh || die "Failed to install /etc/bash.bashrc.d/55_go.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh" /etc/bash.bashrc.d/60_dotnet.sh || die "Failed to install /etc/bash.bashrc.d/60_dotnet.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/70_nvm.sh" /etc/bash.bashrc.d/70_nvm.sh || die "Failed to install /etc/bash.bashrc.d/70_nvm.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/75_bun.sh" /etc/bash.bashrc.d/75_bun.sh || die "Failed to install /etc/bash.bashrc.d/75_bun.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/77_autojump.sh" /etc/bash.bashrc.d/77_autojump.sh || die "Failed to install /etc/bash.bashrc.d/77_autojump.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/78_socket-cli.sh" /etc/bash.bashrc.d/78_socket-cli.sh || die "Failed to install /etc/bash.bashrc.d/78_socket-cli.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/80_docker.sh" /etc/bash.bashrc.d/80_docker.sh || die "Failed to install /etc/bash.bashrc.d/80_docker.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/85_pacman.sh" /etc/bash.bashrc.d/85_pacman.sh || die "Failed to install /etc/bash.bashrc.d/85_pacman.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/90_shutdown.sh" /etc/bash.bashrc.d/90_shutdown.sh || die "Failed to install /etc/bash.bashrc.d/90_shutdown.sh"
-    sudo install -m 0644 "$BASEDIR/settings/bash.bashrc.d/95_update.sh" /etc/bash.bashrc.d/95_update.sh || die "Failed to install /etc/bash.bashrc.d/95_update.sh"
+    for SOURCE in "$BASEDIR"/settings/bash.bashrc.d/*.sh; do
+        [ -f "$SOURCE" ] || continue
+        install_shell_file "$SOURCE" /etc/bash.bashrc.d
+    done
 
     if grep -qF "# BEGIN credfeto-setup-arch-desktop bash.bashrc.d" /etc/bash.bashrc 2>/dev/null; then
         info "bash.bashrc.d loader block already present in /etc/bash.bashrc, skipping"

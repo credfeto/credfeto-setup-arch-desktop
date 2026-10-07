@@ -177,8 +177,8 @@ EOF
 # ── install-latest-dotnet ────────────────────────────────────────────────────
 # Static assertions over the script rather than an end-to-end run: it installs
 # to the hard-coded /usr/share/dotnet and opens by deleting it, so running it
-# here would destroy the host's dotnet install - the same reasoning as
-# shell-environment.bats.
+# here would destroy the host's dotnet install, and it downloads and unpacks
+# the SDK outside sudo, so the fake sudo alone cannot contain it.
 
 INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
 
