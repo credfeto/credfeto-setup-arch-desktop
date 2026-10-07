@@ -10,7 +10,8 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # locked run's own exit status, which is only ever 0 or 1.
 LOCK_CONFLICT=75
 
-# Re-runs this script under the lock and exits with its status. Non-blocking
+# Re-runs this script under the lock and exits with its status, starting the
+# timer only after a successful run has released the lock. Non-blocking
 # so an overlapping timer tick or manual run exits cleanly instead of queueing
 # up behind the one already running. flock -o closes the lock fd before
 # running the script, so nothing the run starts inherits it: a process left
@@ -26,18 +27,29 @@ run_locked() {
         info "dev-update is already running"
         exit 0
     fi
+    [ "${LOCKED_STATUS}" -ne 0 ] || start_dev_update_timer
     exit "${LOCKED_STATUS}"
 }
 
 # The dev-update units are symlinks into the reference clone, so a pull can
 # change them; systemd only sees that after a reload, which also re-arms an
-# already running timer with any changed settings. Starting the timer is a
-# no-op when it is already running, and arms one that was enabled but never
-# started. Neither is fatal because a manual run (e.g. over ssh) may have no
-# user manager to reach, and both happen when the user manager next starts.
+# already running timer with any changed settings. Not fatal because a manual
+# run (e.g. over ssh) may have no user manager to reach, and the reload
+# happens anyway when the user manager next starts.
 reload_user_units() {
     info "Reloading systemd user units..."
     systemctl --user daemon-reload || warn "Could not reload systemd user units; changes to the dev-update units apply when the user manager next starts"
+}
+
+# Arms a timer that was enabled but never started, as dev-install leaves it;
+# a no-op when it is already running. Called only once a run has succeeded
+# and released the lock: a timer that has never fired fires at once on start,
+# because OnStartupSec= has already passed, so starting it any earlier would
+# have its service hit the lock and exit "already running". Not fatal for
+# the same reason as reload_user_units; it starts when the user manager next
+# starts.
+start_dev_update_timer() {
+    info "Starting dev-update.timer..."
     systemctl --user start dev-update.timer || warn "Could not start dev-update.timer; it starts when the user manager next starts"
 }
 

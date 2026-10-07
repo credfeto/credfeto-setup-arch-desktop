@@ -308,13 +308,13 @@ EOF
         done
         printf '%s\n' \
             "systemctl --user daemon-reload" \
-            "systemctl --user start dev-update.timer" \
             "credfeto-setup-arch-desktop/install.d/dev-scripts " \
             "credfeto-global-pre-commit/install --system" \
             "claude/install " \
             "credfeto-ai-skills/install " \
             "credfeto-orchestrator/install-claude-hooks " \
-            "update-dotnet-tools ${HOME}"
+            "update-dotnet-tools ${HOME}" \
+            "systemctl --user start dev-update.timer"
     )"
     [ "$(logged_steps)" = "${expected}" ]
     refute_destructive_git
@@ -355,7 +355,31 @@ EOF
     [[ "${output}" == *"Could not start dev-update.timer"* ]]
     [[ "${output}" != *"Could not reload systemd user units"* ]]
     [[ "${output}" == *"Dev environment updated"* ]]
-    assert_fake_called '^update-dotnet-tools'
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "systemctl --user start dev-update.timer" ]
+}
+
+@test "dev-update starts the timer only once the lock is released" {
+    setup_dev_update_fixture
+    # The fake systemctl reports whether the lock is still held when the
+    # timer is started; a timer started under the lock would fire at once
+    # and have its service exit "already running".
+    replace_fake systemctl <<EOF
+#!/bin/sh
+printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+if [ "\$2" = "start" ]; then
+    if flock -n "${XDG_RUNTIME_DIR}/dev-update.lock" true; then
+        printf 'lock free at timer start\n' >> "${FAKE_BIN_LOG}"
+    else
+        printf 'lock held at timer start\n' >> "${FAKE_BIN_LOG}"
+    fi
+fi
+[ "\$1" = "is-active" ] && [ "\$3" != "NetworkManager.service" ] && exit 1
+exit 0
+EOF
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    grep -qxF "lock free at timer start" "${FAKE_BIN_LOG}"
 }
 
 @test "dev-update does not reload systemd if a pull fails" {
@@ -379,6 +403,7 @@ EOF
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to update dotnet tools"* ]]
     [[ "${output}" != *"Dev environment updated"* ]]
+    refute_fake_called '^systemctl --user start '
 }
 
 @test "dev-update dies if a reference clone cannot be fast-forwarded, and runs nothing after" {
@@ -461,6 +486,7 @@ EOF
         [ "${status}" -eq 1 ]
         [[ "${output}" == *"Failed to run ${HOME}/work/reference/${_failing}"* ]]
         refute_fake_called '^update-dotnet-tools'
+        refute_fake_called '^systemctl --user start '
 
         rm -rf "${HOME}/work/reference"
     done
@@ -589,8 +615,7 @@ EOF
             "install-dotnet-tools ${HOME}" \
             "systemctl --user daemon-reload" \
             "systemctl --user enable dev-update.timer" \
-            "settings/scripts/linux/dev-update " \
-            "systemctl --user start dev-update.timer"
+            "settings/scripts/linux/dev-update "
     )"
     [ "$(logged_steps)" = "${expected}" ]
     refute_destructive_git
@@ -692,23 +717,12 @@ EOF
     assert_fake_called '^systemctl --user enable dev-update\.timer$'
 }
 
-@test "dev-install runs the reference clone's dev-update, then starts the timer as its last step" {
+@test "dev-install runs the reference clone's dev-update as its last step and leaves starting the timer to it" {
     setup_dev_install_fixture
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    expected="$(printf '%s\n' \
-        "settings/scripts/linux/dev-update " \
-        "systemctl --user start dev-update.timer")"
-    [ "$(tail -n 2 "${FAKE_BIN_LOG}")" = "${expected}" ]
-}
-
-@test "dev-install dies if the timer cannot be started" {
-    setup_dev_install_fixture
-    run env FAKE_EXIT_systemctl_start=1 "${LINUX_DIR}/dev-install"
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Failed to start dev-update.timer"* ]]
-    [[ "${output}" != *"Dev environment installed"* ]]
-    assert_fake_called '^settings/scripts/linux/dev-update '
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "settings/scripts/linux/dev-update " ]
+    refute_fake_called '^systemctl --user start '
 }
 
 @test "dev-install dies before doing anything when DEV_REFERENCE_DIR is not the default, naming the default" {

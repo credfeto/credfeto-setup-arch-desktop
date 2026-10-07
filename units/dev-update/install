@@ -20,7 +20,8 @@ install_dev_update_units() {
     systemctl --user daemon-reload || die "Failed to reload the user systemd manager"
     # Enabled but not started: starting it now would fire at once, because
     # OnStartupSec= has already passed, and race dev-install's own final
-    # dev-update for the lock. dev-install starts it once that run is done.
+    # dev-update for the lock. That dev-update starts it once its run has
+    # finished and released the lock.
     systemctl --user enable dev-update.timer || die "Failed to enable dev-update.timer"
 
     success "dev-update timer enabled"

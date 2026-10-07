@@ -23,15 +23,11 @@ Then run `dev-install` once, outside a Claude Code session, with the network up 
 - switches each reference clone to `main` and fast-forwards it (`git pull --ff-only`), so a re-run brings any clone that already existed up to date before anything runs from it;
 - runs `install-dotnet-tools` from `$HOME`;
 - symlinks `units/dev-update/dev-update.service` and `dev-update.timer` from the reference clone into `~/.config/systemd/user/` and enables the timer;
-- runs `dev-update`, which covers the first update until the timer starts.
+- runs `dev-update`, which does the first update and then starts the timer.
 
-The timer starts when the user systemd manager next starts: a reboot, or a fresh login once no other session, lingering or leftover process (such as a tmux server) keeps the manager running. To start it at once, which also triggers a run straight away:
+The timer fires straight away when started, so `dev-update` starts it only once its own run has succeeded and released its lock, and one more run follows shortly that finds everything already up to date. Failing to start the timer is not fatal: it is only enabled, so it starts when the user systemd manager next starts.
 
-```sh
-systemctl --user start dev-update.timer
-```
-
-Any failure stops `dev-install`.
+Any other failure stops `dev-install`.
 
 ## Usage
 
@@ -51,7 +47,7 @@ Both `dev-install` and `dev-update` switch each reference clone to `main` and fa
 - `credfeto-ai-skills/install`
 - `credfeto-orchestrator/install-claude-hooks`
 
-It finishes with `update-dotnet-tools`. A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully.
+It then runs `update-dotnet-tools` and, once the whole run has succeeded and released its lock, starts `dev-update.timer` (a no-op when it is already running). A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully.
 
 ### dev-update timer
 
