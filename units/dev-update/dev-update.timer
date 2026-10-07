@@ -1,0 +1,10 @@
+[Unit]
+Description=Run dev-update shortly after login and then every 30 minutes
+
+[Timer]
+OnStartupSec=15s
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
