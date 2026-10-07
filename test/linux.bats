@@ -78,13 +78,12 @@ EOF
 
     make_pullable_repo "${HOME}/work/personal/credfeto-ai-skills"
 
-    mkdir -p "${HOME}/work/personal/credfeto-ai-skills/ai/skills"
-    cat > "${HOME}/work/personal/credfeto-ai-skills/ai/skills/install" <<'EOF'
+    cat > "${HOME}/work/personal/credfeto-ai-skills/install" <<'EOF'
 #!/bin/sh
 echo "ai-skills install ran"
 exit 0
 EOF
-    chmod +x "${HOME}/work/personal/credfeto-ai-skills/ai/skills/install"
+    chmod +x "${HOME}/work/personal/credfeto-ai-skills/install"
 
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]

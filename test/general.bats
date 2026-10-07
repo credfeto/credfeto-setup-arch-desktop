@@ -137,7 +137,7 @@ setup() {
     [ "${status}" -eq 0 ]
     refute_fake_called '^dotnet new tool-manifest'
     assert_fake_called '^dotnet tool install --local sleet'
-    assert_fake_called '^dotnet tool install --local csharpier'
+    assert_fake_called '^dotnet tool install --local TSQLLint'
     assert_fake_called '^dotnet tool install --local ilspycmd'
     [[ "${output}" == *"Done"* ]]
 }
