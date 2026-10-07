@@ -58,3 +58,15 @@ assert_fake_called() {
 refute_fake_called() {
     ! grep -qE "$1" "${FAKE_BIN_LOG}"
 }
+
+# Asserts each dev-update unit in the user unit directory is a symlink that
+# resolves to the same unit under the given directory.
+# Usage: assert_dev_update_units_linked_to <units-dir>
+assert_dev_update_units_linked_to() {
+    local _unit _link
+    for _unit in dev-update.service dev-update.timer; do
+        _link="${HOME}/.config/systemd/user/${_unit}"
+        [ -L "${_link}" ] || return 1
+        [ "$(readlink -f "${_link}")" = "$(readlink -f "$1/${_unit}")" ] || return 1
+    done
+}

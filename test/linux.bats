@@ -117,11 +117,13 @@ logged_steps() {
 
 # ── dev-update ───────────────────────────────────────────────────────────────
 
-# Online under NetworkManager, every reference clone present, every install
-# step a logging stub; git and update-dotnet-tools are faked so nothing
-# reaches a real remote or the real dotnet tool restore.
+# Online under NetworkManager (or the given active unit, as for
+# setup_fake_network), every reference clone present, every install step a
+# logging stub; git and update-dotnet-tools are faked so nothing reaches a
+# real remote or the real dotnet tool restore.
+# Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
-    setup_fake_network NetworkManager.service git update-dotnet-tools
+    setup_fake_network "${1:-NetworkManager.service}" git update-dotnet-tools
     local _repo _step
     for _repo in "${REFERENCE_REPOS[@]}"; do
         mkdir -p "${HOME}/work/reference/${_repo}"
@@ -148,8 +150,7 @@ setup_dev_update_fixture() {
 }
 
 @test "dev-update dies when neither network manager is active" {
-    setup_dev_update_fixture
-    setup_fake_network none git update-dotnet-tools
+    setup_dev_update_fixture none
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Neither NetworkManager nor systemd-networkd is active"* ]]
@@ -233,21 +234,19 @@ setup_dev_update_fixture() {
     done
 }
 
-@test "dev-update dies if claude/install is missing" {
-    setup_dev_update_fixture
-    rm "${HOME}/work/reference/claude/install"
-    run "${LINUX_DIR}/dev-update"
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Install script not found or not executable"*"claude/install"* ]]
-    refute_fake_called '^credfeto-ai-skills/install'
-}
+@test "dev-update dies if claude/install is missing or not executable" {
+    local _break
+    for _break in "rm" "chmod -x"; do
+        setup_dev_update_fixture
+        ${_break} "${HOME}/work/reference/claude/install"
 
-@test "dev-update dies if claude/install is not executable" {
-    setup_dev_update_fixture
-    chmod -x "${HOME}/work/reference/claude/install"
-    run "${LINUX_DIR}/dev-update"
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Install script not found or not executable"*"claude/install"* ]]
+        run "${LINUX_DIR}/dev-update"
+        [ "${status}" -eq 1 ]
+        [[ "${output}" == *"Not found or not executable"*"claude/install"* ]]
+        refute_fake_called '^credfeto-ai-skills/install'
+
+        rm -rf "${HOME}/work/reference"
+    done
 }
 
 # ── dev-install ──────────────────────────────────────────────────────────────
@@ -389,12 +388,7 @@ EOF
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
 
-    local _units="${HOME}/work/reference/credfeto-setup-arch-desktop/units/dev-update"
-    local _unit
-    for _unit in dev-update.service dev-update.timer; do
-        [ -L "${HOME}/.config/systemd/user/${_unit}" ]
-        [ "$(readlink -f "${HOME}/.config/systemd/user/${_unit}")" = "$(readlink -f "${_units}/${_unit}")" ]
-    done
+    assert_dev_update_units_linked_to "${HOME}/work/reference/credfeto-setup-arch-desktop/units/dev-update"
     assert_fake_called '^systemctl --user daemon-reload$'
     assert_fake_called '^systemctl --user enable dev-update\.timer$'
 }
