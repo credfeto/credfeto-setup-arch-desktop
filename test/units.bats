@@ -29,19 +29,54 @@ setup() {
     run ! grep -q '^Persistent=' "${DEV_UPDATE_UNITS}/dev-update.timer"
 }
 
-@test "dev-update.service is skipped when offline and runs dev-update from the reference clone through a login shell" {
+@test "dev-update.service is skipped when offline and runs run-dev-update from the reference clone through a login shell" {
     local _service="${DEV_UPDATE_UNITS}/dev-update.service"
     grep -qx 'Type=oneshot' "${_service}"
     grep -qx 'ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online' "${_service}"
     # A login shell reads /etc/profile, and so /etc/profile.d, which the user
-    # manager does not.
-    grep -qx 'ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/dev-update' "${_service}"
+    # manager does not; run-dev-update adds the bash.bashrc.d settings.
+    grep -qx 'ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
     [ "$(grep -c '^ExecCondition=' "${_service}")" -eq 1 ]
     [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
 }
 
 @test "dev-update.service points SSH_AUTH_SOCK at the user ssh-agent socket" {
     grep -qx 'Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket' "${DEV_UPDATE_UNITS}/dev-update.service"
+}
+
+# Copies run-dev-update and the bash.bashrc.d sections it sources into a
+# clone-shaped tree under the test dir, with a stub dev-update that records
+# the environment it was started with and exits 3, so the real dev-update
+# never runs. Prints the path of the copied run-dev-update.
+setup_run_dev_update_tree() {
+    local _root="${BATS_TEST_TMPDIR}/clone"
+    mkdir -p "${_root}/units/dev-update" "${_root}/settings/bash.bashrc.d" "${_root}/settings/scripts/linux"
+    cp "${DEV_UPDATE_UNITS}/run-dev-update" "${_root}/units/dev-update/"
+    cp "${REPO_DIR}/settings/bash.bashrc.d/50_paths.sh" "${REPO_DIR}/settings/bash.bashrc.d/60_dotnet.sh" "${_root}/settings/bash.bashrc.d/"
+    cat > "${_root}/settings/scripts/linux/dev-update" <<EOF
+#!/bin/sh
+{
+    printf 'PATH=%s\n' "\${PATH}"
+    printf 'DOTNET_NOLOGO=%s\n' "\${DOTNET_NOLOGO:-}"
+    printf 'DOTNET_ROOT=%s\n' "\${DOTNET_ROOT:-}"
+} > "${BATS_TEST_TMPDIR}/dev-update.env"
+exit 3
+EOF
+    chmod +x "${_root}/settings/scripts/linux/dev-update"
+    printf '%s\n' "${_root}/units/dev-update/run-dev-update"
+}
+
+@test "run-dev-update starts dev-update with the PATH and dotnet settings from bash.bashrc.d, passing on its exit status" {
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
+    _run="$(setup_run_dev_update_tree)"
+    run env -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "${_run}"
+    [ "${status}" -eq 3 ]
+    grep -qx "PATH=/usr/bin:/bin.*:${HOME}/.local/bin:${HOME}/.cargo/bin.*" "${_env}"
+    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
+    if [ -d /usr/share/dotnet ]; then
+        grep -qx 'DOTNET_ROOT=/usr/share/dotnet' "${_env}"
+        grep -q '^PATH=.*:/usr/share/dotnet$' "${_env}"
+    fi
 }
 
 @test "dev-update units install symlinks both units into the user unit directory" {

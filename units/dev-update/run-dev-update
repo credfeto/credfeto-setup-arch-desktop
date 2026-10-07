@@ -1,0 +1,19 @@
+#! /bin/sh
+
+# Entry point for dev-update.service. The unit runs this through `sh -l`,
+# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), but not
+# /etc/bash.bashrc.d, which only interactive bash shells read. dev-update's
+# steps need the PATH and dotnet settings from there, so the two sections
+# that provide them are sourced from this clone before dev-update runs.
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"
+
+# ~/.local/bin and ~/.cargo/bin on PATH.
+# shellcheck source=../../settings/bash.bashrc.d/50_paths.sh disable=SC1091
+. "$BASEDIR/settings/bash.bashrc.d/50_paths.sh"
+# DOTNET_ROOT and /usr/share/dotnet on PATH, plus the dotnet settings.
+# shellcheck source=../../settings/bash.bashrc.d/60_dotnet.sh disable=SC1091
+. "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh"
+
+exec "$BASEDIR/settings/scripts/linux/dev-update"
