@@ -93,11 +93,13 @@ update_reference_repo() {
     git -C "${CLONE_PATH}" pull --ff-only || die "Failed to fast-forward ${CLONE_PATH}; main may have diverged from its upstream"
 }
 
-# Reference clone layout. Overridable so a test can point it at a temp dir
-# of its own. settings/bash.bashrc.d/95_update.sh and
+# Reference clone layout. settings/bash.bashrc.d/95_update.sh and
 # units/dev-update/dev-update.service cannot source this file, so they repeat
-# the default path; keep them in step with it.
-DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${HOME}/work/reference}"
+# the default path; keep them in step with it. DEV_REFERENCE_DIR is a test
+# seam only, so a test can point it at a temp dir of its own: the units only
+# support the default, so dev-install refuses any other value.
+DEV_REFERENCE_DEFAULT_DIR="${HOME}/work/reference"
+DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${DEV_REFERENCE_DEFAULT_DIR}}"
 # Each entry is <owner>/<repo> on GitHub; the clone lands in
 # ${DEV_REFERENCE_DIR}/<repo>. Consumed by the settings/scripts/ that source
 # this file rather than by lib/common itself, hence the SC2034 disable.
