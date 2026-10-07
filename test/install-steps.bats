@@ -390,3 +390,26 @@ SSHD_TARGET_DIR="/etc/ssh/sshd_config.d"
     [[ "${output}" != *"SSH hardened"* ]]
     [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo cp ${SSHD_SOURCE_DIR}/07_X11Forwarding.conf ${SSHD_TARGET_DIR}/07_X11Forwarding.conf" ]
 }
+
+@test "harden-ssh stops when installing curl fails and never renders the key server config" {
+    run_step harden-ssh FAKE_SUDO_FAIL='^pacman -S '
+    assert_step_died "Failed to install curl" "SSH hardened"
+    assert_fake_called '^sudo cp .*/13_TCPKeepAlive\.conf '
+    refute_fake_called '^hostnamectl '
+    refute_fake_called '^sudo tee '
+}
+
+@test "harden-ssh stops when the hostname is empty and never renders the key server config" {
+    seed_fake_output hostnamectl < /dev/null
+    run_step harden-ssh
+    assert_step_died "Unable to determine hostname for key server AuthorizedKeysCommand config" "SSH hardened"
+    assert_fake_called '^sudo pacman -S --needed --noconfirm curl$'
+    assert_fake_called '^hostnamectl --static$'
+    refute_fake_called '^sudo tee '
+}
+
+@test "harden-ssh stops when writing the key server config fails" {
+    run_step harden-ssh FAKE_SUDO_FAIL='^tee /etc/ssh/sshd_config\.d/14_KeyServer\.conf$'
+    assert_step_died "Failed to write ${SSHD_TARGET_DIR}/14_KeyServer.conf" "SSH hardened"
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo tee ${SSHD_TARGET_DIR}/14_KeyServer.conf" ]
+}
