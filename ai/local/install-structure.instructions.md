@@ -73,7 +73,7 @@ A step's exit status must mean "finished" or "failed", nothing else:
 
 ## Reference Clone Location
 
-`DEV_REFERENCE_DIR` in `lib/common` (default `~/work/reference`) is where the reference clones live, and is overridable so a test can point it at a temp dir. Every script that sources `lib/common` must use it rather than repeat the path. `settings/bash.bashrc.d/95_update.sh` and `units/dev-update/dev-update.service` cannot source `lib/common`, so they repeat the default path, each with a comment saying so; change all three together.
+`DEV_REFERENCE_DIR` in `lib/common` (default `DEV_REFERENCE_DEFAULT_DIR`, `~/work/reference`) is where the reference clones live. Overriding it is a test seam only, so a test can point it at a temp dir: the dev-update units only support the default, so `dev-install` dies when it is set to anything else rather than leaving the timer skipping every tick unseen. Every script that sources `lib/common` must use it rather than repeat the path. `settings/bash.bashrc.d/95_update.sh` and `units/dev-update/dev-update.service` cannot source `lib/common`, so they repeat the default path, each with a comment saying so; change all three together.
 
 ## Install-State Flags
 
