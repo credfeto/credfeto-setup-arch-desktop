@@ -1,0 +1,7 @@
+[Unit]
+Description=Update the reference development repositories and tools
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/local/bin/network-online
+ExecStart=/usr/local/bin/dev-update
