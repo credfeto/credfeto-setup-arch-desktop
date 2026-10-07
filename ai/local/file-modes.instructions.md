@@ -35,4 +35,4 @@ Setting the mode on the install root alone is not enough: `install-latest-dotnet
 
 ## Verification
 
-Modes cannot be proved by the bats suites: every destination is a hard-coded real system path, and running the deployment for real would mutate the host. Assert the construct statically instead (`test/shell-environment.bats`, `test/general.bats`), and confirm the actual modes by re-running the install on the machine and checking with `stat -c '%A %U:%G %n'`.
+Modes cannot be proved by the bats suites: every destination is a hard-coded real system path, and running the deployment for real would mutate the host. Assert the deploying command instead: run the step against the fake sudo from `test/test_helper.bash`, which logs each command line without running it, and check the mode each `install -m` was given (`test/shell-environment.bats`); where the script cannot be run at all, assert the construct statically (`test/general.bats`). Confirm the actual modes by re-running the install on the machine and checking with `stat -c '%A %U:%G %n'`.
