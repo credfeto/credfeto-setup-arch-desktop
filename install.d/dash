@@ -8,7 +8,9 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_dash() {
     info "Installing dash"
-    sudo pacman -S --needed --noconfirm dash dashbinsh checkbashisms
+    sudo pacman -S --needed --noconfirm dash dashbinsh checkbashisms || die "Failed to install dash, dashbinsh and checkbashisms"
+
+    success "dash installed"
 }
 
 install_dash

@@ -8,10 +8,12 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 install_fail2ban() {
     info "Installing fail2ban"
-    sudo cp "$BASEDIR/settings/fail2ban/default.local" "/etc/fail2ban/jail.d/default.local"
-    sudo cp "$BASEDIR/settings/fail2ban/ssh.local" "/etc/fail2ban/jail.d/ssh.local"
-    sudo pacman -S --needed --noconfirm fail2ban
-    sudo systemctl enable --now fail2ban
+    sudo cp "$BASEDIR/settings/fail2ban/default.local" "/etc/fail2ban/jail.d/default.local" || die "Failed to copy /etc/fail2ban/jail.d/default.local"
+    sudo cp "$BASEDIR/settings/fail2ban/ssh.local" "/etc/fail2ban/jail.d/ssh.local" || die "Failed to copy /etc/fail2ban/jail.d/ssh.local"
+    sudo pacman -S --needed --noconfirm fail2ban || die "Failed to install fail2ban"
+    sudo systemctl enable --now fail2ban || die "Failed to enable fail2ban"
+
+    success "fail2ban installed"
 }
 
 install_fail2ban

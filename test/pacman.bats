@@ -148,3 +148,39 @@ EOF
     [ "$status" -eq 0 ]
     [ "$first" = "$second" ]
 }
+
+@test "configure-pacman fails, naming the option, when enabling a commented-out option fails" {
+    write_fixture <<'EOF2'
+[options]
+#ILoveCandy
+CheckSpace
+VerbosePkgLists
+EOF2
+    setup_fake_sudo
+
+    FAKE_SUDO_FAIL='^sed -i ' PACMAN_CONF="${FIXTURE_DIR}/pacman.conf" run "${CONFIGURE_PACMAN}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to enable ILoveCandy in ${FIXTURE_DIR}/pacman.conf"* ]]
+    [[ "${output}" != *"Pacman configured"* ]]
+}
+
+@test "configure-pacman fails, naming the option, when adding a missing option fails" {
+    write_fixture <<'EOF2'
+[options]
+CheckSpace
+VerbosePkgLists
+EOF2
+    setup_fake_sudo
+
+    FAKE_SUDO_FAIL='^sed -i ' PACMAN_CONF="${FIXTURE_DIR}/pacman.conf" run "${CONFIGURE_PACMAN}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to add ILoveCandy to ${FIXTURE_DIR}/pacman.conf"* ]]
+    [[ "${output}" != *"Pacman configured"* ]]
+}
+
+@test "configure-pacman fails, naming the file, when pacman.conf cannot be read" {
+    PACMAN_CONF="${FIXTURE_DIR}/missing.conf" run "${CONFIGURE_PACMAN}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to read ${FIXTURE_DIR}/missing.conf"* ]]
+    [[ "${output}" != *"Pacman configured"* ]]
+}
