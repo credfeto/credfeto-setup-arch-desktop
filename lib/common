@@ -63,6 +63,19 @@ run_reference_step() {
     "${STEP}" "$@" || die "Failed to run ${STEP}"
 }
 
+# Clones a reference repo over SSH when it is missing; an existing clone is
+# left alone.
+# Usage: clone_reference_repo <repo>
+clone_reference_repo() {
+    mkdir -p "${DEV_REFERENCE_DIR}" || die "Failed to create ${DEV_REFERENCE_DIR}"
+
+    CLONE_PATH="${DEV_REFERENCE_DIR}/$1"
+    [ -d "${CLONE_PATH}" ] && return 0
+
+    info "Cloning $1 into ${CLONE_PATH}..."
+    git clone "git@github.com:credfeto/$1.git" "${CLONE_PATH}" || die "Failed to clone $1"
+}
+
 # Reference clone layout.
 DEV_REFERENCE_DIR="${HOME}/work/reference"
 # Consumed by the settings/scripts/ that source this file rather than by

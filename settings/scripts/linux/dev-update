@@ -21,8 +21,6 @@ acquire_lock() {
 update_repo() {
     REPO_PATH="${DEV_REFERENCE_DIR}/$1"
 
-    [ -d "${REPO_PATH}" ] || die "Reference clone not found: ${REPO_PATH} (run dev-install)"
-
     info "Pulling ${REPO_PATH}..."
     git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
 }
@@ -42,6 +40,7 @@ dev_update() {
     require_network "$SCRIPTDIR/network-online"
 
     for REPO in $DEV_REFERENCE_REPOS; do
+        clone_reference_repo "${REPO}"
         update_repo "${REPO}"
     done
 

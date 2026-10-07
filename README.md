@@ -40,7 +40,7 @@ The clones in `~/work/reference/` are reference data, kept separate from working
 
 ### dev-update
 
-`dev-update` refuses to run inside a Claude Code session and dies at once when offline. Otherwise it pulls every reference clone, then runs, stopping on the first failure:
+`dev-update` refuses to run inside a Claude Code session and dies at once when offline. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH (`git@github.com:credfeto/<repo>.git`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. It then pulls every reference clone and runs, stopping on the first failure:
 
 - `credfeto-setup-arch-desktop/install.d/dev-scripts`
 - `credfeto-global-pre-commit/install --system`
@@ -56,7 +56,7 @@ It finishes with `update-dotnet-tools`. A lock in `$XDG_RUNTIME_DIR/dev-update.l
 
 The service runs `dev-update` through a login shell (`/bin/sh -lc`), because the user manager does not read `/etc/profile.d`. Timer runs therefore get the same environment that `install` deploys for shells, such as `NUGET_PACKAGES` and `GNUPGHOME`.
 
-Timer runs pull the reference clones over SSH. `SSH_AUTH_SOCK` points at the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
+Timer runs clone and pull the reference clones over SSH. `SSH_AUTH_SOCK` points at the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
 
 Timer runs have no terminal, so the `sudo` calls in `dev-scripts`, the `cfwf` copy and `install --system` need passwordless `sudo`. Without it the timer run fails at `dev-scripts`.
 
