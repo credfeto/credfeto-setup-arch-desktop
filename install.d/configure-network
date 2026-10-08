@@ -11,23 +11,10 @@ configure_network() {
     sudo systemctl enable --now systemd-resolved || die "Failed to enable systemd-resolved"
     sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf || die "Failed to link /etc/resolv.conf"
 
-    info "Removing dnsmasq"
-    if systemctl is-enabled dnsmasq >/dev/null 2>&1; then
-        sudo systemctl disable --now dnsmasq || die "Failed to disable dnsmasq"
-    fi
-    if pacman -Qq dnsmasq 2>/dev/null; then
-        sudo pacman -Rns --noconfirm dnsmasq || die "Failed to remove dnsmasq"
-    fi
-
-    info "Installing firewalld"
-    sudo pacman -S --needed --noconfirm firewalld || die "Failed to install firewalld"
-    sudo systemctl enable --now firewalld || die "Failed to enable firewalld"
-    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.0.0/8" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 10.0.0.0/8"
-    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.0.0/16" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 192.168.0.0/16"
-    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="172.16.0.0/20" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 172.16.0.0/20"
-
-    # Last, so NetworkManager is only told to use systemd-resolved once it is
-    # running; a systemd-networkd host has no /etc/NetworkManager to write to.
+    # Straight after systemd-resolved, so NetworkManager is only told to use it
+    # once it is running, and before dnsmasq is removed, so a failure later on
+    # never leaves NetworkManager set to dns=dnsmasq with no dnsmasq installed.
+    # A systemd-networkd host has no /etc/NetworkManager to write to.
     if network_manager_active; then
         info "Enabling IPv6 privacy"
         sudo cp "$BASEDIR/settings/networkmanager/ip6-privacy.conf" /etc/NetworkManager/conf.d/ip6-privacy.conf || die "Failed to copy /etc/NetworkManager/conf.d/ip6-privacy.conf"
@@ -59,6 +46,21 @@ configure_network() {
     else
         info "Skipping the NetworkManager configuration because NetworkManager is not running"
     fi
+
+    info "Removing dnsmasq"
+    if systemctl is-enabled dnsmasq >/dev/null 2>&1; then
+        sudo systemctl disable --now dnsmasq || die "Failed to disable dnsmasq"
+    fi
+    if pacman -Qq dnsmasq 2>/dev/null; then
+        sudo pacman -Rns --noconfirm dnsmasq || die "Failed to remove dnsmasq"
+    fi
+
+    info "Installing firewalld"
+    sudo pacman -S --needed --noconfirm firewalld || die "Failed to install firewalld"
+    sudo systemctl enable --now firewalld || die "Failed to enable firewalld"
+    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.0.0/8" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 10.0.0.0/8"
+    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.0.0/16" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 192.168.0.0/16"
+    sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="172.16.0.0/20" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 172.16.0.0/20"
 
     success "Network configured"
 }
