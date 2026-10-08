@@ -130,6 +130,47 @@ logged_steps() {
     refute_fake_called '^systemd-networkd-wait-online'
 }
 
+# ── require_network ──────────────────────────────────────────────────────────
+
+# Runs lib/common's require_network against a stand-in network check that
+# exits with the given status.
+# Usage: run_require_network <status>
+run_require_network() {
+    local _check="${BATS_TEST_TMPDIR}/network-check"
+    printf '#!/bin/sh\nexit %s\n' "$1" > "${_check}"
+    chmod +x "${_check}"
+    run sh -c '. "$1"; require_network "$2"; echo "carried on"' sh "${REPO_DIR}/lib/common" "${_check}"
+}
+
+@test "require_network returns when the network check succeeds" {
+    run_require_network 0
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"carried on"* ]]
+}
+
+@test "require_network dies reporting no network connection when the check exits 1" {
+    run_require_network 1
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No network connection"* ]]
+    [[ "${output}" != *"carried on"* ]]
+}
+
+@test "require_network dies reporting no supported network manager when the check exits 255" {
+    run_require_network 255
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No supported network manager (NetworkManager or systemd-networkd) is running"* ]]
+    [[ "${output}" != *"No network connection"* ]]
+    [[ "${output}" != *"carried on"* ]]
+}
+
+@test "require_network dies naming any other exit status of the check" {
+    run_require_network 127
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"failed with exit status 127"* ]]
+    [[ "${output}" != *"No network connection"* ]]
+    [[ "${output}" != *"carried on"* ]]
+}
+
 # ── dev-update ───────────────────────────────────────────────────────────────
 
 # Fakes git, logging every call. Any call exits with FAKE_EXIT_git when that
@@ -232,6 +273,8 @@ EOF
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Neither NetworkManager nor systemd-networkd is active"* ]]
+    [[ "${output}" == *"No supported network manager (NetworkManager or systemd-networkd) is running"* ]]
+    [[ "${output}" != *"No network connection"* ]]
     [ -z "$(logged_steps)" ]
 }
 
@@ -513,9 +556,11 @@ EOF
 # credfeto-setup-arch-desktop carries the real units/dev-update and
 # lib/common, so its units install runs for real against the fake
 # systemctl, plus a logging stub in place of dev-update.
-# install-dotnet-tools logs the directory it was run from.
+# install-dotnet-tools logs the directory it was run from. Pass another
+# active unit (as for setup_fake_network) to change the network manager.
+# Usage: setup_dev_install_fixture [<active-unit>]
 setup_dev_install_fixture() {
-    setup_fake_network NetworkManager.service dotnet
+    setup_fake_network "${1:-NetworkManager.service}" dotnet
     setup_fake_git
 
     local _clone="${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop"
@@ -546,6 +591,16 @@ EOF
     run env FAKE_EXIT_nm_online=1 "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"No network connection"* ]]
+    [ -z "$(logged_steps)" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install dies when neither network manager is active, before cloning anything" {
+    setup_dev_install_fixture none
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No supported network manager (NetworkManager or systemd-networkd) is running"* ]]
+    [[ "${output}" != *"No network connection"* ]]
     [ -z "$(logged_steps)" ]
     [ ! -e "${HOME}/work/reference" ]
 }
