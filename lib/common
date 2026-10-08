@@ -44,6 +44,12 @@ refuse_ai_agent() {
     fi
 }
 
+# Returns true (0) when NetworkManager is the host's active network manager,
+# so NetworkManager-only work can be skipped on a systemd-networkd host.
+network_manager_active() {
+    systemctl is-active --quiet NetworkManager.service
+}
+
 # Dies at once rather than waiting for the network, so a manual run fails
 # fast when offline. network-online exits 1 when offline and 255 when no
 # supported network manager is running; any other status means the check

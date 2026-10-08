@@ -31,6 +31,23 @@ mark_installed() {
     : > "${INSTALL_STATE_BIN_DIR}/$1"
 }
 
+# Replaces the systemctl fake with one whose `is-active` and `is-enabled`
+# probes exit with FAKE_EXIT_systemctl_is_active and
+# FAKE_EXIT_systemctl_is_enabled (default 0), so a test can stop
+# NetworkManager and dnsmasq independently. Every other call exits 0.
+# Usage: fake_systemctl_probes
+fake_systemctl_probes() {
+    replace_fake systemctl <<EOF
+#!/bin/sh
+printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+case "\$1" in
+    is-active) exit "\${FAKE_EXIT_systemctl_is_active:-0}" ;;
+    is-enabled) exit "\${FAKE_EXIT_systemctl_is_enabled:-0}" ;;
+esac
+exit 0
+EOF
+}
+
 # Runs install.d/<name> with the fakes in place. Any VAR=value arguments
 # (e.g. FAKE_SUDO_FAIL, FAKE_EXIT_<tool>) are set for that run only, through
 # env rather than export, so shellcheck does not flag a cross-@test
@@ -109,6 +126,7 @@ assert_step_died() {
     assert_fake_called '^sudo systemctl disable --now dnsmasq$'
     assert_fake_called '^sudo pacman -Rns --noconfirm dnsmasq$'
     assert_fake_called '^sudo systemctl enable --now firewalld$'
+    assert_fake_called '^systemctl is-active --quiet NetworkManager\.service$'
     assert_fake_called '^sudo nmcli general reload$'
 }
 
@@ -136,12 +154,34 @@ assert_step_died() {
 }
 
 @test "configure-network skips disabling and removing dnsmasq when it is absent" {
-    run_step configure-network FAKE_EXIT_systemctl=1 FAKE_EXIT_pacman=1
+    fake_systemctl_probes
+    run_step configure-network FAKE_EXIT_systemctl_is_enabled=1 FAKE_EXIT_pacman=1
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Network configured"* ]]
     refute_fake_called 'disable --now dnsmasq'
     refute_fake_called 'pacman -Rns --noconfirm dnsmasq'
     assert_fake_called '^sudo rm -f /etc/NetworkManager/dnsmasq\.d/03-allow-doh\.conf$'
+}
+
+@test "configure-network skips the NetworkManager configuration on a systemd-networkd host" {
+    fake_systemctl_probes
+    run_step configure-network FAKE_EXIT_systemctl_is_active=1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Network configured"* ]]
+    [[ "${output}" == *"Skipping the NetworkManager configuration because NetworkManager is not running"* ]]
+    refute_fake_called '/etc/NetworkManager'
+    refute_fake_called 'nmcli'
+    assert_fake_called '^sudo systemctl enable --now systemd-resolved$'
+    assert_fake_called '^sudo systemctl disable --now dnsmasq$'
+    assert_fake_called '^sudo systemctl enable --now firewalld$'
+    assert_fake_called '^sudo firewall-cmd --permanent --add-rich-rule=.*172\.16\.0\.0/20'
+}
+
+@test "configure-network still stops when installing firewalld fails on a systemd-networkd host" {
+    fake_systemctl_probes
+    run_step configure-network FAKE_EXIT_systemctl_is_active=1 FAKE_SUDO_FAIL='^pacman -S .* firewalld$'
+    assert_step_died "Failed to install firewalld" "Network configured"
+    refute_fake_called 'enable --now firewalld'
 }
 
 # ── dash ─────────────────────────────────────────────────────────────────────
