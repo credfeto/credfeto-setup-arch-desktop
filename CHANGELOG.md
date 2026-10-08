@@ -49,6 +49,10 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - fail2ban is now installed before its jail config is copied, so install no longer stops on a fresh machine where /etc/fail2ban/jail.d does not exist yet
 - configure-network now skips its NetworkManager-specific configuration on hosts where NetworkManager is not running, such as systemd-networkd hosts, so install no longer stops there
 - install and dev-install now stop before changing anything when run as root or without a reachable systemd user session, instead of failing partway through
+- configure-network now moves NetworkManager onto systemd-resolved before removing dnsmasq, so a failure partway through can no longer leave DNS pointing at a missing dnsmasq
+- dev-install and dev-update now refuse a reference clone directory that is not a git clone, instead of running git in an enclosing repository
+- dev-install now fails when another dev-update run holds the lock, instead of reporting success without updating
+- dev-install and dev-update now run the .NET tool install and update scripts from the reference clone instead of whichever copy is on PATH
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
