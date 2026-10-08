@@ -14,7 +14,7 @@ SYSTEMD_NETWORKD_WAIT_ONLINE="${SYSTEMD_NETWORKD_WAIT_ONLINE:-/usr/lib/systemd/s
 # quietly, while 255 fails it, so offline is always 1 and only "no network
 # manager at all" is 255.
 network_online() {
-    if systemctl is-active --quiet NetworkManager.service; then
+    if network_manager_active; then
         nm-online -q -t 0 || exit 1
     elif systemctl is-active --quiet systemd-networkd.service; then
         "$SYSTEMD_NETWORKD_WAIT_ONLINE" --any --timeout=1 -q || exit 1
