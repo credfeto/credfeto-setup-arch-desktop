@@ -130,6 +130,38 @@ assert_step_died() {
     assert_fake_called '^sudo nmcli general reload$'
 }
 
+# Prints the line number of the first fake log line matching the given
+# grep -E pattern.
+# Usage: log_line_of <pattern>
+log_line_of() {
+    grep -n -m 1 -E "$1" "${FAKE_BIN_LOG}" | cut -d: -f1
+}
+
+@test "configure-network moves NetworkManager onto systemd-resolved before removing dnsmasq" {
+    run_step configure-network
+    [ "${status}" -eq 0 ]
+    local _resolved _dns_conf _reload _disable _remove _firewalld
+    _resolved="$(log_line_of '^sudo systemctl enable --now systemd-resolved$')"
+    _dns_conf="$(log_line_of '^sudo cp .*/dns\.conf /etc/NetworkManager/conf\.d/dns\.conf$')"
+    _reload="$(log_line_of '^sudo nmcli general reload$')"
+    _disable="$(log_line_of '^sudo systemctl disable --now dnsmasq$')"
+    _remove="$(log_line_of '^sudo pacman -Rns --noconfirm dnsmasq$')"
+    _firewalld="$(log_line_of '^sudo pacman -S --needed --noconfirm firewalld$')"
+    [ "${_resolved}" -lt "${_dns_conf}" ]
+    [ "${_dns_conf}" -lt "${_reload}" ]
+    [ "${_reload}" -lt "${_disable}" ]
+    [ "${_disable}" -lt "${_remove}" ]
+    [ "${_remove}" -lt "${_firewalld}" ]
+}
+
+@test "configure-network keeps dnsmasq when reloading NetworkManager fails" {
+    run_step configure-network FAKE_SUDO_FAIL='^nmcli general reload$'
+    assert_step_died "Failed to reload the NetworkManager config" "Network configured"
+    refute_fake_called 'disable --now dnsmasq'
+    refute_fake_called 'pacman -Rns --noconfirm dnsmasq'
+    refute_fake_called 'firewalld'
+}
+
 @test "configure-network stops when removing a dnsmasq config fails" {
     run_step configure-network FAKE_SUDO_FAIL='^rm -f /etc/NetworkManager/dnsmasq\.d/00-caching\.conf$'
     assert_step_died "Failed to remove /etc/NetworkManager/dnsmasq.d/00-caching.conf" "Network configured"
