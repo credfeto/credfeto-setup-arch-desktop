@@ -86,9 +86,9 @@ EOF
     chmod +x "${_path}"
 }
 
-# Lines of the fake log in order, minus the network probes.
+# Lines of the fake log in order, minus the network and session probes.
 logged_steps() {
-    grep -vE '^(systemctl is-active|nm-online|systemd-networkd-wait-online) ' "${FAKE_BIN_LOG}"
+    grep -vE '^(systemctl is-active|nm-online|systemd-networkd-wait-online|id) |^systemctl --user show-environment$' "${FAKE_BIN_LOG}"
 }
 
 # ── network-online ───────────────────────────────────────────────────────────
@@ -558,9 +558,12 @@ EOF
 # systemctl, plus a logging stub in place of dev-update.
 # install-dotnet-tools logs the directory it was run from. Pass another
 # active unit (as for setup_fake_network) to change the network manager.
+# id reports a normal user, and the fake systemctl answers the session probe,
+# so the preflight passes whoever runs the tests.
 # Usage: setup_dev_install_fixture [<active-unit>]
 setup_dev_install_fixture() {
-    setup_fake_network "${1:-NetworkManager.service}" dotnet
+    setup_fake_network "${1:-NetworkManager.service}" dotnet id
+    seed_fake_output id <<< "1000"
     setup_fake_git
 
     local _clone="${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop"
@@ -583,6 +586,26 @@ EOF
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"must not be run from a Claude Code session"* ]]
     [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install dies as root, saying to run it as the normal user, before cloning anything" {
+    setup_dev_install_fixture
+    seed_fake_output id <<< "0"
+    run "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"dev-install must not be run as root; run it as your normal user, as it calls sudo itself"* ]]
+    [ -z "$(logged_steps)" ]
+    [ ! -e "${HOME}/work/reference" ]
+}
+
+@test "dev-install dies when the systemd user manager cannot be reached, saying to run it from a logged-in session, before cloning anything" {
+    setup_dev_install_fixture
+    run env FAKE_EXIT_systemctl=1 "${LINUX_DIR}/dev-install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Cannot reach your systemd user manager; run dev-install from a logged-in session"* ]]
+    assert_fake_called '^systemctl --user show-environment$'
+    [ -z "$(logged_steps)" ]
     [ ! -e "${HOME}/work/reference" ]
 }
 
@@ -759,7 +782,7 @@ EOF
     run env FAKE_EXIT_install_dotnet_tools=1 "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to install dotnet tools"* ]]
-    refute_fake_called '^systemctl --user'
+    refute_fake_called '^systemctl --user (daemon-reload|enable)'
 }
 
 @test "dev-install symlinks the units from the reference clone and enables the timer" {
