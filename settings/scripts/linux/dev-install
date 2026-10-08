@@ -33,15 +33,20 @@ dev_install() {
         update_reference_repo "${REPO}"
     done
 
+    # From the reference clone just brought to main, not through PATH, whose
+    # /usr/local/bin link may still point into a working checkout; and from
+    # $HOME so the home tool manifest is the one installed into.
     info "Installing dotnet tools..."
-    (cd "${HOME}" && install-dotnet-tools) || die "Failed to install dotnet tools"
+    (cd "${HOME}" && run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools) || die "Failed to install dotnet tools"
 
     # Run from the reference clone rather than this checkout, so the unit
     # symlinks and the /usr/local/bin links dev-update creates resolve there.
     # dev-update runs last because it starts the timer the units install
     # only enables, once its own run has finished and released the lock.
+    # --fail-if-running stops this reporting success when a timer run holds
+    # the lock, as this invocation's update would then never have run.
     run_reference_step credfeto-setup-arch-desktop/units/dev-update/install
-    run_reference_step credfeto-setup-arch-desktop/settings/scripts/linux/dev-update
+    run_reference_step credfeto-setup-arch-desktop/settings/scripts/linux/dev-update --fail-if-running
 
     success "Dev environment installed"
 }

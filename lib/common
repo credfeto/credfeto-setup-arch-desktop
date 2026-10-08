@@ -90,16 +90,30 @@ run_reference_step() {
     "${STEP}" "$@" || die "Failed to run ${STEP}"
 }
 
+# Dies unless the directory is the top level of a git work tree. git -C on a
+# directory that is not one searches up the tree, so the status, switch and
+# pull that follow would act on an enclosing repo (such as a dotfiles repo in
+# $HOME) instead. --show-toplevel prints a resolved path, hence pwd -P.
+# Usage: require_clone_toplevel <dir>
+require_clone_toplevel() {
+    CLONE_TOPLEVEL="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || CLONE_TOPLEVEL=""
+    CLONE_RESOLVED="$(cd "$1" && pwd -P)" || die "Failed to resolve $1"
+    [ "${CLONE_TOPLEVEL}" = "${CLONE_RESOLVED}" ] || die "$1 exists but is not a git clone; move or delete it, then re-run"
+}
+
 # Clones a reference repo from GitHub over SSH when it is missing; an existing
-# clone is left alone. The clone directory is named after the repo only, so
-# the owner never appears in a path.
+# clone is left alone once checked to be one. The clone directory is named
+# after the repo only, so the owner never appears in a path.
 # Usage: clone_reference_repo <owner>/<repo>
 clone_reference_repo() {
     mkdir -p "${DEV_REFERENCE_DIR}" || die "Failed to create ${DEV_REFERENCE_DIR}"
 
     CLONE_REPO="${1#*/}"
     CLONE_PATH="${DEV_REFERENCE_DIR}/${CLONE_REPO}"
-    [ -d "${CLONE_PATH}" ] && return 0
+    if [ -d "${CLONE_PATH}" ]; then
+        require_clone_toplevel "${CLONE_PATH}"
+        return 0
+    fi
 
     info "Cloning ${CLONE_REPO} into ${CLONE_PATH}..."
     git clone "git@github.com:$1.git" "${CLONE_PATH}" || die "Failed to clone ${CLONE_REPO}"

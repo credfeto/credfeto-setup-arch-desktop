@@ -8,9 +8,12 @@ Type=oneshot
 Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
 # Run straight from the reference clone (%h is the user's home), not through
 # the /usr/local/bin symlinks. The path mirrors the DEV_REFERENCE_DIR default
-# in lib/common, which a unit cannot source. If the clone is missing, the condition fails to
-# exec with exit 203, which is in the 1 to 254 range that skips the unit, so
-# the tick is skipped quietly rather than marking the unit failed.
+# in lib/common, which a unit cannot source. If the clone goes missing while
+# the units are still loaded, the condition fails to exec with exit 203, which
+# is in the 1 to 254 range that skips the unit, so the tick is skipped quietly
+# rather than marking the unit failed. These units are symlinks into that
+# clone, though, so after the next daemon-reload or login they no longer load
+# and the timer stops firing; nothing re-clones it until dev-install is re-run.
 ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online
 # The user manager reads neither /etc/profile.d nor /etc/bash.bashrc.d. The
 # login shell reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), and

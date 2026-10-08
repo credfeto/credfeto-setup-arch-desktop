@@ -86,6 +86,29 @@ EOF
     chmod +x "${_path}"
 }
 
+# Creates an executable stub at <root>/<relpath> that logs "<name> <cwd>" to
+# the fake log, so a test can see which directory it was run from, and exits
+# with the value of the named variable (default 0). Also puts a decoy of the
+# same name on PATH that logs "PATH <name>", so a test can prove the stub was
+# run from <root> rather than looked up on PATH.
+# Usage: make_cwd_logging_stub <root> <relpath> <exit-variable>
+make_cwd_logging_stub() {
+    local _path="$1/$2" _name
+    _name="$(basename "$2")"
+    mkdir -p "$(dirname "${_path}")"
+    cat > "${_path}" <<EOF
+#!/bin/sh
+printf '%s %s\n' "${_name}" "\$(pwd)" >> "${FAKE_BIN_LOG}"
+exit "\${$3:-0}"
+EOF
+    chmod +x "${_path}"
+    cat > "${FAKE_BIN_DIR}/${_name}" <<EOF
+#!/bin/sh
+printf 'PATH %s\n' "${_name}" >> "${FAKE_BIN_LOG}"
+EOF
+    chmod +x "${FAKE_BIN_DIR}/${_name}"
+}
+
 # Lines of the fake log in order, minus the network and session probes.
 logged_steps() {
     grep -vE '^(systemctl is-active|nm-online|systemd-networkd-wait-online|id) |^systemctl --user show-environment$' "${FAKE_BIN_LOG}"
@@ -171,6 +194,49 @@ run_require_network() {
     [[ "${output}" != *"carried on"* ]]
 }
 
+# ── clone_reference_repo ─────────────────────────────────────────────────────
+
+# Runs lib/common's clone_reference_repo for dnyw4l3n13/claude against the
+# real git, with the reference tree at the given directory, which must
+# already hold a claude directory so nothing is cloned. git never searches
+# above BATS_TEST_TMPDIR, so the result does not depend on where the tests
+# are run from.
+# Usage: run_clone_reference_repo <reference-dir>
+run_clone_reference_repo() {
+    run sh -c 'DEV_REFERENCE_DIR="$2" GIT_CEILING_DIRECTORIES="$3"; export DEV_REFERENCE_DIR GIT_CEILING_DIRECTORIES; . "$1"; clone_reference_repo dnyw4l3n13/claude; echo "carried on"' \
+        sh "${REPO_DIR}/lib/common" "$1" "${BATS_TEST_TMPDIR}"
+}
+
+@test "clone_reference_repo accepts an existing directory that is a git clone" {
+    local _ref="${BATS_TEST_TMPDIR}/reference"
+    git init -q "${_ref}/claude"
+    run_clone_reference_repo "${_ref}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"carried on"* ]]
+    [[ "${output}" != *"Cloning"* ]]
+}
+
+@test "clone_reference_repo dies naming an existing directory that is not a git clone but sits inside another repo" {
+    local _parent="${BATS_TEST_TMPDIR}/dotfiles"
+    git init -q "${_parent}"
+    mkdir -p "${_parent}/reference/claude"
+    # Precondition: plain git run there acts on the enclosing repo.
+    [ "$(GIT_CEILING_DIRECTORIES="${BATS_TEST_TMPDIR}" git -C "${_parent}/reference/claude" rev-parse --show-toplevel)" = "$(readlink -f "${_parent}")" ]
+    run_clone_reference_repo "${_parent}/reference"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_parent}/reference/claude exists but is not a git clone; move or delete it, then re-run"* ]]
+    [[ "${output}" != *"carried on"* ]]
+}
+
+@test "clone_reference_repo dies naming an existing directory that is in no git repo at all" {
+    local _ref="${BATS_TEST_TMPDIR}/reference"
+    mkdir -p "${_ref}/claude"
+    run_clone_reference_repo "${_ref}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_ref}/claude exists but is not a git clone"* ]]
+    [[ "${output}" != *"carried on"* ]]
+}
+
 # ── dev-update ───────────────────────────────────────────────────────────────
 
 # Fakes git, logging every call. Any call exits with FAKE_EXIT_git when that
@@ -180,7 +246,11 @@ run_require_network() {
 # - `git -C <path> status --porcelain` reports a modified file when <path>'s
 #   basename is FAKE_GIT_DIRTY, and a clean tree otherwise;
 # - `git -C <path> switch` and `git -C <path> pull` exit with
-#   FAKE_EXIT_git_switch and FAKE_EXIT_git_pull (default 0).
+#   FAKE_EXIT_git_switch and FAKE_EXIT_git_pull (default 0);
+# - `git -C <path> rev-parse --show-toplevel` prints <path> resolved, so
+#   every existing directory reads as a clone, or its parent when <path>'s
+#   basename is FAKE_GIT_NOT_TOPLEVEL, as for a plain directory inside an
+#   enclosing repo.
 setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
@@ -205,6 +275,13 @@ if [ "\$1" = "-C" ]; then
             ;;
         switch) exit "\${FAKE_EXIT_git_switch:-0}" ;;
         pull) exit "\${FAKE_EXIT_git_pull:-0}" ;;
+        rev-parse)
+            if [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
+                dirname "\$(readlink -f "\$2")"
+            else
+                readlink -f "\$2"
+            fi
+            ;;
     esac
 fi
 exit 0
@@ -230,19 +307,13 @@ refute_destructive_git() {
 
 # Online under NetworkManager (or the given active unit, as for
 # setup_fake_network), every reference clone present, every install step a
-# logging stub; git and update-dotnet-tools are faked so nothing reaches a
-# real remote or the real dotnet tool restore. update-dotnet-tools logs the
-# directory it was run from.
+# logging stub; git and the reference clone's update-dotnet-tools are faked
+# so nothing reaches a real remote or the real dotnet tool restore.
+# update-dotnet-tools logs the directory it was run from.
 # Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
     setup_fake_network "${1:-NetworkManager.service}"
     setup_fake_git
-    cat > "${FAKE_BIN_DIR}/update-dotnet-tools" <<EOF
-#!/bin/sh
-printf 'update-dotnet-tools %s\n' "\$(pwd)" >> "${FAKE_BIN_LOG}"
-exit "\${FAKE_EXIT_update_dotnet_tools:-0}"
-EOF
-    chmod +x "${FAKE_BIN_DIR}/update-dotnet-tools"
     local _repo _step
     for _repo in "${REFERENCE_REPOS[@]}"; do
         mkdir -p "${HOME}/work/reference/${_repo}"
@@ -250,6 +321,9 @@ EOF
     for _step in "${DEV_UPDATE_STEPS[@]}"; do
         make_logging_stub "${HOME}/work/reference" "${_step}"
     done
+    make_cwd_logging_stub "${HOME}/work/reference" \
+        credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools \
+        FAKE_EXIT_update_dotnet_tools
 }
 
 @test "dev-update dies inside a Claude Code session" {
@@ -289,6 +363,37 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"dev-update is already running"* ]]
     [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "dev-update --fail-if-running dies without doing anything while another run holds the lock" {
+    setup_dev_update_fixture
+    exec 8>"${XDG_RUNTIME_DIR}/dev-update.lock"
+    flock -n 8
+
+    run "${LINUX_DIR}/dev-update" --fail-if-running
+
+    exec 8>&-
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Another dev-update is running; re-run dev-install when it finishes"* ]]
+    [[ "${output}" != *"dev-update is already running"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "dev-update --fail-if-running runs normally when the lock is free" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" --fail-if-running
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Dev environment updated"* ]]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "systemctl --user start dev-update.timer" ]
+}
+
+@test "dev-update dies on an unknown argument without doing anything" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" --bogus
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Usage: dev-update [--fail-if-running]"* ]]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
 }
 
 @test "dev-update holds the lock while its steps run" {
@@ -347,6 +452,7 @@ EOF
     local _repo
     expected="$(
         for _repo in "${REFERENCE_REPOS[@]}"; do
+            printf '%s\n' "git -C ${HOME}/work/reference/${_repo} rev-parse --show-toplevel"
             expected_reference_update "${_repo}"
         done
         printf '%s\n' \
@@ -370,6 +476,16 @@ EOF
     [[ "${output}" == *"Uncommitted changes in ${HOME}/work/reference/cs-template"* ]]
     [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "git -C ${HOME}/work/reference/cs-template status --porcelain" ]
     refute_destructive_git
+}
+
+@test "dev-update dies naming a reference directory that is not a git clone, and never switches or pulls it" {
+    setup_dev_update_fixture
+    run env FAKE_GIT_NOT_TOPLEVEL=cs-template "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${HOME}/work/reference/cs-template exists but is not a git clone"* ]]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "git -C ${HOME}/work/reference/cs-template rev-parse --show-toplevel" ]
+    refute_fake_called '^git -C [^ ]+/cs-template (status|switch|pull)'
+    refute_fake_called '^credfeto-setup-arch-desktop/install\.d/dev-scripts'
 }
 
 @test "dev-update dies if a reference clone cannot be switched to main, and runs nothing after" {
@@ -432,12 +548,14 @@ EOF
     refute_fake_called '^systemctl --user daemon-reload'
 }
 
-@test "dev-update runs update-dotnet-tools from \$HOME" {
+@test "dev-update runs the reference clone's update-dotnet-tools from \$HOME, not the one on PATH" {
     setup_dev_update_fixture
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
     grep -qxF "update-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+    [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools..."* ]]
+    refute_fake_called '^PATH '
 }
 
 @test "dev-update dies if update-dotnet-tools fails" {
@@ -571,13 +689,8 @@ setup_dev_install_fixture() {
     cp -R "${REPO_DIR}/lib" "${_clone}/lib"
     cp -R "${REPO_DIR}/units/dev-update" "${_clone}/units/dev-update"
     make_logging_stub "${_clone}" settings/scripts/linux/dev-update
-
-    cat > "${FAKE_BIN_DIR}/install-dotnet-tools" <<EOF
-#!/bin/sh
-printf 'install-dotnet-tools %s\n' "\$(pwd)" >> "${FAKE_BIN_LOG}"
-exit "\${FAKE_EXIT_install_dotnet_tools:-0}"
-EOF
-    chmod +x "${FAKE_BIN_DIR}/install-dotnet-tools"
+    make_cwd_logging_stub "${_clone}" settings/scripts/general/install-dotnet-tools \
+        FAKE_EXIT_install_dotnet_tools
 }
 
 @test "dev-install dies inside a Claude Code session" {
@@ -693,7 +806,7 @@ EOF
             "install-dotnet-tools ${HOME}" \
             "systemctl --user daemon-reload" \
             "systemctl --user enable dev-update.timer" \
-            "settings/scripts/linux/dev-update "
+            "settings/scripts/linux/dev-update --fail-if-running"
     )"
     [ "$(logged_steps)" = "${expected}" ]
     refute_destructive_git
@@ -769,12 +882,14 @@ EOF
     refute_fake_called '^install-dotnet-tools'
 }
 
-@test "dev-install runs install-dotnet-tools from \$HOME" {
+@test "dev-install runs the reference clone's install-dotnet-tools from \$HOME, not the one on PATH" {
     setup_dev_install_fixture
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
     grep -qxF "install-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+    [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools..."* ]]
+    refute_fake_called '^PATH '
 }
 
 @test "dev-install dies if install-dotnet-tools fails" {
@@ -799,7 +914,24 @@ EOF
     setup_dev_install_fixture
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "settings/scripts/linux/dev-update " ]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "settings/scripts/linux/dev-update --fail-if-running" ]
+    refute_fake_called '^systemctl --user start '
+}
+
+@test "dev-install dies, saying to re-run it, when another dev-update holds the lock" {
+    setup_dev_install_fixture
+    # The clone's real dev-update, so the held lock is met as in a real run.
+    cp "${LINUX_DIR}/dev-update" "${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop/settings/scripts/linux/dev-update"
+    exec 8>"${XDG_RUNTIME_DIR}/dev-update.lock"
+    flock -n 8
+
+    run "${LINUX_DIR}/dev-install"
+
+    exec 8>&-
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Another dev-update is running; re-run dev-install when it finishes"* ]]
+    [[ "${output}" != *"dev-update is already running"* ]]
+    [[ "${output}" != *"Dev environment installed"* ]]
     refute_fake_called '^systemctl --user start '
 }
 
