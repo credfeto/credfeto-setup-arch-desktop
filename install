@@ -5,6 +5,10 @@ BASEDIR="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Before any step, so a missing user session stops the install with nothing
+# changed rather than midway, at enable-services' `systemctl --user` call.
+require_user_session install
+
 info "Script Dir: $BASEDIR"
 info "Installing..."
 # In the order they must run; a failed step stops the install.
