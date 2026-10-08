@@ -45,6 +45,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update-dotnet-sdk no longer deletes global.json before replacing it, so a failed move leaves the original in place
 - dev-update now starts the dev-update timer once a successful run has released its lock, so the timer runs without waiting for the next login and never collides with the run that started it
 - dev-scripts now removes dangling /usr/local/bin links into either the personal or the reference checkout, so a script removed upstream no longer leaves a broken command on PATH
+- dev-install and dev-update now report when neither NetworkManager nor systemd-networkd is running, instead of claiming there is no network connection
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
