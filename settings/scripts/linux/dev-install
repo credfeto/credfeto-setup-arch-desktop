@@ -19,6 +19,9 @@ require_default_reference_dir() {
 dev_install() {
     refuse_ai_agent dev-install
     require_default_reference_dir
+    # units/dev-update/install calls `systemctl --user` fatally, after the
+    # clones and dotnet tools are already in place, so check it can work first.
+    require_user_session dev-install
     require_network "$SCRIPTDIR/network-online"
     require_dotnet
 
