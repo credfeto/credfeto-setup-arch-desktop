@@ -39,7 +39,7 @@ Both `dev-install` and `dev-update` switch each reference clone to `main` and fa
 
 ### dev-update
 
-`dev-update` refuses to run inside a Claude Code session and dies at once when offline. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH only, from the same owners as `dev-install` (`credfeto` for all but `claude`, which comes from `dnyw4l3n13`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. It then switches every reference clone to `main` and fast-forwards it, as described under [Reference clones](#reference-clones), and runs, stopping on the first failure:
+`dev-update` refuses to run inside a Claude Code session and dies at once when offline, or when neither NetworkManager nor systemd-networkd is running, with a message saying which. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH only, from the same owners as `dev-install` (`credfeto` for all but `claude`, which comes from `dnyw4l3n13`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. It then switches every reference clone to `main` and fast-forwards it, as described under [Reference clones](#reference-clones), and runs, stopping on the first failure:
 
 - `credfeto-setup-arch-desktop/install.d/dev-scripts`
 - `credfeto-global-pre-commit/install --system`

@@ -45,10 +45,19 @@ refuse_ai_agent() {
 }
 
 # Dies at once rather than waiting for the network, so a manual run fails
-# fast when offline.
+# fast when offline. network-online exits 1 when offline and 255 when no
+# supported network manager is running; any other status means the check
+# itself could not run.
 # Usage: require_network <path-to-network-online>
 require_network() {
-    "$1" || die "No network connection"
+    "$1" && return 0
+    NETWORK_STATUS=$?
+
+    case "${NETWORK_STATUS}" in
+        1) die "No network connection" ;;
+        255) die "No supported network manager (NetworkManager or systemd-networkd) is running" ;;
+        *) die "Network check $1 failed with exit status ${NETWORK_STATUS}" ;;
+    esac
 }
 
 # Runs a script from a reference clone, passing any further arguments on.
