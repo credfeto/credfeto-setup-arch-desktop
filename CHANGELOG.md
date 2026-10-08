@@ -47,6 +47,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-scripts now removes dangling /usr/local/bin links into either the personal or the reference checkout, so a script removed upstream no longer leaves a broken command on PATH
 - dev-install and dev-update now report when neither NetworkManager nor systemd-networkd is running, instead of claiming there is no network connection
 - fail2ban is now installed before its jail config is copied, so install no longer stops on a fresh machine where /etc/fail2ban/jail.d does not exist yet
+- configure-network now skips its NetworkManager-specific configuration on hosts where NetworkManager is not running, such as systemd-networkd hosts, so install no longer stops there
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
