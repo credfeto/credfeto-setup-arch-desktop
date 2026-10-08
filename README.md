@@ -15,9 +15,9 @@ dev-install
 
 ## Installation
 
-Run `install` from a checkout of this repository. It runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which symlinks every script under `settings/scripts/` into `/usr/local/bin`.
+Run `install` from a checkout of this repository, as your normal user in a logged-in session (desktop, console or SSH login), not through `sudo` or `su`. It calls `sudo` itself where it needs to, and it needs your systemd user manager to enable the `ssh-agent` user service. It checks both before changing anything: run as root, or where `systemctl --user` cannot reach the user manager, it stops at once with a message saying which. It then runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which symlinks every script under `settings/scripts/` into `/usr/local/bin`.
 
-Then run `dev-install` once, outside a Claude Code session, with the network up and `dotnet` on `PATH`. It:
+Then run `dev-install` once, outside a Claude Code session, with the network up and `dotnet` on `PATH`, under the same user and session rules as `install`, which it checks before cloning anything. It:
 
 - clones any missing reference repositories into `~/work/reference/<repo>` over SSH only: `credfeto-setup-arch-desktop`, `credfeto-global-pre-commit`, `cs-template`, `credfeto-orchestrator` and `credfeto-ai-skills` from `git@github.com:credfeto/<repo>.git`, and `claude` from `git@github.com:dnyw4l3n13/claude.git`;
 - switches each reference clone to `main` and fast-forwards it (`git pull --ff-only`), so a re-run brings any clone that already existed up to date before anything runs from it;

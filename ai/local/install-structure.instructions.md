@@ -8,7 +8,7 @@
 
 `install` is a thin orchestrator, not a place for feature logic:
 
-- It resolves `BASEDIR`, sources `lib/common`, then runs each `install.d/*` script from one loop over an ordered list of step names.
+- It resolves `BASEDIR`, sources `lib/common`, runs the session preflight (see [Session Preflight](#session-preflight)), then runs each `install.d/*` script from one loop over an ordered list of step names.
 - Each install feature/hardening step lives in its own standalone, executable POSIX `sh` script under `install.d/`.
 - `lib/common` holds helpers and state shared across scripts (`die`/`success`/`info`, the install-state flags) so nothing is duplicated between `install` and the `install.d/*` scripts.
 
@@ -61,6 +61,15 @@ Examples already applied:
 - Every step is `|| die`-wrapped, with no bare calls, because every step's exit status is meaningful (see [Failure Handling Inside a Script](#failure-handling-inside-a-script)). A non-zero exit always means the step did not finish, so `install` stops rather than printing `Done` over it.
 - The name list is the only place the order lives, so the call and its error message cannot disagree about which step failed.
 - When adding a new `install.d/*` script, add its name to the list at the point it must run. `test/install.bats` fails until every executable under `install.d/` is in the list and the list matches the order the test expects.
+
+## Session Preflight
+
+`install` calls `require_user_session install` from `lib/common` straight after sourcing it, before its first `info` line and before any step runs. It dies with nothing changed when:
+
+- it runs as root (`id -u` is `0`), saying to run it as the normal user, since the steps call `sudo` themselves;
+- the user's systemd manager cannot be reached (`systemctl --user show-environment` fails, as after `su -` or in a session with no user manager), saying to run it from a logged-in session.
+
+Without it, a step that needs `systemctl --user` (`enable-services`) would fail midway, after earlier steps had already changed the system. Keep the call ahead of anything that changes state. `dev-install` runs the same check before it clones anything, because the units installer it runs also calls `systemctl --user` fatally. `dev-update` does not: its `systemctl --user` calls only warn.
 
 ## Failure Handling Inside a Script
 
