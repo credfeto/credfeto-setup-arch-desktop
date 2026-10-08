@@ -1,0 +1,29 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+# Overridable so this script is testable without the real tool: it lives
+# outside PATH, so a fake cannot simply be prefixed onto PATH.
+SYSTEMD_NETWORKD_WAIT_ONLINE="${SYSTEMD_NETWORKD_WAIT_ONLINE:-/usr/lib/systemd/systemd-networkd-wait-online}"
+
+# Exit codes matter to systemd's ExecCondition=: 1 to 254 skip the unit
+# quietly, while 255 fails it, so offline is always 1 and only "no network
+# manager at all" is 255.
+network_online() {
+    if network_manager_active; then
+        nm-online -q -t 0 || exit 1
+    elif systemctl is-active --quiet systemd-networkd.service; then
+        "$SYSTEMD_NETWORKD_WAIT_ONLINE" --any --timeout=1 -q || exit 1
+    else
+        warn "Neither NetworkManager nor systemd-networkd is active"
+        exit 255
+    fi
+
+    exit 0
+}
+
+network_online

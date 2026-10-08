@@ -265,3 +265,77 @@ EOF
     [[ "${output}" == *"Only project in solution is a SQL Server database project (dacpac)"* ]]
     [[ "${output}" == *"Completed"* ]]
 }
+
+# ── benchmark-test-affected ─────────────────────────────────────────────────
+
+BENCHMARK_TEST_AFFECTED="${DEV_DIR}/benchmark-test-affected"
+
+# Creates a solution with a library and a benchmark test project whose
+# ProjectReference Include is the given value.
+# Usage: make_bench_solution <project-reference-include>
+make_bench_solution() {
+    SOLUTION="${BATS_TEST_TMPDIR}/solution"
+    mkdir -p "${SOLUTION}/Lib" "${SOLUTION}/Other" "${SOLUTION}/Foo.Benchmark.Tests"
+    printf '<Project />\n' > "${SOLUTION}/Lib/Lib.csproj"
+    printf '<Project><ItemGroup><ProjectReference Include="%s" /></ItemGroup></Project>\n' "$1" \
+        > "${SOLUTION}/Foo.Benchmark.Tests/Foo.Benchmark.Tests.csproj"
+}
+
+# Turns the solution into a git repo with one staged file.
+# Usage: stage_in_bench_solution <path-in-solution>
+stage_in_bench_solution() {
+    git init --quiet "${SOLUTION}"
+    printf 'class C {}\n' > "${SOLUTION}/$1"
+    git -C "${SOLUTION}" add "$1"
+}
+
+@test "benchmark-test-affected lists every benchmark when the solution is not a git repo" {
+    make_bench_solution '..\Lib\Lib.csproj'
+
+    run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Foo.Benchmark.Tests/Foo.Benchmark.Tests.csproj" ]
+}
+
+@test "benchmark-test-affected lists a benchmark whose referenced project has a staged change" {
+    make_bench_solution '..\Lib\Lib.csproj'
+    stage_in_bench_solution Lib/Changed.cs
+
+    run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Foo.Benchmark.Tests/Foo.Benchmark.Tests.csproj" ]
+}
+
+@test "benchmark-test-affected lists nothing when only an unrelated project has a staged change" {
+    make_bench_solution '..\Lib\Lib.csproj'
+    stage_in_bench_solution Other/Changed.cs
+
+    run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "benchmark-test-affected stops when it cannot record an unresolvable reference" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only file"
+    # shellcheck disable=SC2016 # an MSBuild property, not a shell expansion
+    make_bench_solution '$(LibDir)\Lib.csproj'
+    stage_in_bench_solution Lib/Changed.cs
+
+    # A mktemp that hands out a fixed name, so the test can make the
+    # unresolved-references file read-only before the script writes to it.
+    local _tmp="${BATS_TEST_TMPDIR}/tmp"
+    mkdir -p "${_tmp}"
+    setup_fake_bin mktemp
+    replace_fake mktemp <<'EOF'
+#!/bin/sh
+p="${1%.XXXXXXXXXX}"
+[ -e "$p" ] || : > "$p"
+printf '%s\n' "$p"
+EOF
+    : > "${_tmp}/benchmark-test-affected.unresolved"
+    chmod 444 "${_tmp}/benchmark-test-affected.unresolved"
+
+    TMPDIR="${_tmp}" run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to record an unresolvable reference in ${_tmp}/benchmark-test-affected.unresolved"* ]]
+}

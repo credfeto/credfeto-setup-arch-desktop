@@ -34,7 +34,9 @@ if [ -n "$LOCAL_DB_SETTINGS_FILE" ]; then
     if [ -n "$DB" ]; then
       [ -z "$SOURCE" ] && SOURCE="$LOCAL_DB_SETTINGS_FOLDER/db"
       REDGATE=~/.redgate
-      [ ! -d "$REDGATE" ] && mkdir "$REDGATE"
+      if [ ! -d "$REDGATE" ]; then
+        mkdir "$REDGATE" || die "Could not create $REDGATE"
+      fi
       [ -z "$OUTPUT" ] && OUTPUT=$REDGATE/$DB.sql
     fi
   fi

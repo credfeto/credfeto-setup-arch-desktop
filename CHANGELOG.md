@@ -23,21 +23,44 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Set CLAUDE_CODE_TMPDIR to the XDG runtime directory so Claude Code uses the per-session tmpfs instead of the shared system temp directory
 - Extended the global git configuration with rerere, zdiff3 conflict markers, histogram diffs, parallel fetch, commit-graph writing, object integrity checks, tag signing and other recommended defaults, so every machine gets safer and faster git behaviour out of the box
 - Added a tmux-here command that attaches to the tmux session for the current directory, creating it first if it does not exist, so each project directory keeps its own persistent terminal session
+- Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
+- Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
+- Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
-- Removed tracked .idea/.gitignore file that was already in .gitignore
 - Use sudo when removing root-owned sysctl config files installed by the install script
 - Fixed install script failing with "hostname: not found" on Arch by using hostnamectl --static instead of the hostname command, which also preserves the full configured hostname (e.g. local domain suffix) instead of truncating it
 - Fix Starship prompt colours being silently disabled by the bash.bashrc.d PROMPT_COMMAND overwrite
 - pre-commit-check now fails fast when the current branch is behind its own upstream or the remote default branch, instead of running checks against stale code
 - pre-commit-check no longer blocks commits as behind immediately after a local rebase that has not yet been pushed
 - dev-update now waits for network via systemd-networkd (using systemd-networkd-wait-online) as well as NetworkManager (using nm-online), so it works on hosts that don't run NetworkManager
+- Stopped shellcheck following system files sourced by the shell configuration, and updated stale install-dotnet-tools and dev-update test fixtures, so pre-commit-check passes again
+- Removed tracked .idea/.gitignore file that was already in .gitignore
+- Clone the claude reference repo from its real owner (git@github.com:dnyw4l3n13/claude.git) instead of credfeto.
+- Dev-scripts now fails when sudo, install or link steps fail, instead of silently continuing with broken symlinks
+- Install and every install.d script now fail fast with explicit error messages when deployment steps fail, instead of silently continuing; units/auto-update/install, benchmark-test-affected, install-latest-dotnet, update-dotnet-sdk and dbenv were similarly hardened with || die guards and here-doc loops so that subshell exit codes no longer vanish
+- dev-update no longer lets the processes it starts inherit its run lock, so a leftover ssh or gpg process can no longer keep the lock after a run ends and silently stop every later timer run
+- Install the audit and apparmor packages before enabling auditd and apparmor, so install no longer stops on a machine without them
+- The dev-update timer now runs with the ~/.local/bin and .NET PATH and DOTNET_ROOT settings from bash.bashrc.d, so timer runs find dotnet and user-installed tools
+- update-dotnet-sdk no longer deletes global.json before replacing it, so a failed move leaves the original in place
+- dev-update now starts the dev-update timer once a successful run has released its lock, so the timer runs without waiting for the next login and never collides with the run that started it
+- dev-scripts now removes dangling /usr/local/bin links into either the personal or the reference checkout, so a script removed upstream no longer leaves a broken command on PATH
+- dev-install and dev-update now report when neither NetworkManager nor systemd-networkd is running, instead of claiming there is no network connection
+- fail2ban is now installed before its jail config is copied, so install no longer stops on a fresh machine where /etc/fail2ban/jail.d does not exist yet
+- configure-network now skips its NetworkManager-specific configuration on hosts where NetworkManager is not running, such as systemd-networkd hosts, so install no longer stops there
+- install and dev-install now stop before changing anything when run as root or without a reachable systemd user session, instead of failing partway through
+- configure-network now moves NetworkManager onto systemd-resolved before removing dnsmasq, so a failure partway through can no longer leave DNS pointing at a missing dnsmasq
+- dev-install and dev-update now refuse a reference clone directory that is not a git clone, instead of running git in an enclosing repository
+- dev-install now fails when another dev-update run holds the lock, instead of reporting success without updating
+- dev-install and dev-update now run the .NET tool install and update scripts from the reference clone instead of whichever copy is on PATH
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
 - Deduplicated die/success/info/warn helper scripts across settings/scripts/* by sourcing the shared lib/common (now with a TTY-guarded warn added), instead of each script hand-rolling its own copy
 - NetworkManager now uses systemd-resolved instead of dnsmasq for DNS resolution; the previous dnsmasq drop-ins, service, and package are removed on next install run if present
 - dev-update now waits for the network before pulling repos and runs update-dotnet-tools before completing
+- The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
+- dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited

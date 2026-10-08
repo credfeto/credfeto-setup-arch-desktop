@@ -1,0 +1,54 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+require_dotnet() {
+    command -v dotnet >/dev/null 2>&1 || die "dotnet is not on PATH"
+}
+
+# The dev-update units and 95_update.sh only look in the default location,
+# so clones anywhere else would leave the timer skipping every tick unseen.
+require_default_reference_dir() {
+    [ "${DEV_REFERENCE_DIR}" = "${DEV_REFERENCE_DEFAULT_DIR}" ] || die "DEV_REFERENCE_DIR is set to ${DEV_REFERENCE_DIR}, but only the default ${DEV_REFERENCE_DEFAULT_DIR} is supported; unset it and re-run"
+}
+
+dev_install() {
+    refuse_ai_agent dev-install
+    require_default_reference_dir
+    # units/dev-update/install calls `systemctl --user` fatally, after the
+    # clones and dotnet tools are already in place, so check it can work first.
+    require_user_session dev-install
+    require_network "$SCRIPTDIR/network-online"
+    require_dotnet
+
+    # On a re-run the clones already exist and may be stale or on another
+    # branch, so each is brought to the latest main before anything runs
+    # from it; for a fresh clone this is a no-op pull.
+    for REPO in $DEV_REFERENCE_REPOS; do
+        clone_reference_repo "${REPO}"
+        update_reference_repo "${REPO}"
+    done
+
+    # From the reference clone just brought to main, not through PATH, whose
+    # /usr/local/bin link may still point into a working checkout; and from
+    # $HOME so the home tool manifest is the one installed into.
+    info "Installing dotnet tools..."
+    (cd "${HOME}" && run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools) || die "Failed to install dotnet tools"
+
+    # Run from the reference clone rather than this checkout, so the unit
+    # symlinks and the /usr/local/bin links dev-update creates resolve there.
+    # dev-update runs last because it starts the timer the units install
+    # only enables, once its own run has finished and released the lock.
+    # --fail-if-running stops this reporting success when a timer run holds
+    # the lock, as this invocation's update would then never have run.
+    run_reference_step credfeto-setup-arch-desktop/units/dev-update/install
+    run_reference_step credfeto-setup-arch-desktop/settings/scripts/linux/dev-update --fail-if-running
+
+    success "Dev environment installed"
+}
+
+dev_install

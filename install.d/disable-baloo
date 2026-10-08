@@ -9,8 +9,11 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 disable_baloo() {
     if command -v balooctl6 >/dev/null 2>&1; then
         info "Disabling and purging baloo file indexer"
-        balooctl6 disable
-        balooctl6 purge
+        balooctl6 disable || die "Failed to disable the baloo file indexer"
+        balooctl6 purge || die "Failed to purge the baloo index"
+        success "baloo disabled"
+    else
+        info "balooctl6 is not installed, so there is no baloo indexer to disable"
     fi
 }
 

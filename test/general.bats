@@ -69,6 +69,14 @@ setup() {
 
 # ── wallpaper ────────────────────────────────────────────────────────────────
 
+# Creates the wallpapers directory and has the fake git report it as its own
+# work tree's top level, so wallpaper treats it as a clone.
+# Usage: make_wallpapers_clone
+make_wallpapers_clone() {
+    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    readlink -f "${HOME}/work/thirdparty/wallpapers" | seed_fake_output git
+}
+
 @test "wallpaper clones the wallpapers repo when absent, exits cleanly if still absent after" {
     setup_fake_bin git
     run "${GENERAL_DIR}/wallpaper"
@@ -83,7 +91,7 @@ setup() {
     # only mkdir's the Backgrounds subfolder (not -p), so this precondition
     # is part of the fixture, not something the script itself guarantees.
     mkdir -p "${HOME}/Pictures"
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    make_wallpapers_clone
     printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
     printf 'fake-jpg-2' > "${HOME}/work/thirdparty/wallpapers/two.jpg"
 
@@ -100,10 +108,22 @@ setup() {
     [ -L "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
 }
 
+@test "wallpaper dies naming a wallpapers directory that is not a git clone, and never pulls" {
+    setup_fake_bin git
+    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    # The fake git prints nothing for rev-parse, as for a directory that is
+    # in no repo of its own.
+    run "${GENERAL_DIR}/wallpaper"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${HOME}/work/thirdparty/wallpapers exists but is not a git clone"* ]]
+    assert_fake_called '^git -C .*wallpapers rev-parse --show-toplevel$'
+    refute_fake_called 'pull'
+}
+
 @test "wallpaper does not attempt to copy into an empty Zoom virtual-background directory" {
     setup_fake_bin git
     mkdir -p "${HOME}/Pictures"
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    make_wallpapers_clone
     printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
     # Present, but with no "{...}"-named subfolder yet - e.g. Zoom's virtual
     # background picker was opened but no custom background added.
@@ -137,7 +157,7 @@ setup() {
     [ "${status}" -eq 0 ]
     refute_fake_called '^dotnet new tool-manifest'
     assert_fake_called '^dotnet tool install --local sleet'
-    assert_fake_called '^dotnet tool install --local csharpier'
+    assert_fake_called '^dotnet tool install --local TSQLLint'
     assert_fake_called '^dotnet tool install --local ilspycmd'
     [[ "${output}" == *"Done"* ]]
 }
@@ -177,8 +197,8 @@ EOF
 # ── install-latest-dotnet ────────────────────────────────────────────────────
 # Static assertions over the script rather than an end-to-end run: it installs
 # to the hard-coded /usr/share/dotnet and opens by deleting it, so running it
-# here would destroy the host's dotnet install - the same reasoning as
-# shell-environment.bats.
+# here would destroy the host's dotnet install, and it downloads and unpacks
+# the SDK outside sudo, so the fake sudo alone cannot contain it.
 
 INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
 
@@ -241,4 +261,30 @@ first_line_matching() {
     [ -n "${manifest_line}" ]
     [ -n "${local_line}" ]
     [ "${manifest_line}" -lt "${local_line}" ]
+}
+
+@test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
+    setup_fake_sudo curl tar
+    # Only the 8.0 channel exists, so a run that wrongly carried on would
+    # stop at the next channel rather than go on to the tool steps.
+    seed_fake_output curl <<'EOF'
+{"releases-index":[{"channel-version":"8.0","latest-sdk":"0.0.0-bats"}]}
+EOF
+    # Extracts one versioned SDK folder into the -C directory, so the copy
+    # loop has something to copy. The version is one no real install has.
+    replace_fake tar <<'EOF'
+#!/bin/sh
+while [ $# -gt 0 ]; do
+    [ "$1" = "-C" ] && out="$2"
+    shift
+done
+mkdir -p "$out/sdk/0.0.0-bats"
+printf 'sdk\n' > "$out/sdk/0.0.0-bats/file"
+EOF
+
+    run env TMPDIR="${BATS_TEST_TMPDIR}" FAKE_SUDO_FAIL='^cp -R ' "${INSTALL_LATEST_DOTNET}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not copy /usr/share/dotnet/sdk/0.0.0-bats/"* ]]
+    [[ "${output}" == *"Could not copy the versioned SDK folders into /usr/share/dotnet"* ]]
+    [[ "${output}" != *"Restoring tools"* ]]
 }

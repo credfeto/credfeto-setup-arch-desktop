@@ -29,6 +29,129 @@ info() {
     _emit '→' 32 1 "$@"
 }
 
+# Returns true (0) when running inside a Claude Code Bash-tool session.
+# Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
+# that value is inherited by subprocesses (e.g. git hooks).
+# Source: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables
+is_ai_agent() {
+    [ "${CLAUDECODE}" = "1" ]
+}
+
+# Usage: refuse_ai_agent <script-name>
+refuse_ai_agent() {
+    if is_ai_agent; then
+        die "Prohibited: $1 must not be run from a Claude Code session"
+    fi
+}
+
+# Dies before anything has changed when the caller's own systemd user manager
+# cannot be reached, so a later `systemctl --user` call cannot fail midway.
+# Root is refused by uid, not left to the probe: root can have a user manager
+# of its own, which the probe would accept, and the scripts call sudo
+# themselves where they need it.
+# show-environment only reads from the manager, so the probe changes nothing.
+# Usage: require_user_session <script-name>
+require_user_session() {
+    [ "$(id -u)" != "0" ] || die "$1 must not be run as root; run it as your normal user, as it calls sudo itself where it needs to"
+    systemctl --user show-environment >/dev/null 2>&1 || die "Cannot reach your systemd user manager; run $1 from a logged-in session (desktop, console or SSH login) as your normal user, not through su or sudo"
+}
+
+# Returns true (0) when NetworkManager is the host's active network manager,
+# so NetworkManager-only work can be skipped on a systemd-networkd host.
+network_manager_active() {
+    systemctl is-active --quiet NetworkManager.service
+}
+
+# Dies at once rather than waiting for the network, so a manual run fails
+# fast when offline. network-online exits 1 when offline and 255 when no
+# supported network manager is running; any other status means the check
+# itself could not run.
+# Usage: require_network <path-to-network-online>
+require_network() {
+    "$1" && return 0
+    NETWORK_STATUS=$?
+
+    case "${NETWORK_STATUS}" in
+        1) die "No network connection" ;;
+        255) die "No supported network manager (NetworkManager or systemd-networkd) is running" ;;
+        *) die "Network check $1 failed with exit status ${NETWORK_STATUS}" ;;
+    esac
+}
+
+# Runs a script from a reference clone, passing any further arguments on.
+# Usage: run_reference_step <repo>/<path-in-repo> [<arg> ...]
+run_reference_step() {
+    STEP="${DEV_REFERENCE_DIR}/$1"
+    shift
+
+    [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
+
+    info "Running ${STEP}${*:+ $*}..."
+    "${STEP}" "$@" || die "Failed to run ${STEP}"
+}
+
+# Dies unless the directory is the top level of a git work tree. git -C on a
+# directory that is not one searches up the tree, so the status, switch and
+# pull that follow would act on an enclosing repo (such as a dotfiles repo in
+# $HOME) instead. --show-toplevel prints a resolved path, hence pwd -P.
+# Usage: require_clone_toplevel <dir>
+require_clone_toplevel() {
+    CLONE_TOPLEVEL="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || CLONE_TOPLEVEL=""
+    CLONE_RESOLVED="$(cd "$1" && pwd -P)" || die "Failed to resolve $1"
+    [ "${CLONE_TOPLEVEL}" = "${CLONE_RESOLVED}" ] || die "$1 exists but is not a git clone; move or delete it, then re-run"
+}
+
+# Clones a reference repo from GitHub over SSH when it is missing; an existing
+# clone is left alone once checked to be one. The clone directory is named
+# after the repo only, so the owner never appears in a path.
+# Usage: clone_reference_repo <owner>/<repo>
+clone_reference_repo() {
+    mkdir -p "${DEV_REFERENCE_DIR}" || die "Failed to create ${DEV_REFERENCE_DIR}"
+
+    CLONE_REPO="${1#*/}"
+    CLONE_PATH="${DEV_REFERENCE_DIR}/${CLONE_REPO}"
+    if [ -d "${CLONE_PATH}" ]; then
+        require_clone_toplevel "${CLONE_PATH}"
+        return 0
+    fi
+
+    info "Cloning ${CLONE_REPO} into ${CLONE_PATH}..."
+    git clone "git@github.com:$1.git" "${CLONE_PATH}" || die "Failed to clone ${CLONE_REPO}"
+}
+
+# Switches an existing reference clone to main and fast-forwards it. Never
+# forces, resets or stashes: uncommitted changes, a failed switch or a
+# diverged main stop the run so nothing is lost.
+# Usage: update_reference_repo <owner>/<repo>
+update_reference_repo() {
+    CLONE_PATH="${DEV_REFERENCE_DIR}/${1#*/}"
+
+    CLONE_STATUS="$(git -C "${CLONE_PATH}" status --porcelain)" || die "Failed to read the status of ${CLONE_PATH}"
+    [ -z "${CLONE_STATUS}" ] || die "Uncommitted changes in ${CLONE_PATH}; commit or discard them, then re-run"
+
+    info "Updating ${CLONE_PATH} to the latest main..."
+    git -C "${CLONE_PATH}" switch main || die "Failed to switch ${CLONE_PATH} to main"
+    git -C "${CLONE_PATH}" pull --ff-only || die "Failed to fast-forward ${CLONE_PATH}; main may have diverged from its upstream"
+}
+
+# Reference clone layout. settings/bash.bashrc.d/95_update.sh and
+# units/dev-update/dev-update.service cannot source this file, so they repeat
+# the default path; keep them in step with it. DEV_REFERENCE_DIR is a test
+# seam only, so a test can point it at a temp dir of its own: the units only
+# support the default, so dev-install refuses any other value.
+DEV_REFERENCE_DEFAULT_DIR="${HOME}/work/reference"
+DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${DEV_REFERENCE_DEFAULT_DIR}}"
+# Each entry is <owner>/<repo> on GitHub; the clone lands in
+# ${DEV_REFERENCE_DIR}/<repo>. Consumed by the settings/scripts/ that source
+# this file rather than by lib/common itself, hence the SC2034 disable.
+# shellcheck disable=SC2034
+DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
+
+# Directory the flag probes below look in. Overridable so a test can point it
+# at a temp dir of its own and control each flag; defaults to the real
+# location of the binaries.
+INSTALL_STATE_BIN_DIR="${INSTALL_STATE_BIN_DIR:-/usr/bin}"
+
 # Install-state flags, shared by multiple install.d/ scripts. Recomputed on
 # every source (not exported from `install`) so a script run standalone still
 # sees correct values without `install` having run first. Written as `if`
@@ -48,19 +171,19 @@ FLATPAK_INSTALLED=0
 # shellcheck disable=SC2034
 ZOOM_INSTALLED=0
 
-if [ -f /usr/bin/docker ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/docker" ]; then
     # shellcheck disable=SC2034
     DOCKER_INSTALLED=1
 fi
-if [ -f /usr/bin/incus ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/incus" ]; then
     # shellcheck disable=SC2034
     INCUS_INSTALLED=1
 fi
-if [ -f /usr/bin/flatpak ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/flatpak" ]; then
     # shellcheck disable=SC2034
     FLATPAK_INSTALLED=1
 fi
-if [ -f /usr/bin/zoom ]; then
+if [ -f "${INSTALL_STATE_BIN_DIR}/zoom" ]; then
     # shellcheck disable=SC2034
     ZOOM_INSTALLED=1
 fi

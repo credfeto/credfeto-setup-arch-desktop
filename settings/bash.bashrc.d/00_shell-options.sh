@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC1091
+# shellcheck shell=bash
 
 case $- in
     *i*) iatest=1 ;;
@@ -9,6 +9,7 @@ if [ -f /etc/os-release ]; then
     # Only the distro ID is extracted (via a subshell) rather than sourcing
     # the whole of /etc/os-release into the shell, which would also export a
     # dozen unrelated, generically-named variables (NAME, VERSION, LOGO, ...).
+    # shellcheck source=/dev/null
     LINUX_DISTRIBUTION=$(. /etc/os-release && echo "$ID")
     export LINUX_DISTRIBUTION
 fi

@@ -42,6 +42,20 @@ update() {
         fi
     fi
 
-    # If this repo is present, run its install too
-    [ -f "$HOME/work/personal/credfeto-setup-arch-desktop/install" ] && "$HOME/work/personal/credfeto-setup-arch-desktop/install"
+    _update_setup_arch_desktop
+}
+
+# Prefers the reference clone, which dev-update keeps current, over a
+# development checkout that may be mid-change. The reference path mirrors the
+# DEV_REFERENCE_DIR default in lib/common, which this deployed file cannot
+# source.
+_update_setup_arch_desktop() {
+    local reference="$HOME/work/reference/credfeto-setup-arch-desktop/install"
+    local personal="$HOME/work/personal/credfeto-setup-arch-desktop/install"
+
+    if [ -f "$reference" ]; then
+        "$reference"
+    elif [ -f "$personal" ]; then
+        "$personal"
+    fi
 }

@@ -5,24 +5,32 @@ BASEDIR="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Before any step, so a missing user session stops the install with nothing
+# changed rather than midway, at enable-services' `systemctl --user` call.
+require_user_session install
+
 info "Script Dir: $BASEDIR"
 info "Installing..."
-"$BASEDIR/install.d/remove-aur-helpers"
-"$BASEDIR/install.d/disable-baloo"
-"$BASEDIR/install.d/harden-system"
-"$BASEDIR/install.d/pacman-hooks"
-"$BASEDIR/install.d/configure-pacman"
-"$BASEDIR/install.d/security-tools"
-"$BASEDIR/install.d/dash"
-"$BASEDIR/install.d/configure-network"
-"$BASEDIR/install.d/harden-ssh" || die "install.d/harden-ssh failed"
-"$BASEDIR/install.d/btrfs-scrub"
-"$BASEDIR/install.d/firejail"
-"$BASEDIR/install.d/fail2ban"
-"$BASEDIR/install.d/enable-services"
-"$BASEDIR/install.d/shell-prompt" || die "install.d/shell-prompt failed"
-"$BASEDIR/install.d/shell-environment"
-"$BASEDIR/install.d/configure-flatpak"
-"$BASEDIR/install.d/git-environment" || die "install.d/git-environment failed"
-"$BASEDIR/install.d/dev-scripts" || die "install.d/dev-scripts failed"
+# In the order they must run; a failed step stops the install.
+for STEP in \
+    remove-aur-helpers \
+    disable-baloo \
+    harden-system \
+    pacman-hooks \
+    configure-pacman \
+    security-tools \
+    dash \
+    configure-network \
+    harden-ssh \
+    btrfs-scrub \
+    firejail \
+    fail2ban \
+    enable-services \
+    shell-prompt \
+    shell-environment \
+    configure-flatpak \
+    git-environment \
+    dev-scripts; do
+    "$BASEDIR/install.d/$STEP" || die "install.d/$STEP failed"
+done
 success "Done"

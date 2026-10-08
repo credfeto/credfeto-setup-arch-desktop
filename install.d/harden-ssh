@@ -8,31 +8,24 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 harden_ssh() {
     info "Hardening SSH"
-    sudo cp "$BASEDIR/settings/sshd/01_ProhibitPermitRootLogin.conf" /etc/ssh/sshd_config.d/01_ProhibitPermitRootLogin.conf
-    sudo cp "$BASEDIR/settings/sshd/02_MaxAuthTries.conf" /etc/ssh/sshd_config.d/02_MaxAuthTries.conf
-    sudo cp "$BASEDIR/settings/sshd/03_LoginGraceTime.conf" /etc/ssh/sshd_config.d/03_LoginGraceTime.conf
-    sudo cp "$BASEDIR/settings/sshd/04_PasswordAuthentication.conf" /etc/ssh/sshd_config.d/04_PasswordAuthentication.conf
-    sudo cp "$BASEDIR/settings/sshd/05_PermitEmptyPasswords.conf" /etc/ssh/sshd_config.d/05_PermitEmptyPasswords.conf
-    sudo cp "$BASEDIR/settings/sshd/06_AlternateAuthentication.conf" /etc/ssh/sshd_config.d/06_AlternateAuthentication.conf
-    sudo cp "$BASEDIR/settings/sshd/07_X11Forwarding.conf" /etc/ssh/sshd_config.d/07_X11Forwarding.conf
-    sudo cp "$BASEDIR/settings/sshd/08_PermitUserEnvironment.conf" /etc/ssh/sshd_config.d/08_PermitUserEnvironment.conf
-    sudo cp "$BASEDIR/settings/sshd/09_Tunnelling.conf" /etc/ssh/sshd_config.d/09_Tunnelling.conf
-    sudo cp "$BASEDIR/settings/sshd/10_ClientAliveCountMax.conf" /etc/ssh/sshd_config.d/10_ClientAliveCountMax.conf
-    sudo cp "$BASEDIR/settings/sshd/11_MaxSessions.conf" /etc/ssh/sshd_config.d/11_MaxSessions.conf
-    sudo cp "$BASEDIR/settings/sshd/12_LogLevel.conf" /etc/ssh/sshd_config.d/12_LogLevel.conf
-    sudo cp "$BASEDIR/settings/sshd/13_TCPKeepAlive.conf" /etc/ssh/sshd_config.d/13_TCPKeepAlive.conf
+    for SSHD_CONF in "$BASEDIR"/settings/sshd/*.conf; do
+        SSHD_TARGET="/etc/ssh/sshd_config.d/$(basename "$SSHD_CONF")"
+        sudo cp "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
+    done
 
     info "Installing curl for key server AuthorizedKeysCommand"
-    sudo pacman -S --needed --noconfirm curl
+    sudo pacman -S --needed --noconfirm curl || die "Failed to install curl"
 
     HOSTNAME_VALUE="$(hostnamectl --static)"
     [ -n "$HOSTNAME_VALUE" ] || die "Unable to determine hostname for key server AuthorizedKeysCommand config"
 
     info "Rendering key server AuthorizedKeysCommand config"
-    sudo tee /etc/ssh/sshd_config.d/14_KeyServer.conf > /dev/null <<EOF
+    sudo tee /etc/ssh/sshd_config.d/14_KeyServer.conf > /dev/null <<EOF || die "Failed to write /etc/ssh/sshd_config.d/14_KeyServer.conf"
 AuthorizedKeysCommand /usr/bin/curl -sf --connect-timeout 5 --max-time 10 https://keys.markridgwell.com/keys/$HOSTNAME_VALUE/%u
 AuthorizedKeysCommandUser nobody
 EOF
+
+    success "SSH hardened"
 }
 
 harden_ssh

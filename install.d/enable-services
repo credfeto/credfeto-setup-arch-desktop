@@ -8,26 +8,29 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 enable_services() {
     info "Enabling ssh-agent"
-    systemctl enable --now --user ssh-agent
+    systemctl enable --now --user ssh-agent || die "Failed to enable the ssh-agent user service"
 
     info "Enabling apparmor"
-    sudo systemctl enable --now apparmor.service
-    sudo aa-enforce firejail-default
+    sudo pacman -S --needed --noconfirm apparmor || die "Failed to install apparmor"
+    sudo systemctl enable --now apparmor.service || die "Failed to enable apparmor.service"
+    sudo aa-enforce firejail-default || die "Failed to enforce the firejail-default apparmor profile"
 
     info "Enabling logrotate"
-    sudo pacman -S --needed --noconfirm logrotate
-    sudo systemctl enable --now logrotate.timer
-    sudo cp "$BASEDIR/settings/logrotate/01-defaults" /etc/logrotate.d/01-defaults
+    sudo pacman -S --needed --noconfirm logrotate || die "Failed to install logrotate"
+    sudo systemctl enable --now logrotate.timer || die "Failed to enable logrotate.timer"
+    sudo cp "$BASEDIR/settings/logrotate/01-defaults" /etc/logrotate.d/01-defaults || die "Failed to copy /etc/logrotate.d/01-defaults"
 
     info "Enabling pacman cache cleanup"
-    sudo pacman -S --needed --noconfirm pacman-contrib
-    sudo systemctl enable --now paccache.timer
+    sudo pacman -S --needed --noconfirm pacman-contrib || die "Failed to install pacman-contrib"
+    sudo systemctl enable --now paccache.timer || die "Failed to enable paccache.timer"
 
     info "Installing pacman sync"
-    sudo cp "$BASEDIR/units/pacman-sync/pacman-sync.service" /etc/systemd/system/
-    sudo cp "$BASEDIR/units/pacman-sync/pacman-sync.timer" /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now pacman-sync.timer
+    sudo cp "$BASEDIR/units/pacman-sync/pacman-sync.service" /etc/systemd/system/ || die "Failed to copy pacman-sync.service to /etc/systemd/system"
+    sudo cp "$BASEDIR/units/pacman-sync/pacman-sync.timer" /etc/systemd/system/ || die "Failed to copy pacman-sync.timer to /etc/systemd/system"
+    sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
+    sudo systemctl enable --now pacman-sync.timer || die "Failed to enable pacman-sync.timer"
+
+    success "Services enabled"
 }
 
 enable_services

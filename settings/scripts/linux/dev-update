@@ -6,58 +6,101 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-wait_for_network() {
-    if systemctl is-active --quiet NetworkManager.service; then
-        while ! nm-online -q -t 30; do
-            info "Waiting for network..."
-        done
-    elif systemctl is-active --quiet systemd-networkd.service; then
-        while ! /usr/lib/systemd/systemd-networkd-wait-online -q --any --timeout=30; do
-            info "Waiting for network..."
-        done
-    else
-        die "Neither NetworkManager nor systemd-networkd is active"
-    fi
+# flock's exit status when another run holds the lock; anything else is the
+# locked run's own exit status, which is only ever 0 or 1.
+LOCK_CONFLICT=75
+
+# Set by --fail-if-running, which dev-install passes: it runs dev-update as
+# its last step, so a run skipped because another one holds the lock must not
+# let it report success. The timer passes nothing, as an overlapping tick
+# needs no action.
+FAIL_IF_RUNNING=0
+
+# Usage: parse_arguments [--fail-if-running]
+parse_arguments() {
+    case "$#:$1" in
+        0:) ;;
+        1:--fail-if-running) FAIL_IF_RUNNING=1 ;;
+        *) die "Usage: dev-update [--fail-if-running]" ;;
+    esac
 }
 
-update_repo() {
-    REPO_PATH="$1"
+# Re-runs this script under the lock and exits with its status, starting the
+# timer only after a successful run has released the lock. Non-blocking
+# so an overlapping timer tick or manual run exits cleanly instead of queueing
+# up behind the one already running, unless --fail-if-running made that
+# fatal. flock -o closes the lock fd before
+# running the script, so nothing the run starts inherits it: a process left
+# behind (an ssh ControlPersist master, a gpg-agent, a dotnet build server)
+# cannot keep holding the lock once the run has ended.
+run_locked() {
+    [ -n "${XDG_RUNTIME_DIR}" ] || die "XDG_RUNTIME_DIR is not set"
 
-    if [ ! -d "${REPO_PATH}" ]; then
-        info "Skipping ${REPO_PATH} (not present)"
-        return
+    DEV_UPDATE_LOCKED=1 flock -n -o -E "${LOCK_CONFLICT}" "${XDG_RUNTIME_DIR}/dev-update.lock" "$0"
+    LOCKED_STATUS=$?
+
+    if [ "${LOCKED_STATUS}" -eq "${LOCK_CONFLICT}" ]; then
+        [ "${FAIL_IF_RUNNING}" = 0 ] || die "Another dev-update is running; re-run dev-install when it finishes"
+        info "dev-update is already running"
+        exit 0
     fi
-
-    info "Pulling ${REPO_PATH}..."
-    git -C "${REPO_PATH}" pull || die "Failed to pull ${REPO_PATH}"
+    [ "${LOCKED_STATUS}" -ne 0 ] || start_dev_update_timer
+    exit "${LOCKED_STATUS}"
 }
 
-wait_for_network
+# The dev-update units are symlinks into the reference clone, so a pull can
+# change them; systemd only sees that after a reload, which also re-arms an
+# already running timer with any changed settings. Not fatal because a manual
+# run (e.g. over ssh) may have no user manager to reach, and the reload
+# happens anyway when the user manager next starts.
+reload_user_units() {
+    info "Reloading systemd user units..."
+    systemctl --user daemon-reload || warn "Could not reload systemd user units; changes to the dev-update units apply when the user manager next starts"
+}
 
-update_repo "${HOME}/work/personal/credfeto-setup-arch-desktop"
-update_repo "${HOME}/work/personal/credfeto-global-pre-commit"
-update_repo "${HOME}/work/personal/cs-template"
-update_repo "${HOME}/work/personal/credfeto-orchestrator"
-update_repo "${HOME}/work/personal/claude"
+# Arms a timer that was enabled but never started, as dev-install leaves it;
+# a no-op when it is already running. Called only once a run has succeeded
+# and released the lock: a timer that has never fired fires at once on start,
+# because OnStartupSec= has already passed, so starting it any earlier would
+# have its service hit the lock and exit "already running". Not fatal for
+# the same reason as reload_user_units; it starts when the user manager next
+# starts.
+start_dev_update_timer() {
+    info "Starting dev-update.timer..."
+    systemctl --user start dev-update.timer || warn "Could not start dev-update.timer; it starts when the user manager next starts"
+}
 
-CREDFETO_AI_SKILLS="${HOME}/work/personal/credfeto-ai-skills"
+dev_update() {
+    refuse_ai_agent dev-update
+    parse_arguments "$@"
+    # Set only by run_locked, for the copy of this script it runs under the
+    # lock; unset so nothing the run starts sees it.
+    [ "${DEV_UPDATE_LOCKED}" = 1 ] || run_locked
+    unset DEV_UPDATE_LOCKED
 
-if [ -d "${CREDFETO_AI_SKILLS}" ]; then
-    update_repo "${CREDFETO_AI_SKILLS}"
+    require_network "$SCRIPTDIR/network-online"
 
-    INSTALL_SCRIPT="${CREDFETO_AI_SKILLS}/install"
+    for REPO in $DEV_REFERENCE_REPOS; do
+        clone_reference_repo "${REPO}"
+        update_reference_repo "${REPO}"
+    done
 
-    [ -x "${INSTALL_SCRIPT}" ] || die "Install script not found or not executable: ${INSTALL_SCRIPT}"
+    reload_user_units
 
-    info "Running ${INSTALL_SCRIPT}..."
-    "${INSTALL_SCRIPT}" || die "Failed to run ${INSTALL_SCRIPT}"
-else
-    info "Skipping ${CREDFETO_AI_SKILLS} (not present)"
-fi
+    run_reference_step credfeto-setup-arch-desktop/install.d/dev-scripts
+    run_reference_step credfeto-global-pre-commit/install --system
+    run_reference_step claude/install
+    run_reference_step credfeto-ai-skills/install
+    run_reference_step credfeto-orchestrator/install-claude-hooks
 
-info "Installing claude hooks"
-"${HOME}/work/personal/credfeto-orchestrator/install-claude-hooks"
+    # From the reference clone just brought to main, not through PATH, whose
+    # /usr/local/bin link may still point into a working checkout; and from
+    # $HOME so the home tool manifest is updated, not one belonging to
+    # whichever repo a manual run happens to be started from.
+    info "Updating dotnet tools..."
+    (cd "${HOME}" && run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools) || die "Failed to update dotnet tools"
 
-update-dotnet-tools
+    success "Dev environment updated"
+}
 
-success "Dev environment updated"
+dev_update "$@"
