@@ -69,6 +69,14 @@ setup() {
 
 # ── wallpaper ────────────────────────────────────────────────────────────────
 
+# Creates the wallpapers directory and has the fake git report it as its own
+# work tree's top level, so wallpaper treats it as a clone.
+# Usage: make_wallpapers_clone
+make_wallpapers_clone() {
+    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    readlink -f "${HOME}/work/thirdparty/wallpapers" | seed_fake_output git
+}
+
 @test "wallpaper clones the wallpapers repo when absent, exits cleanly if still absent after" {
     setup_fake_bin git
     run "${GENERAL_DIR}/wallpaper"
@@ -83,7 +91,7 @@ setup() {
     # only mkdir's the Backgrounds subfolder (not -p), so this precondition
     # is part of the fixture, not something the script itself guarantees.
     mkdir -p "${HOME}/Pictures"
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    make_wallpapers_clone
     printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
     printf 'fake-jpg-2' > "${HOME}/work/thirdparty/wallpapers/two.jpg"
 
@@ -100,10 +108,22 @@ setup() {
     [ -L "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
 }
 
+@test "wallpaper dies naming a wallpapers directory that is not a git clone, and never pulls" {
+    setup_fake_bin git
+    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    # The fake git prints nothing for rev-parse, as for a directory that is
+    # in no repo of its own.
+    run "${GENERAL_DIR}/wallpaper"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${HOME}/work/thirdparty/wallpapers exists but is not a git clone"* ]]
+    assert_fake_called '^git -C .*wallpapers rev-parse --show-toplevel$'
+    refute_fake_called 'pull'
+}
+
 @test "wallpaper does not attempt to copy into an empty Zoom virtual-background directory" {
     setup_fake_bin git
     mkdir -p "${HOME}/Pictures"
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    make_wallpapers_clone
     printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
     # Present, but with no "{...}"-named subfolder yet - e.g. Zoom's virtual
     # background picker was opened but no custom background added.

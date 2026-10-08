@@ -7,6 +7,7 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 . "$BASEDIR/lib/common"
 
 if [ -d "$HOME/work/thirdparty/wallpapers" ]; then
+  require_clone_toplevel "$HOME/work/thirdparty/wallpapers"
   git -C "$HOME/work/thirdparty/wallpapers" pull
 else
   [ -d "$HOME/work/thirdparty" ] || mkdir -p "$HOME/work/thirdparty" || die "Could not create $HOME/work/thirdparty"
