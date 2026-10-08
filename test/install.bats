@@ -30,7 +30,10 @@ EXPECTED_STEPS=(
 
 # Copies install and lib/common into a temp tree and gives it a logging stub
 # for every executable under the real install.d/. Each stub logs its name to
-# STEP_LOG and exits 1 when its name is in FAILING_STEP, 0 otherwise.
+# STEP_LOG and exits 1 when its name is in FAILING_STEP, 0 otherwise. id
+# and systemctl are faked as a normal user with a reachable systemd user
+# manager, so the session preflight never depends on the host running the
+# tests; a test overrides the uid or fails the probe to exercise it.
 setup() {
     INSTALL_TREE="${BATS_TEST_TMPDIR}/tree"
     STEP_LOG="${BATS_TEST_TMPDIR}/steps.log"
@@ -38,6 +41,9 @@ setup() {
     cp "${REPO_DIR}/install" "${INSTALL_TREE}/install"
     cp "${REPO_DIR}/lib/common" "${INSTALL_TREE}/lib/common"
     : > "${STEP_LOG}"
+
+    setup_fake_bin id systemctl
+    seed_fake_output id <<< "1000"
 
     local _step _name
     for _step in "${REPO_DIR}"/install.d/*; do
@@ -56,6 +62,7 @@ EOF
     run "${INSTALL_TREE}/install"
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Done"* ]]
+    assert_fake_called '^systemctl --user show-environment$'
 
     # Every executable under install.d/ is an expected step, so a new script
     # cannot be added without deciding where it runs.
@@ -78,4 +85,25 @@ EOF
         [[ "${output}" != *"Done"* ]]
         [ "$(cat "${STEP_LOG}")" = "$(printf '%s\n' "${EXPECTED_STEPS[@]:0:$((_index + 1))}")" ]
     done
+}
+
+@test "install dies as root, saying to run it as the normal user, before running any step" {
+    seed_fake_output id <<< "0"
+
+    run "${INSTALL_TREE}/install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"install must not be run as root; run it as your normal user, as it calls sudo itself"* ]]
+    [[ "${output}" != *"Installing..."* ]]
+    [[ "${output}" != *"Done"* ]]
+    [ ! -s "${STEP_LOG}" ]
+}
+
+@test "install dies when the systemd user manager cannot be reached, saying to run it from a logged-in session, before running any step" {
+    run env FAKE_EXIT_systemctl=1 "${INSTALL_TREE}/install"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Cannot reach your systemd user manager; run install from a logged-in session"* ]]
+    [[ "${output}" != *"Installing..."* ]]
+    [[ "${output}" != *"Done"* ]]
+    assert_fake_called '^systemctl --user show-environment$'
+    [ ! -s "${STEP_LOG}" ]
 }

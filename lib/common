@@ -44,6 +44,18 @@ refuse_ai_agent() {
     fi
 }
 
+# Dies before anything has changed when the caller's own systemd user manager
+# cannot be reached, so a later `systemctl --user` call cannot fail midway.
+# Root is refused by uid, not left to the probe: root can have a user manager
+# of its own, which the probe would accept, and the scripts call sudo
+# themselves where they need it.
+# show-environment only reads from the manager, so the probe changes nothing.
+# Usage: require_user_session <script-name>
+require_user_session() {
+    [ "$(id -u)" != "0" ] || die "$1 must not be run as root; run it as your normal user, as it calls sudo itself where it needs to"
+    systemctl --user show-environment >/dev/null 2>&1 || die "Cannot reach your systemd user manager; run $1 from a logged-in session (desktop, console or SSH login) as your normal user, not through su or sudo"
+}
+
 # Returns true (0) when NetworkManager is the host's active network manager,
 # so NetworkManager-only work can be skipped on a systemd-networkd host.
 network_manager_active() {
