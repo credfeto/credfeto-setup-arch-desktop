@@ -243,7 +243,28 @@ assert_step_died() {
 @test "fail2ban stops when copying the ssh jail fails" {
     run_step fail2ban FAKE_SUDO_FAIL='^cp .*/ssh\.local '
     assert_step_died "Failed to copy /etc/fail2ban/jail.d/ssh.local" "fail2ban installed"
-    refute_fake_called 'pacman -S'
+    refute_fake_called 'enable --now fail2ban'
+}
+
+# The package creates /etc/fail2ban/jail.d, so on a fresh machine the jails
+# can only be copied in once it is installed.
+@test "fail2ban installs the package before copying its jails, then enables the service" {
+    run_step fail2ban
+    [ "${status}" -eq 0 ]
+    local _expected=(
+        "sudo pacman -S --needed --noconfirm fail2ban"
+        "sudo cp ${REPO_DIR}/settings/fail2ban/default.local /etc/fail2ban/jail.d/default.local"
+        "sudo cp ${REPO_DIR}/settings/fail2ban/ssh.local /etc/fail2ban/jail.d/ssh.local"
+        "sudo systemctl enable --now fail2ban"
+    )
+    [ "$(cat "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "${_expected[@]}")" ]
+}
+
+@test "fail2ban stops when installing the package fails, before copying any jail" {
+    run_step fail2ban FAKE_SUDO_FAIL='^pacman -S .*fail2ban$'
+    assert_step_died "Failed to install fail2ban" "fail2ban installed"
+    refute_fake_called '^sudo cp '
+    refute_fake_called 'enable --now fail2ban'
 }
 
 # ── firejail ─────────────────────────────────────────────────────────────────
