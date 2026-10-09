@@ -215,3 +215,16 @@ true'
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
 }
+
+@test "14_cd-aliases.sh defines the .. to .......... and cd.. to cd.......... aliases and cleans up its variables" {
+    local _expected="" _dots=".." _path=".."
+    while [ "${#_dots}" -le 10 ]; do
+        _expected+="alias ${_dots}='cd ${_path}'"$'\n'"alias cd${_dots}='cd ${_path}'"$'\n'
+        _dots+="."
+        _path="../${_path}"
+    done
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_n _cd_up_dots 2> /dev/null; true'
+    [ "${status}" -eq 0 ]
+    [ "$(sort <<< "${output}")" = "$(sort <<< "${_expected%$'\n'}")" ]
+}
