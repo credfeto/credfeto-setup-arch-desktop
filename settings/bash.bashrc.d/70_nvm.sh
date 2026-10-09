@@ -1,11 +1,8 @@
 # shellcheck shell=bash disable=SC1091
 # Depends on NVM_DIR from 25_xdg-tool-paths.sh, sourced ahead of this file.
 if [ -f "/usr/share/nvm/init-nvm.sh" ]; then
-    # The package's init script creates $NVM_DIR and its symlinks with
-    # mkdir -v / ln -v the first time it runs for a user, and that chatter
-    # would otherwise land in the dev-update journal, which sources this file
-    # through run-dev-update. Only stdout is discarded, so a real failure to
-    # create them still reaches stderr.
+    # init-nvm.sh's first run echoes mkdir -v / ln -v; drop stdout so it stays
+    # out of the dev-update journal, while real failures still reach stderr.
     # shellcheck source=/dev/null
     . /usr/share/nvm/init-nvm.sh >/dev/null
 fi
