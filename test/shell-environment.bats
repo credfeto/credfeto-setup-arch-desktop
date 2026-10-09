@@ -168,11 +168,11 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
     # bash-completion installs a default (-D) completion; bash has none
     # without it.
     # shellcheck disable=SC2016
-    run_section_shell interactive '. "$1/40_bash-completion.sh"; complete -p -D'
+    local _script='. "$1/40_bash-completion.sh"; complete -p -D'
+    run_section_shell interactive "${_script}"
     [ "${status}" -eq 0 ]
     [ -n "${output}" ]
-    # shellcheck disable=SC2016
-    run_section_shell non-interactive '. "$1/40_bash-completion.sh"; complete -p -D'
+    run_section_shell non-interactive "${_script}"
     [ "${status}" -ne 0 ]
 }
 
@@ -193,11 +193,11 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
     mkdir -p "${_completion_dir}"
     echo '_socket_completion() { :; }' > "${_completion_dir}/socket-completion.bash"
     # shellcheck disable=SC2016
-    run_section_shell interactive '. "$1/78_socket-cli.sh"; complete -p socket'
+    local _script='. "$1/78_socket-cli.sh"; complete -p socket'
+    run_section_shell interactive "${_script}"
     [ "${status}" -eq 0 ]
     [ "${output}" = 'complete -F _socket_completion socket' ]
-    # shellcheck disable=SC2016
-    run_section_shell non-interactive '. "$1/78_socket-cli.sh"; complete -p socket'
+    run_section_shell non-interactive "${_script}"
     [ "${status}" -ne 0 ]
 }
 
@@ -224,7 +224,7 @@ true'
         _path="../${_path}"
     done
     # shellcheck disable=SC2016
-    run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_n _cd_up_dots 2> /dev/null; true'
+    run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_dots 2> /dev/null; true'
     [ "${status}" -eq 0 ]
     [ "$(sort <<< "${output}")" = "$(sort <<< "${_expected%$'\n'}")" ]
 }
