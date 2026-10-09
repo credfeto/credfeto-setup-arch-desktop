@@ -58,7 +58,7 @@ run_with_clean_tool_env() {
 # never runs. Prints the path of the copied run-dev-update.
 setup_run_dev_update_tree() {
     local _root="${BATS_TEST_TMPDIR}/clone"
-    mkdir -p "${_root}/units/dev-update" "${_root}/settings" "${_root}/settings/scripts/linux"
+    mkdir -p "${_root}/units/dev-update" "${_root}/settings/scripts/linux"
     cp "${DEV_UPDATE_UNITS}/run-dev-update" "${_root}/units/dev-update/"
     cp -r "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
     cat > "${_root}/settings/scripts/linux/dev-update" <<EOF

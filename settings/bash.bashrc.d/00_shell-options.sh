@@ -16,16 +16,6 @@ fi
 
 export KEYS_SERVER_URL=https://keys.markridgwell.com
 
-# Disable the bell
-if [[ $iatest -gt 0 ]]; then bind "set bell-style visible"; fi
-
-# Ignore case on auto-completion
-# Note: bind used instead of sticking these in .inputrc
-if [[ $iatest -gt 0 ]]; then bind "set completion-ignore-case on"; fi
-
-# Show auto-completion list automatically, without double tab
-if [[ $iatest -gt 0 ]]; then bind "set show-all-if-ambiguous On"; fi
-
 # Expand the history size
 export HISTFILESIZE=10000
 export HISTSIZE=500
@@ -34,8 +24,18 @@ export HISTSIZE=500
 export HISTCONTROL=erasedups:ignoredups:ignorespace
 
 # Interactive-only: this file is also sourced by non-interactive shells with
-# no terminal, where stty fails.
+# no terminal, where bind warns and stty fails.
 if [[ $iatest -gt 0 ]]; then
+    # Disable the bell
+    bind "set bell-style visible"
+
+    # Ignore case on auto-completion
+    # Note: bind used instead of sticking these in .inputrc
+    bind "set completion-ignore-case on"
+
+    # Show auto-completion list automatically, without double tab
+    bind "set show-all-if-ambiguous On"
+
     # Check the window size after each command and, if necessary, update the values of LINES and COLUMNS
     shopt -s checkwinsize
 

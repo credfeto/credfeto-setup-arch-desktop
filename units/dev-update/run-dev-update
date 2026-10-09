@@ -15,6 +15,5 @@ for section in "$BASEDIR"/settings/bash.bashrc.d/*.sh; do
     # shellcheck source=/dev/null
     [ -e "$section" ] && . "$section"
 done
-unset section
 
 exec "$BASEDIR/settings/scripts/linux/dev-update"
