@@ -112,3 +112,91 @@ run_update_setup_install() {
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
 }
+
+# ── interactive-only bash.bashrc.d sections ─────────────────────────────────
+# /etc/bash.bashrc sources bash.bashrc.d in interactive shells, and
+# run-dev-update sources it non-interactively, so each interactive-only part
+# is checked in both kinds of shell.
+
+SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
+
+# Runs the given script in bash with the bash.bashrc.d directory as $1, in an
+# interactive shell when the first argument is "interactive". --norc and
+# --noprofile keep the host's deployed /etc/bash.bashrc.d out of the shell,
+# and +m stops it taking over a terminal for job control. Only stdout is
+# asserted: with no terminal, an interactive bash and bind warn on stderr.
+# Usage: run_section_shell interactive|non-interactive <script>
+run_section_shell() {
+    local _mode="$1" _script="$2"
+    local -a _flags=(--norc --noprofile +m)
+    if [ "${_mode}" = interactive ]; then
+        _flags+=(-i)
+    fi
+    run --separate-stderr bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" < /dev/null
+}
+
+# Clears the settings 00_shell-options.sh turns on and gives PROMPT_COMMAND an
+# existing hook, sources the section, then prints what it left behind.
+# shellcheck disable=SC2016
+SHELL_OPTIONS_SCRIPT='
+shopt -u checkwinsize histappend
+PROMPT_COMMAND=(existing_hook)
+. "$1/00_shell-options.sh"
+shopt -q checkwinsize && echo checkwinsize
+shopt -q histappend && echo histappend
+printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
+'
+
+@test "00_shell-options.sh in an interactive shell sets the window and history options, appends to PROMPT_COMMAND and frees ctrl-S" {
+    setup_fake_bin stty
+    run_section_shell interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'checkwinsize\nhistappend\nPROMPT_COMMAND=existing_hook\nPROMPT_COMMAND=history -a' ]
+    assert_fake_called '^stty -ixon$'
+}
+
+@test "00_shell-options.sh in a non-interactive shell leaves the shell options, PROMPT_COMMAND and the terminal alone" {
+    setup_fake_bin stty
+    run_section_shell non-interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'PROMPT_COMMAND=existing_hook' ]
+    refute_fake_called '^stty'
+}
+
+@test "40_bash-completion.sh loads bash-completion only in an interactive shell" {
+    [ -f /usr/share/bash-completion/bash_completion ] || [ -f /etc/bash_completion ] || skip "bash-completion not installed"
+    # bash-completion installs a default (-D) completion; bash has none
+    # without it.
+    # shellcheck disable=SC2016
+    run_section_shell interactive '. "$1/40_bash-completion.sh"; complete -p -D'
+    [ "${status}" -eq 0 ]
+    [ -n "${output}" ]
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/40_bash-completion.sh"; complete -p -D'
+    [ "${status}" -ne 0 ]
+}
+
+@test "70_nvm.sh loads nvm's bash completion only in an interactive shell" {
+    export NVM_DIR="${BATS_TEST_TMPDIR}/nvm"
+    mkdir -p "${NVM_DIR}"
+    echo 'nvm_completion_loaded=yes' > "${NVM_DIR}/bash_completion"
+    # shellcheck disable=SC2016
+    local _script='. "$1/70_nvm.sh"; echo "nvm_completion_loaded=${nvm_completion_loaded:-no}"'
+    run_section_shell interactive "${_script}"
+    [ "${output}" = 'nvm_completion_loaded=yes' ]
+    run_section_shell non-interactive "${_script}"
+    [ "${output}" = 'nvm_completion_loaded=no' ]
+}
+
+@test "78_socket-cli.sh registers socket's completion only in an interactive shell" {
+    local _completion_dir="${HOME}/.local/share/socket/completion"
+    mkdir -p "${_completion_dir}"
+    echo '_socket_completion() { :; }' > "${_completion_dir}/socket-completion.bash"
+    # shellcheck disable=SC2016
+    run_section_shell interactive '. "$1/78_socket-cli.sh"; complete -p socket'
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'complete -F _socket_completion socket' ]
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/78_socket-cli.sh"; complete -p socket'
+    [ "${status}" -ne 0 ]
+}
