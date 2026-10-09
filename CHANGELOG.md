@@ -53,6 +53,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-install and dev-update now refuse a reference clone directory that is not a git clone, instead of running git in an enclosing repository
 - dev-install now fails when another dev-update run holds the lock, instead of reporting success without updating
 - dev-install and dev-update now run the .NET tool install and update scripts from the reference clone instead of whichever copy is on PATH
+- TBD - to be finalized after review
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
