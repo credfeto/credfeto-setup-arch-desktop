@@ -8,7 +8,7 @@
 
 A deployed file's mode must be set **explicitly** by the deploying command. Never let it come from the working tree's checkout mode, from the mode of whatever happened to be at the destination already, or from the caller's umask.
 
-This repo is worked on under a `027` umask, so anything that inherits a mode lands `root:root` with nothing for group or other. Everything that then reads it as an ordinary user fails, usually silently: a `/etc/bash.bashrc.d/*.sh` loader sources nothing (#42), `systemctl cat` cannot read a unit (#43), an installed `dotnet` cannot be executed (#47).
+This repo is worked on under a `027` umask, so anything that inherits a mode lands `root:root` with nothing for group or other. Everything that then reads it as an ordinary user fails, usually silently: a `/etc/bash.bashrc.d/*.sh` loader sources nothing, `systemctl cat` cannot read a unit, an installed `dotnet` cannot be executed.
 
 ## Per-File Deployment
 
