@@ -54,7 +54,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-install now fails when another dev-update run holds the lock, instead of reporting success without updating
 - dev-install and dev-update now run the .NET tool install and update scripts from the reference clone instead of whichever copy is on PATH
 - dev-update timer runs now source every bash.bashrc.d section under bash, so nvm's Node.js and npm, Go and bun are on PATH and the npm global install step no longer fails
-- bash.bashrc.d sections no longer write terminal-only errors or nvm first-run output when sourced by a non-interactive shell
+- bash.bashrc.d sections no longer write terminal-only errors or nvm first-run output, or register autojump's completion and prompt hook, when sourced by a non-interactive shell
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -63,6 +63,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-update now waits for the network before pulling repos and runs update-dotnet-tools before completing
 - The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
 - dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
+- The cd-up aliases (.. to 10 dots and their cd-prefixed forms) are now built without forking seq, so sourcing them is faster
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
