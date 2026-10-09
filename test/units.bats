@@ -33,9 +33,7 @@ setup() {
     local _service="${DEV_UPDATE_UNITS}/dev-update.service"
     grep -qx 'Type=oneshot' "${_service}"
     grep -qx 'ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online' "${_service}"
-    # A login shell reads /etc/profile, and so /etc/profile.d, which the user
-    # manager does not; run-dev-update adds the bash.bashrc.d sections, which
-    # are bash-only, so the login shell must be bash rather than /bin/sh.
+    # Why a bash login shell: see the comment above ExecStart.
     grep -qx 'ExecStart=/bin/bash -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
     [ "$(grep -c '^ExecCondition=' "${_service}")" -eq 1 ]
     [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
