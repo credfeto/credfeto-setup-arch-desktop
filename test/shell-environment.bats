@@ -200,3 +200,18 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
     run_section_shell non-interactive '. "$1/78_socket-cli.sh"; complete -p socket'
     [ "${status}" -ne 0 ]
 }
+
+@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
+    [ -f /usr/share/autojump/autojump.sh ] || skip "autojump not installed"
+    # shellcheck disable=SC2016
+    local _script='. "$1/77_autojump.sh"
+complete -p j > /dev/null 2>&1 && echo completion
+[[ "${PROMPT_COMMAND[*]}" == *autojump_add_to_database* ]] && echo hook
+true'
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'completion\nhook' ]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
