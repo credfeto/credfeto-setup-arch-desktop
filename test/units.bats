@@ -29,13 +29,14 @@ setup() {
     run ! grep -q '^Persistent=' "${DEV_UPDATE_UNITS}/dev-update.timer"
 }
 
-@test "dev-update.service is skipped when offline and runs run-dev-update from the reference clone through a login shell" {
+@test "dev-update.service is skipped when offline and runs run-dev-update from the reference clone through a bash login shell" {
     local _service="${DEV_UPDATE_UNITS}/dev-update.service"
     grep -qx 'Type=oneshot' "${_service}"
     grep -qx 'ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online' "${_service}"
     # A login shell reads /etc/profile, and so /etc/profile.d, which the user
-    # manager does not; run-dev-update adds the bash.bashrc.d settings.
-    grep -qx 'ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
+    # manager does not; run-dev-update adds the bash.bashrc.d sections, which
+    # are bash-only, so the login shell must be bash rather than /bin/sh.
+    grep -qx 'ExecStart=/bin/bash -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
     [ "$(grep -c '^ExecCondition=' "${_service}")" -eq 1 ]
     [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
 }
@@ -44,21 +45,29 @@ setup() {
     grep -qx 'Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket' "${DEV_UPDATE_UNITS}/dev-update.service"
 }
 
-# Copies run-dev-update and the bash.bashrc.d sections it sources into a
+# Runs a command with the caller's tool settings cleared and a minimal PATH,
+# so the nvm, Go, bun or dotnet setup of whoever runs the suite cannot leak
+# into what the sections under test produce.
+run_with_clean_tool_env() {
+    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "$@"
+}
+
+# Copies run-dev-update and every bash.bashrc.d section it sources into a
 # clone-shaped tree under the test dir, with a stub dev-update that records
 # the environment it was started with and exits 3, so the real dev-update
 # never runs. Prints the path of the copied run-dev-update.
 setup_run_dev_update_tree() {
     local _root="${BATS_TEST_TMPDIR}/clone"
-    mkdir -p "${_root}/units/dev-update" "${_root}/settings/bash.bashrc.d" "${_root}/settings/scripts/linux"
+    mkdir -p "${_root}/units/dev-update" "${_root}/settings" "${_root}/settings/scripts/linux"
     cp "${DEV_UPDATE_UNITS}/run-dev-update" "${_root}/units/dev-update/"
-    cp "${REPO_DIR}/settings/bash.bashrc.d/50_paths.sh" "${REPO_DIR}/settings/bash.bashrc.d/60_dotnet.sh" "${_root}/settings/bash.bashrc.d/"
+    cp -r "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
     cat > "${_root}/settings/scripts/linux/dev-update" <<EOF
 #!/bin/sh
 {
     printf 'PATH=%s\n' "\${PATH}"
     printf 'DOTNET_NOLOGO=%s\n' "\${DOTNET_NOLOGO:-}"
     printf 'DOTNET_ROOT=%s\n' "\${DOTNET_ROOT:-}"
+    printf 'NVM_DIR=%s\n' "\${NVM_DIR:-}"
 } > "${BATS_TEST_TMPDIR}/dev-update.env"
 exit 3
 EOF
@@ -66,17 +75,77 @@ EOF
     printf '%s\n' "${_root}/units/dev-update/run-dev-update"
 }
 
-@test "run-dev-update starts dev-update with the PATH and dotnet settings from bash.bashrc.d, passing on its exit status" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
+# Succeeds when the PATH recorded by the stub dev-update has the given entry.
+recorded_path_has() {
+    local _path
+    _path="$(sed -n 's/^PATH=//p' "${BATS_TEST_TMPDIR}/dev-update.env")"
+    [[ ":${_path}:" == *":$1:"* ]]
+}
+
+@test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _gopath
     _run="$(setup_run_dev_update_tree)"
-    run env -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "${_run}"
+    mkdir -p "${HOME}/.bun/bin"
+    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
     [ "${status}" -eq 3 ]
-    grep -qx "PATH=/usr/bin:/bin.*:${HOME}/.local/bin:${HOME}/.cargo/bin.*" "${_env}"
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+    recorded_path_has /usr/bin
+    recorded_path_has "${HOME}/.local/bin"
+    recorded_path_has "${HOME}/.cargo/bin"
+    grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
     grep -qx 'DOTNET_NOLOGO=true' "${_env}"
     if [ -d /usr/share/dotnet ]; then
         grep -qx 'DOTNET_ROOT=/usr/share/dotnet' "${_env}"
-        grep -q '^PATH=.*:/usr/share/dotnet$' "${_env}"
+        recorded_path_has /usr/share/dotnet
     fi
+    if [ -x /usr/bin/go ]; then
+        _gopath="$(run_with_clean_tool_env go env GOPATH)"
+        recorded_path_has "${_gopath}/bin"
+    fi
+    if [ -f /usr/share/nvm/init-nvm.sh ]; then
+        grep -qx "NVM_DIR=${HOME}/.nvm" "${_env}"
+    fi
+}
+
+# Sources one bash.bashrc.d section the way run-dev-update does: in a
+# non-interactive bash with no terminal and the caller's tool settings
+# cleared. Leaves stdout in $output and stderr in $stderr.
+# Usage: run_section_non_interactively <section-path>
+run_section_non_interactively() {
+    # shellcheck disable=SC2016
+    run --separate-stderr run_with_clean_tool_env bash -c '. "$1"' _ "$1" < /dev/null
+}
+
+@test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced by a non-interactive bash" {
+    local _section _offenders=""
+    for _section in "${REPO_DIR}"/settings/bash.bashrc.d/*.sh; do
+        run_section_non_interactively "${_section}"
+        if [ -n "${output}" ] || [ -n "${stderr}" ]; then
+            _offenders+="${_section##*/}: ${output}${stderr}"$'\n'
+        fi
+    done
+    printf '%s' "${_offenders}"
+    [ -z "${_offenders}" ]
+}
+
+@test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
+    [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
+    run_section_non_interactively "${REPO_DIR}/settings/bash.bashrc.d/70_nvm.sh"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+    # Proves the first-use setup ran, so the silence above is not vacuous.
+    [ -L "${HOME}/.nvm/nvm.sh" ]
+}
+
+@test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
+    [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
+    # A regular file where NVM_DIR should be makes the symlinks fail.
+    : > "${HOME}/.nvm"
+    run_section_non_interactively "${REPO_DIR}/settings/bash.bashrc.d/70_nvm.sh"
+    [ -z "${output}" ]
+    [[ "${stderr}" == *"${HOME}/.nvm/nvm.sh"* ]]
 }
 
 @test "dev-update units install symlinks both units into the user unit directory" {

@@ -33,20 +33,24 @@ export HISTSIZE=500
 # Don't put duplicate lines in the history and do not add lines that start with a space
 export HISTCONTROL=erasedups:ignoredups:ignorespace
 
-# Check the window size after each command and, if necessary, update the values of LINES and COLUMNS
-shopt -s checkwinsize
+# Interactive-only: this file is also sourced by non-interactive shells with
+# no terminal, where stty fails.
+if [[ $iatest -gt 0 ]]; then
+    # Check the window size after each command and, if necessary, update the values of LINES and COLUMNS
+    shopt -s checkwinsize
 
-# Causes bash to append to history instead of overwriting it so if you start a new terminal, you have old session history
-shopt -s histappend
-# Append rather than overwrite: this file is sourced from the
-# /etc/bash.bashrc.d loop, which runs after install.d/shell-prompt's Starship
-# block has already hooked PROMPT_COMMAND to redraw the prompt each command.
-# A plain assignment here would silently wipe that hook, leaving the prompt
-# static (no colours) instead of erroring - so append instead.
-PROMPT_COMMAND+=('history -a')
+    # Causes bash to append to history instead of overwriting it so if you start a new terminal, you have old session history
+    shopt -s histappend
+    # Append rather than overwrite: this file is sourced from the
+    # /etc/bash.bashrc.d loop, which runs after install.d/shell-prompt's Starship
+    # block has already hooked PROMPT_COMMAND to redraw the prompt each command.
+    # A plain assignment here would silently wipe that hook, leaving the prompt
+    # static (no colours) instead of erroring - so append instead.
+    PROMPT_COMMAND+=('history -a')
 
-# Allow ctrl-S for history navigation (with ctrl-R)
-stty -ixon
+    # Allow ctrl-S for history navigation (with ctrl-R)
+    stty -ixon
+fi
 
 export EDITOR=nano
 export VISUAL=nano

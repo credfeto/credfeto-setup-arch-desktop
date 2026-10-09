@@ -1,19 +1,20 @@
-#! /bin/sh
+#!/bin/bash
 
-# Entry point for dev-update.service. The unit runs this through `sh -l`,
-# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), but not
-# /etc/bash.bashrc.d, which only interactive bash shells read. dev-update's
-# steps need the PATH and dotnet settings from there, so the two sections
-# that provide them are sourced from this clone before dev-update runs.
+# Entry point for dev-update.service. The unit runs this through `bash -l`,
+# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, NVM_DIR, ...), but not
+# /etc/bash.bashrc.d, which only interactive bash shells read. Every section of
+# this clone's bash.bashrc.d is sourced, in the same filename order as the
+# /etc/bash.bashrc loader, so dev-update's steps find the same tools on PATH
+# (nvm's node, Go, bun, dotnet, ...) as an interactive shell does, and a new
+# tool section reaches them without being listed here.
 
 SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
 BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"
 
-# ~/.local/bin and ~/.cargo/bin on PATH.
-# shellcheck source=../../settings/bash.bashrc.d/50_paths.sh disable=SC1091
-. "$BASEDIR/settings/bash.bashrc.d/50_paths.sh"
-# DOTNET_ROOT and /usr/share/dotnet on PATH, plus the dotnet settings.
-# shellcheck source=../../settings/bash.bashrc.d/60_dotnet.sh disable=SC1091
-. "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh"
+for section in "$BASEDIR"/settings/bash.bashrc.d/*.sh; do
+    # shellcheck source=/dev/null
+    [ -e "$section" ] && . "$section"
+done
+unset section
 
 exec "$BASEDIR/settings/scripts/linux/dev-update"
