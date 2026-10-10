@@ -89,10 +89,12 @@ recorded_path_has() {
     recorded_path_has /usr/bin
     recorded_path_has "${HOME}/.local/bin"
     recorded_path_has "${HOME}/.cargo/bin"
-    # The user directories are appended: were they ahead of the system
-    # directories, a user-installed binary would shadow /usr/bin's in timer
-    # runs.
+    # ~/.local/bin and ~/.cargo/bin are appended, so nothing in them shadows
+    # a system binary in timer runs.
     [[ ":$(recorded_path):" == *":/usr/bin:/bin"*":${HOME}/.local/bin:${HOME}/.cargo/bin:"* ]]
+    # bun is prepended, as nvm's Node.js directory is, so those two do come
+    # ahead of /usr/bin. That is deliberate: it is the order every interactive
+    # shell has, and timer runs are meant to find the same tools.
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
     grep -qx 'DOTNET_NOLOGO=true' "${_env}"
     if [ -d /usr/share/dotnet ]; then

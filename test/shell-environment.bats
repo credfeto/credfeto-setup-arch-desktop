@@ -315,12 +315,49 @@ run_path_helper() {
     [ "${output}" = '/opt/tool/bin' ]
 }
 
+@test "_bashrc_d_path_prepend puts a directory at the front of a PATH that does not hold it" {
+    run_path_helper _bashrc_d_path_prepend /usr/bin:/bin /opt/tool/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/opt/tool/bin:/usr/bin:/bin' ]
+}
+
+@test "_bashrc_d_path_prepend leaves the directory first, once, wherever PATH held it and however often" {
+    local _path
+    for _path in /opt/tool/bin:/usr/bin:/bin /usr/bin:/opt/tool/bin:/bin /usr/bin:/bin:/opt/tool/bin \
+        /opt/tool/bin:/usr/bin:/opt/tool/bin:/opt/tool/bin:/bin:/opt/tool/bin; do
+        run_path_helper _bashrc_d_path_prepend "${_path}" /opt/tool/bin
+        [ "${output}" = '/opt/tool/bin:/usr/bin:/bin' ]
+    done
+}
+
+@test "_bashrc_d_path_prepend matches whole entries only" {
+    # Neither entry is /opt/tool, though both contain it.
+    run_path_helper _bashrc_d_path_prepend /opt/tool/bin:/usr/opt/tool /opt/tool
+    [ "${output}" = '/opt/tool:/opt/tool/bin:/usr/opt/tool' ]
+}
+
+@test "_bashrc_d_path_prepend gives a PATH with nothing else in it no empty entry" {
+    # An empty entry means the current directory.
+    local _path
+    for _path in '' /opt/tool/bin /opt/tool/bin:/opt/tool/bin; do
+        run_path_helper _bashrc_d_path_prepend "${_path}" /opt/tool/bin
+        [ "${output}" = '/opt/tool/bin' ]
+    done
+}
+
+@test "_bashrc_d_path_prepend leaves no variable of its own behind" {
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/45_path-helpers.sh"; _bashrc_d_path_prepend /opt/tool/bin; echo "${_bashrc_d_path_rest-unset}"'
+    [ "${output}" = unset ]
+}
+
 @test "45_path-helpers.sh works in a POSIX sh, which the sh sections that call it are written for" {
     [ -x /usr/bin/dash ] || skip "dash not installed"
+    mkdir -p "${HOME}/.bun/bin"
     # shellcheck disable=SC2016
-    run /usr/bin/dash -c 'PATH=/usr/bin:/bin; . "$1/45_path-helpers.sh"; . "$1/50_paths.sh"; . "$1/50_paths.sh"; printf "%s\n" "$PATH"' _ "${SECTIONS_DIR}"
+    run /usr/bin/dash -c 'PATH="/usr/bin:$HOME/.bun/bin:/bin"; . "$1/45_path-helpers.sh"; . "$1/50_paths.sh"; . "$1/75_bun.sh"; . "$1/50_paths.sh"; . "$1/75_bun.sh"; printf "%s\n" "$PATH"' _ "${SECTIONS_DIR}"
     [ "${status}" -eq 0 ]
-    [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
@@ -357,8 +394,19 @@ run_path_helper() {
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
-@test "75_bun.sh moves bun back to the front of a PATH that has it further along" {
+@test "75_bun.sh moves bun to the front of a PATH that has it in the middle, leaving it there once" {
     mkdir -p "${HOME}/.bun/bin"
     run_section_twice 75_bun.sh "/usr/bin:${HOME}/.bun/bin:/bin"
-    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:${HOME}/.bun/bin:/bin" ]
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh moves bun to the front of a PATH that has it at the end, leaving it there once" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh "/usr/bin:/bin:${HOME}/.bun/bin"
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh leaves PATH alone when there is no ~/.bun" {
+    run_section_twice 75_bun.sh /usr/bin:/bin
+    [ "${output}" = '/usr/bin:/bin' ]
 }
