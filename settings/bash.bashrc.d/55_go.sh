@@ -5,5 +5,9 @@ if command -v go &> /dev/null; then
     # go is only asked when GOPATH is not set, so the usual shell start and
     # timer run start no process here. It answers with GOPATH whenever that is
     # exported, so the entry is the same either way.
-    _bashrc_d_path_append "${GOPATH:-$(go env GOPATH)}/bin"
+    _bashrc_d_gopath="${GOPATH:-$(go env GOPATH)}"
+    # GOPATH is a colon-separated list, and go install writes to the bin
+    # directory of its first entry.
+    _bashrc_d_path_append "${_bashrc_d_gopath%%:*}/bin"
+    unset _bashrc_d_gopath
 fi

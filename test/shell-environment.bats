@@ -429,6 +429,24 @@ run_go_section_with_fake_go() {
     [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
 }
 
+@test "55_go.sh adds only the bin directory of the first entry of a GOPATH list, where go install writes" {
+    local _first="${BATS_TEST_TMPDIR}/gopath-first" _second="${BATS_TEST_TMPDIR}/gopath-second"
+    run_go_section_with_fake_go "${BATS_TEST_TMPDIR}/go-default" GOPATH="${_first}:${_second}"
+    [ "${status}" -eq 0 ]
+    # Not the list with /bin on the end, which is the first entry itself and
+    # the second one's bin directory.
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_first}/bin" ]
+    refute_fake_called '^go'
+}
+
+@test "55_go.sh takes the first entry of a GOPATH list that go reports" {
+    local _first="${BATS_TEST_TMPDIR}/go-default-first" _second="${BATS_TEST_TMPDIR}/go-default-second"
+    run_go_section_with_fake_go "${_first}:${_second}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_first}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
 @test "55_go.sh leaves no variable of its own behind" {
     # Compared with the variables 45_path-helpers.sh alone leaves, in a shell
     # with no GOPATH, so anything 55_go.sh kept to hold go's answer shows up.
