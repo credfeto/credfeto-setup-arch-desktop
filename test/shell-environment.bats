@@ -157,8 +157,9 @@ SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 # Runs the given script in bash with the bash.bashrc.d directory as $1, in an
 # interactive shell when the first argument is "interactive". --norc and
 # --noprofile keep the host's deployed /etc/bash.bashrc.d out of the shell,
-# and +m stops it taking over a terminal for job control. Only stdout is
-# asserted: with no terminal, an interactive bash and bind warn on stderr.
+# and +m stops it taking over a terminal for job control. Stdin is /dev/null,
+# so the shell has no terminal, and stderr cannot be asserted empty: an
+# interactive bash with no terminal warns there that it has no job control.
 # Any further arguments reach the script as $2 onwards.
 # Usage: run_section_shell interactive|non-interactive <script> [<arg>...]
 run_section_shell() {
@@ -183,11 +184,31 @@ shopt -q histappend && echo histappend
 printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
 '
 
-@test "00_shell-options.sh in an interactive shell sets the window and history options, appends to PROMPT_COMMAND and frees ctrl-S" {
+@test "00_shell-options.sh in an interactive shell with no terminal sets the window and history options and appends to PROMPT_COMMAND, without calling stty" {
     setup_fake_bin stty
     run_section_shell interactive "${SHELL_OPTIONS_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = $'checkwinsize\nhistappend\nPROMPT_COMMAND=existing_hook\nPROMPT_COMMAND=history -a' ]
+    refute_fake_called '^stty'
+}
+
+@test "00_shell-options.sh in an interactive shell with no terminal reports no stty or bind failure" {
+    # No fake here: the real stty fails when stdin is not a terminal.
+    run_section_shell interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [[ "${stderr}" != *stty* ]]
+    [[ "${stderr}" != *bind* ]]
+}
+
+@test "00_shell-options.sh in an interactive shell on a terminal frees ctrl-S" {
+    command -v script > /dev/null || skip "script (util-linux) not installed"
+    setup_fake_bin stty
+    local _script_file="${BATS_TEST_TMPDIR}/shell-options-script"
+    printf '%s\n' "${SHELL_OPTIONS_SCRIPT}" > "${_script_file}"
+    # script gives the shell a pseudo-terminal as its stdin.
+    run script -qec "$(printf 'bash --norc --noprofile +m -i %q %q' "${_script_file}" "${SECTIONS_DIR}")" /dev/null < /dev/null
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *checkwinsize*histappend*'PROMPT_COMMAND=history -a'* ]]
     assert_fake_called '^stty -ixon$'
 }
 

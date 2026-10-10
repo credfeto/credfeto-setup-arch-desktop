@@ -23,8 +23,8 @@ export HISTSIZE=500
 # Don't put duplicate lines in the history and do not add lines that start with a space
 export HISTCONTROL=erasedups:ignoredups:ignorespace
 
-# Interactive-only: this file is also sourced by non-interactive shells with
-# no terminal, where bind warns and stty fails.
+# Interactive-only: this file is also sourced by non-interactive shells,
+# where bind warns that line editing is not enabled.
 if [[ $iatest -gt 0 ]]; then
     # Disable the bell
     bind "set bell-style visible"
@@ -48,8 +48,12 @@ if [[ $iatest -gt 0 ]]; then
     # static (no colours) instead of erroring - so append instead.
     PROMPT_COMMAND+=('history -a')
 
-    # Allow ctrl-S for history navigation (with ctrl-R)
-    stty -ixon
+    # Allow ctrl-S for history navigation (with ctrl-R). stty needs a
+    # terminal on stdin, which an interactive shell does not always have (a
+    # bash -i with piped or redirected stdin), and fails without one.
+    if [ -t 0 ]; then
+        stty -ixon
+    fi
 fi
 
 export EDITOR=nano
