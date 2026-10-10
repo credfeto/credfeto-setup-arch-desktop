@@ -217,6 +217,154 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
     [ "${output}" = 'iatest=unset' ]
 }
 
+# ── LINUX_DISTRIBUTION from os-release ───────────────────────────────────────
+
+# Sources 00_shell-options.sh between two readings of the shell's own
+# /proc/<pid>/stat, taken with read so that taking them starts nothing, then
+# prints LINUX_DISTRIBUTION, how it is declared and the change in field 11,
+# the minor page faults of the children the shell has waited for, which any
+# process it started and reaped adds to. A command substitution is then run
+# as a control and the change it makes is printed, so a zero for the section
+# means something.
+# shellcheck disable=SC2016
+OS_RELEASE_NO_PROCESS_SCRIPT='
+read -r -a _test_before < "/proc/$$/stat"
+. "$1/00_shell-options.sh"
+read -r -a _test_after < "/proc/$$/stat"
+: "$(:)"
+read -r -a _test_control < "/proc/$$/stat"
+printf "%s\n" "${LINUX_DISTRIBUTION-unset}"
+declare -p LINUX_DISTRIBUTION
+printf "section=%s\n" "$((_test_after[10] - _test_before[10]))"
+printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
+'
+
+@test "00_shell-options.sh exports the ID of this machine's os-release as LINUX_DISTRIBUTION without starting a process" {
+    [ -f /etc/os-release ] || skip "no /etc/os-release"
+    [ -r "/proc/$$/stat" ] || skip "no /proc/<pid>/stat"
+    local _id
+    # Worked out the way the section used to, as the reference.
+    # shellcheck source=/dev/null
+    _id="$(. /etc/os-release && echo "${ID}")"
+    [ -n "${_id}" ]
+    # An inherited value must not be kept in place of the file's.
+    run_section_shell LINUX_DISTRIBUTION=inherited non-interactive "${OS_RELEASE_NO_PROCESS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${lines[0]}" = "${_id}" ]
+    [ "${lines[1]}" = "declare -x LINUX_DISTRIBUTION=\"${_id}\"" ]
+    [ "${lines[2]}" = 'section=0' ]
+    # The control did start a process, and the counter showed it.
+    [[ "${lines[3]}" == control=* ]]
+    [ "${lines[3]#control=}" -gt 0 ]
+}
+
+# Writes a copy of 00_shell-options.sh that reads the given file wherever the
+# section names /etc/os-release, so the parsing can be given any content. The
+# section itself has no way to be pointed at another file, and must not have
+# one: LINUX_DISTRIBUTION is only ever this machine's own. Prints the copy's
+# path.
+# Usage: shell_options_reading <os-release-file>
+shell_options_reading() {
+    local _copy="${BATS_TEST_TMPDIR}/os-release-sections/00_shell-options.sh"
+    mkdir -p "${_copy%/*}"
+    sed "s|/etc/os-release|$1|g" "${SECTIONS_DIR}/00_shell-options.sh" > "${_copy}"
+    # The existence test and the read both moved, and nothing still reads
+    # the real file.
+    grep -q -F "[ -f $1 ]" "${_copy}" || return 1
+    grep -q -F "done < $1" "${_copy}" || return 1
+    ! grep -q -F /etc/os-release "${_copy}" || return 1
+    printf '%s\n' "${_copy}"
+}
+
+# Sources 00_shell-options.sh reading an os-release with the given content,
+# written with printf so a test controls the line endings, and leaves
+# "<LINUX_DISTRIBUTION>" in $output, in angle brackets so stray white space
+# shows. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_shell_options_with_os_release <printf-format> [<VAR=value> ...]
+run_shell_options_with_os_release() {
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
+    # The format is the test's own literal.
+    # shellcheck disable=SC2059
+    printf "$1" > "${_os_release}"
+    _copy="$(shell_options_reading "${_os_release}")"
+    # shellcheck disable=SC2016
+    run_section_shell "${@:2}" non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+}
+
+@test "00_shell-options.sh takes the ID from among the other os-release lines, not a name that only contains ID" {
+    run_shell_options_with_os_release 'NAME="Cachy OS"\nID_LIKE=arch\nID=cachyos\nBUILD_ID=rolling\nVERSION_ID="1"\n'
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = '<cachyos>' ]
+}
+
+@test "00_shell-options.sh drops the quotes os-release allows round the ID" {
+    run_shell_options_with_os_release 'ID="arch"\n'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release "ID='arch'\n"
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh reads an ID on a last line with no newline, and one with trailing white space or a carriage return" {
+    run_shell_options_with_os_release 'NAME=x\nID=arch'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release 'ID=arch \t\nNAME=x\n'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release 'ID="arch"\r\nNAME=x\r\n'
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh takes the last ID when os-release has more than one, as sourcing the file would" {
+    run_shell_options_with_os_release 'ID=debian\nID=arch\n'
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh leaves LINUX_DISTRIBUTION empty, not inherited, when os-release has no ID" {
+    run_shell_options_with_os_release 'NAME=x\nVERSION_ID=1\n' LINUX_DISTRIBUTION=inherited
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '<>' ]
+}
+
+@test "00_shell-options.sh leaves LINUX_DISTRIBUTION alone when there is no os-release" {
+    local _copy
+    _copy="$(shell_options_reading "${BATS_TEST_TMPDIR}/no-os-release")"
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = '<unset>' ]
+}
+
+@test "00_shell-options.sh sets nothing else from os-release and leaves no variable of its own behind" {
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
+    printf '%s\n' 'NAME="Arch Linux"' 'ID=arch' 'ID_LIKE=other' 'BUILD_ID=rolling' 'LOGO=archlinux-logo' > "${_os_release}"
+    _copy="$(shell_options_reading "${_os_release}")"
+    # Prints the names the section added to the shell.
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive 'before="$(compgen -v)"; . "$2"; comm -13 <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)' "${_copy}"
+    [ "${status}" -eq 0 ]
+    grep -qx 'LINUX_DISTRIBUTION' <<< "${output}"
+    run ! grep -xE 'NAME|ID|ID_LIKE|BUILD_ID|LOGO|_bashrc_d_.*' <<< "${output}"
+}
+
+@test "85_pacman.sh defines its aliases from the ID 00_shell-options.sh read, quoted or not, and not for another distribution" {
+    # shellcheck disable=SC2016
+    local _script='. "$2"; . "$1/85_pacman.sh"; alias pacman'
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy _line
+    _copy="$(shell_options_reading "${_os_release}")"
+    for _line in 'ID=arch' 'ID="cachyos"'; do
+        printf '%s\n' "${_line}" > "${_os_release}"
+        run_section_shell non-interactive "${_script}" "${_copy}"
+        [ "${status}" -eq 0 ]
+        [ "${output}" = "alias pacman='sudo pacman'" ]
+    done
+    printf '%s\n' 'ID=debian' 'ID_LIKE=arch' > "${_os_release}"
+    run_section_shell non-interactive "${_script}" "${_copy}"
+    [ "${status}" -ne 0 ]
+    [ -z "${output}" ]
+}
+
 @test "40_bash-completion.sh loads bash-completion only in an interactive shell" {
     [ -f /usr/share/bash-completion/bash_completion ] || [ -f /etc/bash_completion ] || skip "bash-completion not installed"
     # bash-completion installs a default (-D) completion; bash has none

@@ -1,11 +1,23 @@
 # shellcheck shell=bash
 
 if [ -f /etc/os-release ]; then
-    # Only the distro ID is extracted (via a subshell) rather than sourcing
-    # the whole of /etc/os-release into the shell, which would also export a
-    # dozen unrelated, generically-named variables (NAME, VERSION, LOGO, ...).
-    # shellcheck source=/dev/null
-    LINUX_DISTRIBUTION=$(. /etc/os-release && echo "$ID")
+    # Only the distro ID is taken, by reading the file with the shell's own
+    # read. Sourcing /etc/os-release into the shell would also set a dozen
+    # unrelated, generically-named variables (NAME, VERSION, LOGO, ...), and
+    # sourcing it in a subshell would start a process in every shell and
+    # every timer run. The value is always the one this machine's file gives,
+    # never one inherited from the environment: the last ID line wins, as it
+    # would if the file were sourced, with the quotes os-release allows round
+    # a value and any trailing white space dropped.
+    LINUX_DISTRIBUTION=
+    while IFS='=' read -r _bashrc_d_os_release_key _bashrc_d_os_release_value || [ -n "$_bashrc_d_os_release_key" ]; do
+        if [ "$_bashrc_d_os_release_key" = ID ]; then
+            _bashrc_d_os_release_value="${_bashrc_d_os_release_value%"${_bashrc_d_os_release_value##*[![:space:]]}"}"
+            _bashrc_d_os_release_value="${_bashrc_d_os_release_value#[\"\']}"
+            LINUX_DISTRIBUTION="${_bashrc_d_os_release_value%[\"\']}"
+        fi
+    done < /etc/os-release
+    unset _bashrc_d_os_release_key _bashrc_d_os_release_value
     export LINUX_DISTRIBUTION
 fi
 
