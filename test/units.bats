@@ -151,11 +151,12 @@ recorded_path_has() {
 }
 
 # Sources the section named by $2 from the bash.bashrc.d directory in $1, on
-# its own. Run through run_section_shell non-interactive, this is one section
-# as run-dev-update sources it: in a non-interactive bash with no terminal and
-# the caller's tool settings cleared.
+# its own apart from the shared PATH helpers, which the PATH sections cannot
+# run without. Run through run_section_shell non-interactive, this is one
+# section as run-dev-update sources it: in a non-interactive bash with no
+# terminal and the caller's tool settings cleared.
 # shellcheck disable=SC2016
-SOURCE_SECTION_SCRIPT='. "$1/$2"'
+SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
 
 @test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced by a non-interactive bash" {
     local _section _offenders=""

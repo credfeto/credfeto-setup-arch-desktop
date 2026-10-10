@@ -272,13 +272,55 @@ true'
 # A nested interactive shell, or run-dev-update started from a terminal,
 # sources these sections in a shell whose PATH already has their entries.
 
-# Sources the named section twice, starting from the given PATH, and leaves
-# the resulting PATH in $output. Any VAR=value arguments are set in the
-# shell's environment first.
+# Sources the named section twice, after the PATH helpers it calls, starting
+# from the given PATH, and leaves the resulting PATH in $output. Any VAR=value
+# arguments are set in the shell's environment first.
 # Usage: run_section_twice <section-file> <starting-path> [<VAR=value> ...]
 run_section_twice() {
     # shellcheck disable=SC2016
-    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+}
+
+# Calls the named helper from 45_path-helpers.sh with a directory, starting
+# from the given PATH, and leaves the resulting PATH in $output.
+# Usage: run_path_helper <helper> <starting-path> <dir>
+run_path_helper() {
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; "$2" "$4"; printf "%s\n" "$PATH"' "$1" "$2" "$3"
+}
+
+@test "_bashrc_d_path_append adds a directory to the end of a PATH that does not hold it" {
+    run_path_helper _bashrc_d_path_append /usr/bin:/bin /opt/tool/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/usr/bin:/bin:/opt/tool/bin' ]
+}
+
+@test "_bashrc_d_path_append leaves PATH alone when it already holds the directory, wherever it is" {
+    local _path
+    for _path in /opt/tool/bin:/usr/bin:/bin /usr/bin:/opt/tool/bin:/bin /usr/bin:/bin:/opt/tool/bin /opt/tool/bin; do
+        run_path_helper _bashrc_d_path_append "${_path}" /opt/tool/bin
+        [ "${output}" = "${_path}" ]
+    done
+}
+
+@test "_bashrc_d_path_append matches whole entries only" {
+    # Neither entry is /opt/tool, though both contain it.
+    run_path_helper _bashrc_d_path_append /opt/tool/bin:/usr/opt/tool /opt/tool
+    [ "${output}" = '/opt/tool/bin:/usr/opt/tool:/opt/tool' ]
+}
+
+@test "_bashrc_d_path_append gives an empty PATH no empty entry" {
+    # An empty entry means the current directory.
+    run_path_helper _bashrc_d_path_append '' /opt/tool/bin
+    [ "${output}" = '/opt/tool/bin' ]
+}
+
+@test "45_path-helpers.sh works in a POSIX sh, which the sh sections that call it are written for" {
+    [ -x /usr/bin/dash ] || skip "dash not installed"
+    # shellcheck disable=SC2016
+    run /usr/bin/dash -c 'PATH=/usr/bin:/bin; . "$1/45_path-helpers.sh"; . "$1/50_paths.sh"; . "$1/50_paths.sh"; printf "%s\n" "$PATH"' _ "${SECTIONS_DIR}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
