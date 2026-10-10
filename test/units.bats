@@ -160,7 +160,7 @@ recorded_path_has() {
 # shellcheck disable=SC2016
 SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
 
-@test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced by a non-interactive bash" {
+@test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced on its own by a non-interactive bash" {
     local _section _offenders=""
     for _section in "${SECTIONS_DIR}"/*.sh; do
         run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section##*/}"
@@ -170,6 +170,67 @@ SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
     done
     printf '%s' "${_offenders}"
     [ -z "${_offenders}" ]
+}
+
+# Sources every section of the bash.bashrc.d directory in $2, one after the
+# other in filename order in the same shell, as run-dev-update does, so a
+# section runs with whatever the earlier ones set up. The completions,
+# PROMPT_COMMAND and shell options are listed before and after, and whatever
+# differs is written to the file in $3, which is left empty when nothing does.
+# The script's own names are prefixed so that no section can change them.
+# shellcheck disable=SC2016
+ALL_SECTIONS_SCRIPT='
+_units_test_interactive_state() {
+    # nvm is left out: /usr/share/nvm/init-nvm.sh registers its completion
+    # unconditionally, which credfeto/credfeto-setup-arch-desktop#73 tracks.
+    # Remove this filter when that is fixed.
+    complete -p 2> /dev/null | grep -v -e "-F __nvm nvm\$"
+    declare -p PROMPT_COMMAND 2> /dev/null
+    shopt -p
+    shopt -po
+}
+_units_test_before="$(_units_test_interactive_state)"
+for _units_test_section in "$2"/*.sh; do
+    . "${_units_test_section}"
+done
+_units_test_after="$(_units_test_interactive_state)"
+diff <(printf "%s\n" "${_units_test_before}") <(printf "%s\n" "${_units_test_after}") > "$3"
+true
+'
+
+# Usage: run_all_sections_non_interactively <sections-dir>
+run_all_sections_non_interactively() {
+    run_section_shell non-interactive "${ALL_SECTIONS_SCRIPT}" "$1" "${BATS_TEST_TMPDIR}/interactive-state.diff"
+}
+
+@test "the bash.bashrc.d sections, sourced in order by a non-interactive bash, write nothing and leave no completion, prompt hook or shell option behind" {
+    local _state="${BATS_TEST_TMPDIR}/interactive-state.diff"
+    mkdir -p "${HOME}/.bun/bin"
+    run_all_sections_non_interactively "${SECTIONS_DIR}"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+    # Written last, so its presence shows every section was sourced.
+    [ -e "${_state}" ]
+    cat "${_state}"
+    [ ! -s "${_state}" ]
+}
+
+@test "the check on the sections sourced in order reports a completion, a prompt hook and a shell option that a section leaves unguarded" {
+    local _sections="${BATS_TEST_TMPDIR}/unguarded" _state="${BATS_TEST_TMPDIR}/interactive-state.diff"
+    mkdir -p "${_sections}"
+    cat > "${_sections}/10_unguarded.sh" <<'EOF'
+complete -W "one two" unguarded_tool
+PROMPT_COMMAND+=('unguarded_hook')
+shopt -s histappend
+set -o noclobber
+EOF
+    run_all_sections_non_interactively "${_sections}"
+    [ "${status}" -eq 0 ]
+    grep -q 'unguarded_tool' "${_state}"
+    grep -q 'unguarded_hook' "${_state}"
+    grep -q '^> shopt -s histappend$' "${_state}"
+    grep -q '^> set -o noclobber$' "${_state}"
 }
 
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {

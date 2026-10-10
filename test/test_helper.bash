@@ -105,12 +105,14 @@ assert_dev_update_units_linked_to() {
 
 # Runs a command with the caller's tool settings cleared and a minimal PATH,
 # so the nvm, Go, bun or dotnet setup of whoever runs the suite cannot leak
-# into what the code under test produces. Leading VAR=value arguments are
+# into what the code under test produces. LINUX_DISTRIBUTION is cleared too:
+# a shell that has loaded 00_shell-options.sh exports it, and 85_pacman.sh
+# does nothing without it. Leading VAR=value arguments are
 # applied after the clearing (env reads them), so a test can start from another
 # PATH, or give a tool variable a known value, without repeating the list.
 # Usage: run_with_clean_tool_env [<VAR=value> ...] <command> [<arg> ...]
 run_with_clean_tool_env() {
-    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "$@"
+    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT -u LINUX_DISTRIBUTION PATH=/usr/bin:/bin "$@"
 }
 
 # Runs the given script in bash with the bash.bashrc.d directory as $1, in an
