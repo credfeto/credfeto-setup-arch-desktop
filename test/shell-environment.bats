@@ -827,3 +827,38 @@ run_go_section_with_fake_go() {
     run_section_twice 75_bun.sh /usr/bin:/bin
     [ "${output}" = '/usr/bin:/bin' ]
 }
+
+# Sources every section of the bash.bashrc.d directory in $1 three times over
+# in one shell, in filename order each time, and prints the PATH that leaves.
+# The script's own names are prefixed so that no section can change them.
+# shellcheck disable=SC2016
+ALL_SECTIONS_THREE_TIMES_SCRIPT='
+for _shell_environment_test_pass in 1 2 3; do
+    for _shell_environment_test_section in "$1"/*.sh; do
+        . "${_shell_environment_test_section}"
+    done
+done
+printf "PATH=%s\n" "$PATH"
+'
+
+@test "the bash.bashrc.d sections, sourced three times in one shell with bun and an nvm default alias, leave no PATH entry twice" {
+    # The real nvm, so that PATH is changed the way nvm changes it.
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _node_bin _path
+    _node_bin="${_nvm_dir}/versions/node/v99.0.0/bin"
+    mkdir -p "${HOME}/.bun/bin" "${_node_bin}" "${_nvm_dir}/alias"
+    # An installed version, as far as nvm can tell, and the default alias
+    # that makes nvm put it on PATH each time nvm.sh is sourced.
+    printf '#!/bin/sh\necho v99.0.0\n' > "${_node_bin}/node"
+    chmod +x "${_node_bin}/node"
+    echo 'v99.0.0' > "${_nvm_dir}/alias/default"
+    run_section_shell NVM_DIR="${_nvm_dir}" non-interactive "${ALL_SECTIONS_THREE_TIMES_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    _path="$(sed -n 's/^PATH=//p' <<< "${output}")"
+    [ -n "${_path}" ]
+    printf '%s\n' "${_path}"
+    [ -z "$(tr ':' '\n' <<< "${_path}" | sort | uniq -d)" ]
+    [[ "${_path}" == "${HOME}/.bun/bin:"* ]]
+    # nvm did act on the alias, so the check above covered its entry.
+    [ "$(tr ':' '\n' <<< "${_path}" | grep -cxF "${_node_bin}")" -eq 1 ]
+}
