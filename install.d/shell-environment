@@ -40,11 +40,14 @@ install_shell_environment() {
     sudo install -d -m 755 /etc/bash.bashrc.d || die "Failed to create /etc/bash.bashrc.d"
 
     # Shared: deployed to both /etc/profile.d (login shells, GUI sessions,
-    # systemd units) and /etc/bash.bashrc.d (every interactive bash shell) so
-    # tools that aren't interactive-bash-only still see them.
+    # systemd units) and /etc/bash.bashrc.d (which /etc/bash.bashrc sources in
+    # every interactive bash shell), so anything that is not bash still sees
+    # them.
     install_shell_files "$BASEDIR/settings/shell-env" /etc/profile.d /etc/bash.bashrc.d
 
-    info "Installing interactive-bash-only config"
+    # Bash-only, not interactive-only: run-dev-update also sources these
+    # sections, from its clone, in a non-interactive bash.
+    info "Installing bash-only config (bash.bashrc.d)"
     install_shell_files "$BASEDIR/settings/bash.bashrc.d" /etc/bash.bashrc.d
 
     if grep -qF "# BEGIN credfeto-setup-arch-desktop bash.bashrc.d" /etc/bash.bashrc 2>/dev/null; then

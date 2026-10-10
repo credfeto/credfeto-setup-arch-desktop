@@ -479,7 +479,7 @@ log_line_of() {
 
 # ── shell-environment ────────────────────────────────────────────────────────
 
-@test "shell-environment installs the shared and interactive shell config" {
+@test "shell-environment installs the shared and bash-only shell config" {
     run_step shell-environment
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Shell environment installed"* ]]
@@ -493,7 +493,7 @@ log_line_of() {
     refute_fake_called '/etc/bash\.bashrc\.d/20_xdg-dirs\.sh'
 }
 
-@test "shell-environment stops when installing an interactive-only script fails" {
+@test "shell-environment stops when installing a bash.bashrc.d script fails" {
     run_step shell-environment FAKE_SUDO_FAIL='^install -m 0644 .* /etc/bash\.bashrc\.d/00_shell-options\.sh$'
     assert_step_died "Failed to install /etc/bash.bashrc.d/00_shell-options.sh" "Shell environment installed"
     refute_fake_called '/etc/bash\.bashrc\.d/05_ls-grep-colors\.sh'
