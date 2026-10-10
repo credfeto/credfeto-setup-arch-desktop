@@ -12,9 +12,20 @@
 SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
 BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"
 
-for section in "$BASEDIR"/settings/bash.bashrc.d/*.sh; do
+# shellcheck source=../../lib/common disable=SC1091
+. "$BASEDIR/lib/common" || exit 1
+
+SECTIONS_DIR="$BASEDIR/settings/bash.bashrc.d"
+sections=("$SECTIONS_DIR"/*.sh)
+
+# An unmatched glob stays as the literal pattern. Starting dev-update with no
+# tool PATH entries would only fail later, in an install step, with a "command
+# not found" that does not point back here.
+[ -e "${sections[0]}" ] || die "No bash.bashrc.d sections found in $SECTIONS_DIR"
+
+for section in "${sections[@]}"; do
     # shellcheck source=/dev/null
-    [ -e "$section" ] && . "$section"
+    . "$section"
 done
 
 exec "$BASEDIR/settings/scripts/linux/dev-update"

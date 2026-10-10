@@ -50,14 +50,16 @@ run_with_clean_tool_env() {
     env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "$@"
 }
 
-# Copies run-dev-update and every bash.bashrc.d section it sources into a
-# clone-shaped tree under the test dir, with a stub dev-update that records
-# the environment it was started with and exits 3, so the real dev-update
-# never runs. Prints the path of the copied run-dev-update.
+# Copies run-dev-update, the lib/common it reports errors through and every
+# bash.bashrc.d section it sources into a clone-shaped tree under the test
+# dir, with a stub dev-update that records the environment it was started with
+# and exits 3, so the real dev-update never runs. Prints the path of the
+# copied run-dev-update.
 setup_run_dev_update_tree() {
     local _root="${BATS_TEST_TMPDIR}/clone"
-    mkdir -p "${_root}/units/dev-update" "${_root}/settings/scripts/linux"
+    mkdir -p "${_root}/units/dev-update" "${_root}/settings/scripts/linux" "${_root}/lib"
     cp "${DEV_UPDATE_UNITS}/run-dev-update" "${_root}/units/dev-update/"
+    cp "${REPO_DIR}/lib/common" "${_root}/lib/"
     cp -r "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
     cat > "${_root}/settings/scripts/linux/dev-update" <<EOF
 #!/bin/sh
@@ -104,6 +106,32 @@ recorded_path_has() {
     if [ -f /usr/share/nvm/init-nvm.sh ]; then
         grep -qx "NVM_DIR=${HOME}/.nvm" "${_env}"
     fi
+}
+
+@test "run-dev-update fails without starting dev-update when bash.bashrc.d holds no sections or is missing" {
+    local _run _sections="${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d" _state
+    _run="$(setup_run_dev_update_tree)"
+    rm "${_sections}"/*.sh
+    for _state in empty missing; do
+        run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+        [ "${status}" -eq 1 ]
+        [ -z "${output}" ]
+        [[ "${stderr}" == *"No bash.bashrc.d sections found in ${_sections}"* ]]
+        [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
+        # The second pass runs with the directory gone.
+        [ "${_state}" = missing ] || rmdir "${_sections}"
+    done
+    [ ! -e "${_sections}" ]
+}
+
+@test "run-dev-update fails without starting dev-update when lib/common is missing" {
+    local _run
+    _run="$(setup_run_dev_update_tree)"
+    rm "${BATS_TEST_TMPDIR}/clone/lib/common"
+    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *"lib/common"* ]]
+    [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
 }
 
 # Sources one bash.bashrc.d section the way run-dev-update does: in a
