@@ -106,8 +106,8 @@ recorded_path_has() {
         _gopath="$(run_with_clean_tool_env go env GOPATH)"
         recorded_path_has "${_gopath}/bin"
     fi
-    if [ -f /usr/share/nvm/init-nvm.sh ]; then
-        # Where init-nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on
+    if [ -f /usr/share/nvm/nvm.sh ]; then
+        # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on
         # every machine this repo installs.
         grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
     fi
@@ -230,10 +230,7 @@ SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
 # shellcheck disable=SC2016
 ALL_SECTIONS_SCRIPT='
 _units_test_interactive_state() {
-    # nvm is left out: /usr/share/nvm/init-nvm.sh registers its completion
-    # unconditionally, which credfeto/credfeto-setup-arch-desktop#73 tracks.
-    # Remove this filter when that is fixed.
-    complete -p 2> /dev/null | grep -v -e "-F __nvm nvm\$"
+    complete -p 2> /dev/null
     declare -p PROMPT_COMMAND 2> /dev/null
     shopt -p
     shopt -po
@@ -283,7 +280,7 @@ EOF
 }
 
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
-    [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
     run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
@@ -293,7 +290,7 @@ EOF
 }
 
 @test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
-    [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
     # A regular file where NVM_DIR should be makes the symlinks fail.
     mkdir -p "${HOME}/.config"
     : > "${HOME}/.config/nvm"

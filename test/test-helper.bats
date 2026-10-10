@@ -59,7 +59,7 @@ setup() {
 }
 
 @test "70_nvm.sh run through the clean environment sets nvm up under the test's HOME, not where the caller's XDG_CONFIG_HOME points" {
-    [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
     # Stands in for the real ~/.config of whoever runs the suite, which
     # 20_xdg-dirs.sh exports on every machine this repo installs.
     # shellcheck disable=SC2016
