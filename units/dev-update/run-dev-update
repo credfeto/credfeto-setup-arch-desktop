@@ -1,19 +1,41 @@
-#! /bin/sh
+#!/bin/bash
 
 # Entry point for dev-update.service. The unit runs this through `sh -l`,
-# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), but not
-# /etc/bash.bashrc.d, which only interactive bash shells read. dev-update's
-# steps need the PATH and dotnet settings from there, so the two sections
-# that provide them are sourced from this clone before dev-update runs.
+# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, NVM_DIR, ...), but not
+# /etc/bash.bashrc.d, which only interactive bash shells read. This script is
+# bash, whatever /bin/sh is, because those sections are bash-only. Every
+# section of this clone's bash.bashrc.d is sourced, in the same filename order
+# as the /etc/bash.bashrc loader, so dev-update's steps find the same tools on
+# PATH (nvm's node, Go, bun, dotnet, ...) as an interactive shell does, and a
+# new tool section reaches them without being listed here. Whatever else the
+# sections export (EDITOR, NODE_OPTIONS, the dotnet settings, ...) reaches
+# dev-update with it.
 
-SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
-BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"
+# The sections are sourced into this shell, so they share its variables.
+# Everything that decides what is sourced and what is started is therefore
+# worked out before the first section runs, kept read-only, and named with a
+# prefix no section uses. An assignment to a read-only variable fails with an
+# error on stderr rather than silently changing where this script goes next.
+RUN_DEV_UPDATE_BASEDIR="$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")"
+readonly RUN_DEV_UPDATE_BASEDIR
 
-# ~/.local/bin and ~/.cargo/bin on PATH.
-# shellcheck source=../../settings/bash.bashrc.d/50_paths.sh disable=SC1091
-. "$BASEDIR/settings/bash.bashrc.d/50_paths.sh"
-# DOTNET_ROOT and /usr/share/dotnet on PATH, plus the dotnet settings.
-# shellcheck source=../../settings/bash.bashrc.d/60_dotnet.sh disable=SC1091
-. "$BASEDIR/settings/bash.bashrc.d/60_dotnet.sh"
+# shellcheck source=../../lib/common disable=SC1091
+. "$RUN_DEV_UPDATE_BASEDIR/lib/common" || exit 1
 
-exec "$BASEDIR/settings/scripts/linux/dev-update"
+readonly RUN_DEV_UPDATE_COMMAND="$RUN_DEV_UPDATE_BASEDIR/settings/scripts/linux/dev-update"
+readonly RUN_DEV_UPDATE_SECTIONS_DIR="$RUN_DEV_UPDATE_BASEDIR/settings/bash.bashrc.d"
+readonly -a RUN_DEV_UPDATE_SECTIONS=("$RUN_DEV_UPDATE_SECTIONS_DIR"/*.sh)
+
+# An unmatched glob stays as the literal pattern. Starting dev-update with no
+# tool PATH entries would only fail later, in an install step, with a "command
+# not found" that does not point back here.
+[ -e "${RUN_DEV_UPDATE_SECTIONS[0]}" ] || die "No bash.bashrc.d sections found in $RUN_DEV_UPDATE_SECTIONS_DIR"
+
+# The list was expanded when the loop started, so a section that assigns the
+# loop variable does not change which section comes next.
+for RUN_DEV_UPDATE_SECTION in "${RUN_DEV_UPDATE_SECTIONS[@]}"; do
+    # shellcheck source=/dev/null
+    . "$RUN_DEV_UPDATE_SECTION"
+done
+
+exec "$RUN_DEV_UPDATE_COMMAND"

@@ -11,8 +11,8 @@ install_pacman_hooks() {
     if [ ! -d /etc/pacman.d/hooks ]; then
         sudo mkdir -p /etc/pacman.d/hooks || die "Failed to create /etc/pacman.d/hooks"
     fi
-    sudo cp "$BASEDIR/hooks/pacman/pacman-cache-cleanup.hook" /etc/pacman.d/hooks/pacman-cache-cleanup.hook || die "Failed to copy /etc/pacman.d/hooks/pacman-cache-cleanup.hook"
-    sudo cp "$BASEDIR/hooks/pacman/spectacle-remove-firejail-wrapper.hook" /etc/pacman.d/hooks/spectacle-remove-firejail-wrapper.hook || die "Failed to copy /etc/pacman.d/hooks/spectacle-remove-firejail-wrapper.hook"
+    sudo install -m 0644 "$BASEDIR/hooks/pacman/pacman-cache-cleanup.hook" /etc/pacman.d/hooks/pacman-cache-cleanup.hook || die "Failed to copy /etc/pacman.d/hooks/pacman-cache-cleanup.hook"
+    sudo install -m 0644 "$BASEDIR/hooks/pacman/spectacle-remove-firejail-wrapper.hook" /etc/pacman.d/hooks/spectacle-remove-firejail-wrapper.hook || die "Failed to copy /etc/pacman.d/hooks/spectacle-remove-firejail-wrapper.hook"
 
     success "Pacman hooks installed"
 }

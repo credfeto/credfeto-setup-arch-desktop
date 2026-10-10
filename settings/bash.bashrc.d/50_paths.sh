@@ -1,7 +1,12 @@
 # shellcheck shell=sh
+# Depends on _bashrc_d_path_append from 45_path-helpers.sh, sourced ahead of
+# this file.
 
 # JetBrains Toolbox scripts dir (launcher symlinks) - fixed to check -d, not
 # the original's -f, since Toolbox creates this as a directory.
-[ -d "$HOME/.local/share/JetBrains/Toolbox/scripts" ] && PATH="$PATH:$HOME/.local/share/JetBrains/Toolbox/scripts"
+if [ -d "$HOME/.local/share/JetBrains/Toolbox/scripts" ]; then
+    _bashrc_d_path_append "$HOME/.local/share/JetBrains/Toolbox/scripts"
+fi
 
-PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
+_bashrc_d_path_append "$HOME/.local/bin"
+_bashrc_d_path_append "$HOME/.cargo/bin"

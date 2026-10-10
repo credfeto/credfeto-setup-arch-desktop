@@ -11,7 +11,7 @@ install_shell_prompt() {
     sudo pacman -S --needed --noconfirm starship || die "Failed to install starship"
 
     info "Deploying Starship theme"
-    sudo cp "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml || die "Failed to copy /etc/starship.toml"
+    sudo install -m 0644 "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml || die "Failed to copy /etc/starship.toml"
 
     if grep -qF "# BEGIN credfeto-systemd starship" /etc/bash.bashrc 2>/dev/null; then
         info "Starship block already present in /etc/bash.bashrc, skipping"
