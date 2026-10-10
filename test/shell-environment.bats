@@ -71,6 +71,40 @@ expected_deployments() {
     [ "${actual}" = "${expected}" ]
 }
 
+# Copies shell-environment, lib/common and both settings directories into a
+# checkout-shaped tree under the test dir, so a test can remove files from it.
+# Prints the tree's root.
+setup_shell_environment_tree() {
+    local _root="${BATS_TEST_TMPDIR}/checkout"
+    mkdir -p "${_root}/install.d" "${_root}/lib" "${_root}/settings"
+    cp "${SHELL_ENVIRONMENT}" "${_root}/install.d/"
+    cp "${REPO_DIR}/lib/common" "${_root}/lib/"
+    cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    printf '%s\n' "${_root}"
+}
+
+@test "shell-environment fails when settings/shell-env holds no files to deploy" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm "${_root}/settings/shell-env"/*.sh
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No shell config files found in ${_root}/settings/shell-env"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+}
+
+@test "shell-environment fails when settings/bash.bashrc.d is missing" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm -r "${_root}/settings/bash.bashrc.d"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No shell config files found in ${_root}/settings/bash.bashrc.d"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+}
+
 # ── update ───────────────────────────────────────────────────────────────────
 # Only the install-selection helper is exercised: update() itself runs the
 # real system package manager.
