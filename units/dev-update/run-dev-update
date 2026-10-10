@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Entry point for dev-update.service. The unit runs this through `bash -l`,
+# Entry point for dev-update.service. The unit runs this through `sh -l`,
 # which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, NVM_DIR, ...), but not
-# /etc/bash.bashrc.d, which only interactive bash shells read. Every section of
-# this clone's bash.bashrc.d is sourced, in the same filename order as the
-# /etc/bash.bashrc loader, so dev-update's steps find the same tools on PATH
-# (nvm's node, Go, bun, dotnet, ...) as an interactive shell does, and a new
-# tool section reaches them without being listed here.
+# /etc/bash.bashrc.d, which only interactive bash shells read. This script is
+# bash, whatever /bin/sh is, because those sections are bash-only. Every
+# section of this clone's bash.bashrc.d is sourced, in the same filename order
+# as the /etc/bash.bashrc loader, so dev-update's steps find the same tools on
+# PATH (nvm's node, Go, bun, dotnet, ...) as an interactive shell does, and a
+# new tool section reaches them without being listed here.
 
 SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
 BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"

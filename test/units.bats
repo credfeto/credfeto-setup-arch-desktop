@@ -29,12 +29,12 @@ setup() {
     run ! grep -q '^Persistent=' "${DEV_UPDATE_UNITS}/dev-update.timer"
 }
 
-@test "dev-update.service is skipped when offline and runs run-dev-update from the reference clone through a bash login shell" {
+@test "dev-update.service is skipped when offline and runs run-dev-update from the reference clone through a POSIX login shell" {
     local _service="${DEV_UPDATE_UNITS}/dev-update.service"
     grep -qx 'Type=oneshot' "${_service}"
     grep -qx 'ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online' "${_service}"
-    # Why a bash login shell: see the comment above ExecStart.
-    grep -qx 'ExecStart=/bin/bash -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
+    # Why /bin/sh and not bash: see the comment above ExecStart.
+    grep -qx 'ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update' "${_service}"
     [ "$(grep -c '^ExecCondition=' "${_service}")" -eq 1 ]
     [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
 }
