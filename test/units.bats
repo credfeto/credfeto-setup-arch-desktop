@@ -326,7 +326,9 @@ EOF
     setup_fake_sudo
     run "${REPO_DIR}/units/auto-update/install"
     [ "${status}" -eq 0 ]
-    assert_fake_called '^sudo cp .*/auto-update\.timer /etc/systemd/system/auto-update\.timer$'
+    # install -m, not cp, so neither unit takes the checkout's mode.
+    assert_fake_called '^sudo install -m 0644 .*/auto-update\.service /etc/systemd/system/auto-update\.service$'
+    assert_fake_called '^sudo install -m 0644 .*/auto-update\.timer /etc/systemd/system/auto-update\.timer$'
     assert_fake_called '^sudo systemctl enable --now auto-update\.timer$'
 }
 

@@ -507,11 +507,11 @@ log_line_of() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Starship prompt installed"* ]]
     assert_fake_called '^sudo pacman -S --needed --noconfirm starship$'
-    assert_fake_called '^sudo cp .*/starship\.toml /etc/starship\.toml$'
+    assert_fake_called '^sudo install -m 0644 .*/starship\.toml /etc/starship\.toml$'
 }
 
 @test "shell-prompt stops when copying the starship theme fails" {
-    run_step shell-prompt FAKE_SUDO_FAIL='^cp .*/starship\.toml '
+    run_step shell-prompt FAKE_SUDO_FAIL='^install -m 0644 .*/starship\.toml '
     assert_step_died "Failed to copy /etc/starship.toml" "Starship prompt installed"
     refute_fake_called '^sudo tee '
 }
