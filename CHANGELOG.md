@@ -57,6 +57,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - bash.bashrc.d sections no longer write terminal-only errors or nvm first-run output, or register autojump's completion and prompt hook, when sourced by a non-interactive shell
 - The shell environment installer and run-dev-update now fail with a clear error when no shell config sections are found, instead of the installer reporting success with nothing deployed
 - Re-sourcing the bash.bashrc.d sections no longer adds duplicate PATH entries for paths, Go, .NET and bun
+- Installed config files, units and scripts now get explicit permissions instead of inheriting the installing user's umask, so their modes are the same on every machine
+- Shell sections no longer leave a stray iatest variable set in every shell
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -66,6 +68,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
 - dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 - The cd-up aliases (.. to 10 dots and their cd-prefixed forms) are now built without forking seq, so sourcing them is faster
+- The Go shell section no longer runs go env GOPATH when GOPATH is already set, so shell start is faster
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
