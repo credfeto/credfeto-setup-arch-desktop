@@ -126,6 +126,39 @@ recorded_path_has() {
     done
 }
 
+@test "run-dev-update sources the remaining sections and starts dev-update when a section assigns the names the wrapper might use" {
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
+    _run="$(setup_run_dev_update_tree)"
+    mkdir -p "${HOME}/.bun/bin"
+    # Sorts ahead of every section but the first, so the rest are sourced
+    # after it has run.
+    cat > "${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d/01_clobber.sh" <<'EOF'
+section=/nonexistent/section.sh
+sections=(/nonexistent/section.sh)
+BASEDIR=/nonexistent
+SCRIPTDIR=/nonexistent
+EOF
+    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    [ "${status}" -eq 3 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+    # Set by 60_dotnet.sh and 75_bun.sh, which sort after the stub.
+    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
+    grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
+}
+
+@test "run-dev-update reports a section that assigns one of its read-only names, and still starts its own dev-update" {
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
+    _run="$(setup_run_dev_update_tree)"
+    cat > "${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d/01_clobber.sh" <<'EOF'
+RUN_DEV_UPDATE_COMMAND=/nonexistent/dev-update
+EOF
+    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    [ "${status}" -eq 3 ]
+    [[ "${stderr}" == *"RUN_DEV_UPDATE_COMMAND: readonly variable"* ]]
+    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
+}
+
 @test "run-dev-update fails without starting dev-update when bash.bashrc.d holds no sections or is missing" {
     local _run _sections="${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d" _state
     _run="$(setup_run_dev_update_tree)"
