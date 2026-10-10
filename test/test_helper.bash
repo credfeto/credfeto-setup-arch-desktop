@@ -107,12 +107,25 @@ assert_dev_update_units_linked_to() {
 # so the nvm, Go, bun or dotnet setup of whoever runs the suite cannot leak
 # into what the code under test produces. LINUX_DISTRIBUTION is cleared too:
 # a shell that has loaded 00_shell-options.sh exports it, and 85_pacman.sh
-# does nothing without it. Leading VAR=value arguments are
-# applied after the clearing (env reads them), so a test can start from another
-# PATH, or give a tool variable a known value, without repeating the list.
+# does nothing without it. The XDG base directories are set to where
+# 20_xdg-dirs.sh puts them, under HOME, rather than left as the caller has
+# them: tools place their own directories from these (init-nvm.sh puts
+# NVM_DIR under XDG_CONFIG_HOME), so the caller's values would send what the
+# code under test creates to the real ~/.config of whoever runs the suite.
+# HOME must therefore already be the test's own, and the command is not run
+# when it is not. Leading VAR=value arguments are applied after all of this
+# (env reads them), so a test can start from another PATH, or give a tool
+# variable a known value, without repeating the list.
 # Usage: run_with_clean_tool_env [<VAR=value> ...] <command> [<arg> ...]
 run_with_clean_tool_env() {
-    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT -u LINUX_DISTRIBUTION PATH=/usr/bin:/bin "$@"
+    if [[ "${HOME}" != "${BATS_TEST_TMPDIR}"/* ]]; then
+        echo "run_with_clean_tool_env: HOME (${HOME}) is not under the test's temporary directory" >&2
+        return 1
+    fi
+    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT -u LINUX_DISTRIBUTION \
+        XDG_CONFIG_HOME="${HOME}/.config" XDG_DATA_HOME="${HOME}/.local/share" \
+        XDG_STATE_HOME="${HOME}/.local/state" XDG_CACHE_HOME="${HOME}/.cache" \
+        PATH=/usr/bin:/bin "$@"
 }
 
 # Runs the given script in bash with the bash.bashrc.d directory as $1, in an

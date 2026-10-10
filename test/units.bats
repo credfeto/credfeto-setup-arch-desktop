@@ -10,8 +10,9 @@ DEV_UPDATE_UNITS="${REPO_DIR}/units/dev-update"
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
-    # Keeps the symlinks inside the test tree rather than the real user
-    # unit directory.
+    # Keeps the dev-update unit symlinks inside the test tree rather than the
+    # real user unit directory: the installers are run directly, not through
+    # run_with_clean_tool_env, which sets the XDG directories itself.
     unset XDG_CONFIG_HOME
 }
 
@@ -106,7 +107,9 @@ recorded_path_has() {
         recorded_path_has "${_gopath}/bin"
     fi
     if [ -f /usr/share/nvm/init-nvm.sh ]; then
-        grep -qx "NVM_DIR=${HOME}/.nvm" "${_env}"
+        # Where init-nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on
+        # every machine this repo installs.
+        grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
     fi
 }
 
@@ -273,16 +276,17 @@ EOF
     [ -z "${output}" ]
     [ -z "${stderr}" ]
     # Proves the first-use setup ran, so the silence above is not vacuous.
-    [ -L "${HOME}/.nvm/nvm.sh" ]
+    [ -L "${HOME}/.config/nvm/nvm.sh" ]
 }
 
 @test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
     [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
     # A regular file where NVM_DIR should be makes the symlinks fail.
-    : > "${HOME}/.nvm"
+    mkdir -p "${HOME}/.config"
+    : > "${HOME}/.config/nvm"
     run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
     [ -z "${output}" ]
-    [[ "${stderr}" == *"${HOME}/.nvm/nvm.sh"* ]]
+    [[ "${stderr}" == *"${HOME}/.config/nvm/nvm.sh"* ]]
 }
 
 @test "dev-update units install symlinks both units into the user unit directory" {
