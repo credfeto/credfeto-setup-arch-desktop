@@ -71,6 +71,40 @@ expected_deployments() {
     [ "${actual}" = "${expected}" ]
 }
 
+# Copies shell-environment, lib/common and both settings directories into a
+# checkout-shaped tree under the test dir, so a test can remove files from it.
+# Prints the tree's root.
+setup_shell_environment_tree() {
+    local _root="${BATS_TEST_TMPDIR}/checkout"
+    mkdir -p "${_root}/install.d" "${_root}/lib" "${_root}/settings"
+    cp "${SHELL_ENVIRONMENT}" "${_root}/install.d/"
+    cp "${REPO_DIR}/lib/common" "${_root}/lib/"
+    cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    printf '%s\n' "${_root}"
+}
+
+@test "shell-environment fails when settings/shell-env holds no files to deploy" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm "${_root}/settings/shell-env"/*.sh
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No shell config files found in ${_root}/settings/shell-env"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+}
+
+@test "shell-environment fails when settings/bash.bashrc.d is missing" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm -r "${_root}/settings/bash.bashrc.d"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No shell config files found in ${_root}/settings/bash.bashrc.d"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+}
+
 # ── update ───────────────────────────────────────────────────────────────────
 # Only the install-selection helper is exercised: update() itself runs the
 # real system package manager.
@@ -111,4 +145,495 @@ run_update_setup_install() {
     run_update_setup_install
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
+}
+
+# ── interactive-only bash.bashrc.d sections ─────────────────────────────────
+# /etc/bash.bashrc sources bash.bashrc.d in interactive shells, and
+# run-dev-update sources it non-interactively, so each interactive-only part
+# is checked in both kinds of shell.
+
+# Clears the settings 00_shell-options.sh turns on and gives PROMPT_COMMAND an
+# existing hook, sources the section, then prints what it left behind.
+# shellcheck disable=SC2016
+SHELL_OPTIONS_SCRIPT='
+shopt -u checkwinsize histappend
+PROMPT_COMMAND=(existing_hook)
+. "$1/00_shell-options.sh"
+shopt -q checkwinsize && echo checkwinsize
+shopt -q histappend && echo histappend
+printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
+'
+
+@test "00_shell-options.sh in an interactive shell with no terminal sets the window and history options and appends to PROMPT_COMMAND, without calling stty" {
+    setup_fake_bin stty
+    # PATH is passed on so the shell finds the fake stty.
+    run_section_shell PATH="${PATH}" interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'checkwinsize\nhistappend\nPROMPT_COMMAND=existing_hook\nPROMPT_COMMAND=history -a' ]
+    refute_fake_called '^stty'
+}
+
+@test "00_shell-options.sh in an interactive shell with no terminal reports no stty or bind failure" {
+    # No fake here: the real stty fails when stdin is not a terminal.
+    run_section_shell interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [[ "${stderr}" != *stty* ]]
+    [[ "${stderr}" != *bind* ]]
+}
+
+@test "00_shell-options.sh in an interactive shell on a terminal frees ctrl-S" {
+    command -v script > /dev/null || skip "script (util-linux) not installed"
+    setup_fake_bin stty
+    local _script_file="${BATS_TEST_TMPDIR}/shell-options-script"
+    printf '%s\n' "${SHELL_OPTIONS_SCRIPT}" > "${_script_file}"
+    # script gives the shell a pseudo-terminal as its stdin.
+    run script -qec "$(printf 'bash --norc --noprofile +m -i %q %q' "${_script_file}" "${SECTIONS_DIR}")" /dev/null < /dev/null
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *checkwinsize*histappend*'PROMPT_COMMAND=history -a'* ]]
+    assert_fake_called '^stty -ixon$'
+}
+
+@test "00_shell-options.sh in a non-interactive shell leaves the shell options, PROMPT_COMMAND and the terminal alone" {
+    setup_fake_bin stty
+    # PATH is passed on so the shell would find the fake stty.
+    run_section_shell PATH="${PATH}" non-interactive "${SHELL_OPTIONS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'PROMPT_COMMAND=existing_hook' ]
+    refute_fake_called '^stty'
+}
+
+@test "00_shell-options.sh leaves no interactive-test variable behind in either kind of shell" {
+    # The interactive check is made in place, so nothing is kept to hold its
+    # answer. The first source in the shell, so no other section can have set
+    # the name.
+    # shellcheck disable=SC2016
+    local _script='. "$1/00_shell-options.sh"; echo "iatest=${iatest-unset}"'
+    setup_fake_bin stty
+    run_section_shell PATH="${PATH}" interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'iatest=unset' ]
+    run_section_shell PATH="${PATH}" non-interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'iatest=unset' ]
+}
+
+# ── LINUX_DISTRIBUTION from os-release ───────────────────────────────────────
+
+# Sources 00_shell-options.sh between two readings of the shell's own
+# /proc/<pid>/stat, taken with read so that taking them starts nothing, then
+# prints LINUX_DISTRIBUTION, how it is declared and the change in field 11,
+# the minor page faults of the children the shell has waited for, which any
+# process it started and reaped adds to. A command substitution is then run
+# as a control and the change it makes is printed, so a zero for the section
+# means something.
+# shellcheck disable=SC2016
+OS_RELEASE_NO_PROCESS_SCRIPT='
+read -r -a _test_before < "/proc/$$/stat"
+. "$1/00_shell-options.sh"
+read -r -a _test_after < "/proc/$$/stat"
+: "$(:)"
+read -r -a _test_control < "/proc/$$/stat"
+printf "%s\n" "${LINUX_DISTRIBUTION-unset}"
+declare -p LINUX_DISTRIBUTION
+printf "section=%s\n" "$((_test_after[10] - _test_before[10]))"
+printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
+'
+
+@test "00_shell-options.sh exports the ID of this machine's os-release as LINUX_DISTRIBUTION without starting a process" {
+    [ -f /etc/os-release ] || skip "no /etc/os-release"
+    [ -r "/proc/$$/stat" ] || skip "no /proc/<pid>/stat"
+    local _id
+    # Worked out the way the section used to, as the reference.
+    # shellcheck source=/dev/null
+    _id="$(. /etc/os-release && echo "${ID}")"
+    [ -n "${_id}" ]
+    # An inherited value must not be kept in place of the file's.
+    run_section_shell LINUX_DISTRIBUTION=inherited non-interactive "${OS_RELEASE_NO_PROCESS_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${lines[0]}" = "${_id}" ]
+    [ "${lines[1]}" = "declare -x LINUX_DISTRIBUTION=\"${_id}\"" ]
+    [ "${lines[2]}" = 'section=0' ]
+    # The control did start a process, and the counter showed it.
+    [[ "${lines[3]}" == control=* ]]
+    [ "${lines[3]#control=}" -gt 0 ]
+}
+
+# Writes a copy of 00_shell-options.sh that reads the given file wherever the
+# section names /etc/os-release, so the parsing can be given any content. The
+# section itself has no way to be pointed at another file, and must not have
+# one: LINUX_DISTRIBUTION is only ever this machine's own. Prints the copy's
+# path.
+# Usage: shell_options_reading <os-release-file>
+shell_options_reading() {
+    local _copy="${BATS_TEST_TMPDIR}/os-release-sections/00_shell-options.sh"
+    mkdir -p "${_copy%/*}"
+    sed "s|/etc/os-release|$1|g" "${SECTIONS_DIR}/00_shell-options.sh" > "${_copy}"
+    # The existence test and the read both moved, and nothing still reads
+    # the real file.
+    grep -q -F "[ -f $1 ]" "${_copy}" || return 1
+    grep -q -F "done < $1" "${_copy}" || return 1
+    ! grep -q -F /etc/os-release "${_copy}" || return 1
+    printf '%s\n' "${_copy}"
+}
+
+# Sources 00_shell-options.sh reading an os-release with the given content,
+# written with printf so a test controls the line endings, and leaves
+# "<LINUX_DISTRIBUTION>" in $output, in angle brackets so stray white space
+# shows. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_shell_options_with_os_release <printf-format> [<VAR=value> ...]
+run_shell_options_with_os_release() {
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
+    # The format is the test's own literal.
+    # shellcheck disable=SC2059
+    printf "$1" > "${_os_release}"
+    _copy="$(shell_options_reading "${_os_release}")"
+    # shellcheck disable=SC2016
+    run_section_shell "${@:2}" non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+}
+
+@test "00_shell-options.sh takes the ID from among the other os-release lines, not a name that only contains ID" {
+    run_shell_options_with_os_release 'NAME="Cachy OS"\nID_LIKE=arch\nID=cachyos\nBUILD_ID=rolling\nVERSION_ID="1"\n'
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = '<cachyos>' ]
+}
+
+@test "00_shell-options.sh drops the quotes os-release allows round the ID" {
+    run_shell_options_with_os_release 'ID="arch"\n'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release "ID='arch'\n"
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh reads an ID on a last line with no newline, and one with trailing white space or a carriage return" {
+    run_shell_options_with_os_release 'NAME=x\nID=arch'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release 'ID=arch \t\nNAME=x\n'
+    [ "${output}" = '<arch>' ]
+    run_shell_options_with_os_release 'ID="arch"\r\nNAME=x\r\n'
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh takes the last ID when os-release has more than one, as sourcing the file would" {
+    run_shell_options_with_os_release 'ID=debian\nID=arch\n'
+    [ "${output}" = '<arch>' ]
+}
+
+@test "00_shell-options.sh leaves LINUX_DISTRIBUTION empty, not inherited, when os-release has no ID" {
+    run_shell_options_with_os_release 'NAME=x\nVERSION_ID=1\n' LINUX_DISTRIBUTION=inherited
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '<>' ]
+}
+
+@test "00_shell-options.sh leaves LINUX_DISTRIBUTION alone when there is no os-release" {
+    local _copy
+    _copy="$(shell_options_reading "${BATS_TEST_TMPDIR}/no-os-release")"
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = '<unset>' ]
+}
+
+@test "00_shell-options.sh sets nothing else from os-release and leaves no variable of its own behind" {
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
+    printf '%s\n' 'NAME="Arch Linux"' 'ID=arch' 'ID_LIKE=other' 'BUILD_ID=rolling' 'LOGO=archlinux-logo' > "${_os_release}"
+    _copy="$(shell_options_reading "${_os_release}")"
+    # Prints the names the section added to the shell.
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive 'before="$(compgen -v)"; . "$2"; comm -13 <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)' "${_copy}"
+    [ "${status}" -eq 0 ]
+    grep -qx 'LINUX_DISTRIBUTION' <<< "${output}"
+    run ! grep -xE 'NAME|ID|ID_LIKE|BUILD_ID|LOGO|_bashrc_d_.*' <<< "${output}"
+}
+
+@test "85_pacman.sh defines its aliases from the ID 00_shell-options.sh read, quoted or not, and not for another distribution" {
+    # shellcheck disable=SC2016
+    local _script='. "$2"; . "$1/85_pacman.sh"; alias pacman'
+    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy _line
+    _copy="$(shell_options_reading "${_os_release}")"
+    for _line in 'ID=arch' 'ID="cachyos"'; do
+        printf '%s\n' "${_line}" > "${_os_release}"
+        run_section_shell non-interactive "${_script}" "${_copy}"
+        [ "${status}" -eq 0 ]
+        [ "${output}" = "alias pacman='sudo pacman'" ]
+    done
+    printf '%s\n' 'ID=debian' 'ID_LIKE=arch' > "${_os_release}"
+    run_section_shell non-interactive "${_script}" "${_copy}"
+    [ "${status}" -ne 0 ]
+    [ -z "${output}" ]
+}
+
+@test "40_bash-completion.sh loads bash-completion only in an interactive shell" {
+    [ -f /usr/share/bash-completion/bash_completion ] || [ -f /etc/bash_completion ] || skip "bash-completion not installed"
+    # bash-completion installs a default (-D) completion; bash has none
+    # without it.
+    # shellcheck disable=SC2016
+    local _script='. "$1/40_bash-completion.sh"; complete -p -D'
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ -n "${output}" ]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "70_nvm.sh loads nvm's bash completion only in an interactive shell" {
+    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm"
+    mkdir -p "${_nvm_dir}"
+    echo 'nvm_completion_loaded=yes' > "${_nvm_dir}/bash_completion"
+    # shellcheck disable=SC2016
+    local _script='. "$1/70_nvm.sh"; echo "nvm_completion_loaded=${nvm_completion_loaded:-no}"'
+    run_section_shell NVM_DIR="${_nvm_dir}" interactive "${_script}"
+    [ "${output}" = 'nvm_completion_loaded=yes' ]
+    run_section_shell NVM_DIR="${_nvm_dir}" non-interactive "${_script}"
+    [ "${output}" = 'nvm_completion_loaded=no' ]
+}
+
+@test "78_socket-cli.sh registers socket's completion only in an interactive shell" {
+    local _completion_dir="${HOME}/.local/share/socket/completion"
+    mkdir -p "${_completion_dir}"
+    echo '_socket_completion() { :; }' > "${_completion_dir}/socket-completion.bash"
+    # shellcheck disable=SC2016
+    local _script='. "$1/78_socket-cli.sh"; complete -p socket'
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'complete -F _socket_completion socket' ]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
+    [ -f /usr/share/autojump/autojump.sh ] || skip "autojump not installed"
+    # shellcheck disable=SC2016
+    local _script='. "$1/77_autojump.sh"
+complete -p j > /dev/null 2>&1 && echo completion
+[[ "${PROMPT_COMMAND[*]}" == *autojump_add_to_database* ]] && echo hook
+true'
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'completion\nhook' ]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "14_cd-aliases.sh defines the .. to .......... and cd.. to cd.......... aliases and cleans up its variables" {
+    local _expected="" _dots=".." _path=".."
+    while [ "${#_dots}" -le 10 ]; do
+        _expected+="alias ${_dots}='cd ${_path}'"$'\n'"alias cd${_dots}='cd ${_path}'"$'\n'
+        _dots+="."
+        _path="../${_path}"
+    done
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_dots 2> /dev/null; true'
+    [ "${status}" -eq 0 ]
+    [ "$(sort <<< "${output}")" = "$(sort <<< "${_expected%$'\n'}")" ]
+}
+
+# ── PATH sections sourced more than once ────────────────────────────────────
+# A nested interactive shell, or run-dev-update started from a terminal,
+# sources these sections in a shell whose PATH already has their entries.
+
+# Sources the named section twice, after the PATH helpers it calls, starting
+# from the given PATH, and leaves the resulting PATH in $output. Any VAR=value
+# arguments are set in the shell's environment first.
+# Usage: run_section_twice <section-file> <starting-path> [<VAR=value> ...]
+run_section_twice() {
+    # shellcheck disable=SC2016
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+}
+
+# Calls the named helper from 45_path-helpers.sh with a directory, starting
+# from the given PATH, and leaves the resulting PATH in $output.
+# Usage: run_path_helper <helper> <starting-path> <dir>
+run_path_helper() {
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; "$2" "$4"; printf "%s\n" "$PATH"' "$1" "$2" "$3"
+}
+
+@test "_bashrc_d_path_append adds a directory to the end of a PATH that does not hold it" {
+    run_path_helper _bashrc_d_path_append /usr/bin:/bin /opt/tool/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/usr/bin:/bin:/opt/tool/bin' ]
+}
+
+@test "_bashrc_d_path_append leaves PATH alone when it already holds the directory, wherever it is" {
+    local _path
+    for _path in /opt/tool/bin:/usr/bin:/bin /usr/bin:/opt/tool/bin:/bin /usr/bin:/bin:/opt/tool/bin /opt/tool/bin; do
+        run_path_helper _bashrc_d_path_append "${_path}" /opt/tool/bin
+        [ "${output}" = "${_path}" ]
+    done
+}
+
+@test "_bashrc_d_path_append matches whole entries only" {
+    # Neither entry is /opt/tool, though both contain it.
+    run_path_helper _bashrc_d_path_append /opt/tool/bin:/usr/opt/tool /opt/tool
+    [ "${output}" = '/opt/tool/bin:/usr/opt/tool:/opt/tool' ]
+}
+
+@test "_bashrc_d_path_append gives an empty PATH no empty entry" {
+    # An empty entry means the current directory.
+    run_path_helper _bashrc_d_path_append '' /opt/tool/bin
+    [ "${output}" = '/opt/tool/bin' ]
+}
+
+@test "_bashrc_d_path_prepend puts a directory at the front of a PATH that does not hold it" {
+    run_path_helper _bashrc_d_path_prepend /usr/bin:/bin /opt/tool/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/opt/tool/bin:/usr/bin:/bin' ]
+}
+
+@test "_bashrc_d_path_prepend leaves the directory first, once, wherever PATH held it and however often" {
+    local _path
+    for _path in /opt/tool/bin:/usr/bin:/bin /usr/bin:/opt/tool/bin:/bin /usr/bin:/bin:/opt/tool/bin \
+        /opt/tool/bin:/usr/bin:/opt/tool/bin:/opt/tool/bin:/bin:/opt/tool/bin; do
+        run_path_helper _bashrc_d_path_prepend "${_path}" /opt/tool/bin
+        [ "${output}" = '/opt/tool/bin:/usr/bin:/bin' ]
+    done
+}
+
+@test "_bashrc_d_path_prepend matches whole entries only" {
+    # Neither entry is /opt/tool, though both contain it.
+    run_path_helper _bashrc_d_path_prepend /opt/tool/bin:/usr/opt/tool /opt/tool
+    [ "${output}" = '/opt/tool:/opt/tool/bin:/usr/opt/tool' ]
+}
+
+@test "_bashrc_d_path_prepend gives a PATH with nothing else in it no empty entry" {
+    # An empty entry means the current directory.
+    local _path
+    for _path in '' /opt/tool/bin /opt/tool/bin:/opt/tool/bin; do
+        run_path_helper _bashrc_d_path_prepend "${_path}" /opt/tool/bin
+        [ "${output}" = '/opt/tool/bin' ]
+    done
+}
+
+@test "_bashrc_d_path_prepend leaves no variable of its own behind" {
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive '. "$1/45_path-helpers.sh"; _bashrc_d_path_prepend /opt/tool/bin; echo "${_bashrc_d_path_rest-unset}"'
+    [ "${output}" = unset ]
+}
+
+@test "45_path-helpers.sh works in a POSIX sh, which the sh sections that call it are written for" {
+    [ -x /usr/bin/dash ] || skip "dash not installed"
+    mkdir -p "${HOME}/.bun/bin"
+    # shellcheck disable=SC2016
+    run /usr/bin/dash -c 'PATH="/usr/bin:$HOME/.bun/bin:/bin"; . "$1/45_path-helpers.sh"; . "$1/50_paths.sh"; . "$1/75_bun.sh"; . "$1/50_paths.sh"; . "$1/75_bun.sh"; printf "%s\n" "$PATH"' _ "${SECTIONS_DIR}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+}
+
+@test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
+    local _toolbox="${HOME}/.local/share/JetBrains/Toolbox/scripts"
+    mkdir -p "${_toolbox}"
+    run_section_twice 50_paths.sh /usr/bin:/bin
+    [ "${output}" = "/usr/bin:/bin:${_toolbox}:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+}
+
+@test "50_paths.sh leaves the JetBrains Toolbox scripts directory off PATH when it does not exist" {
+    run_section_twice 50_paths.sh /usr/bin:/bin
+    [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+}
+
+@test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
+    [ -x /usr/bin/go ] || skip "go not installed"
+    local _gopath="${BATS_TEST_TMPDIR}/gopath"
+    run_section_twice 55_go.sh /usr/bin:/bin GOPATH="${_gopath}"
+    [ "${output}" = "/usr/bin:/bin:${_gopath}/bin" ]
+}
+
+# Sources 55_go.sh once, after the PATH helpers it calls, with a fake go that
+# answers every call with the given GOPATH, and leaves the resulting PATH in
+# $output. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_go_section_with_fake_go <gopath-go-reports> [<VAR=value> ...]
+run_go_section_with_fake_go() {
+    setup_fake_bin go
+    seed_fake_output go <<< "$1"
+    # shellcheck disable=SC2016
+    run_section_shell PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" "${@:2}" non-interactive '. "$1/45_path-helpers.sh"; . "$1/55_go.sh"; printf "%s\n" "$PATH"'
+}
+
+@test "55_go.sh takes GOPATH from the environment without starting go" {
+    local _gopath="${BATS_TEST_TMPDIR}/gopath"
+    run_go_section_with_fake_go "${BATS_TEST_TMPDIR}/go-default" GOPATH="${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    refute_fake_called '^go'
+}
+
+@test "55_go.sh asks go for GOPATH, once, when the environment has none" {
+    local _gopath="${BATS_TEST_TMPDIR}/go-default"
+    run_go_section_with_fake_go "${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
+@test "55_go.sh asks go for GOPATH when the environment's is empty" {
+    local _gopath="${BATS_TEST_TMPDIR}/go-default"
+    run_go_section_with_fake_go "${_gopath}" GOPATH=
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
+@test "55_go.sh adds only the bin directory of the first entry of a GOPATH list, where go install writes" {
+    local _first="${BATS_TEST_TMPDIR}/gopath-first" _second="${BATS_TEST_TMPDIR}/gopath-second"
+    run_go_section_with_fake_go "${BATS_TEST_TMPDIR}/go-default" GOPATH="${_first}:${_second}"
+    [ "${status}" -eq 0 ]
+    # Not the list with /bin on the end, which is the first entry itself and
+    # the second one's bin directory.
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_first}/bin" ]
+    refute_fake_called '^go'
+}
+
+@test "55_go.sh takes the first entry of a GOPATH list that go reports" {
+    local _first="${BATS_TEST_TMPDIR}/go-default-first" _second="${BATS_TEST_TMPDIR}/go-default-second"
+    run_go_section_with_fake_go "${_first}:${_second}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_first}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
+@test "55_go.sh leaves no variable of its own behind" {
+    # Compared with the variables 45_path-helpers.sh alone leaves, in a shell
+    # with no GOPATH, so anything 55_go.sh kept to hold go's answer shows up.
+    setup_fake_bin go
+    seed_fake_output go <<< "${BATS_TEST_TMPDIR}/go-default"
+    # shellcheck disable=SC2016
+    run_section_shell PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" non-interactive '. "$1/45_path-helpers.sh"; before="$(compgen -v)"; . "$1/55_go.sh"; diff <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)'
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
+    run_section_twice 60_dotnet.sh /usr/bin:/bin
+    if [ -d /usr/share/dotnet ]; then
+        [ "${output}" = '/usr/bin:/bin:/usr/share/dotnet' ]
+    else
+        [ "${output}" = '/usr/bin:/bin' ]
+    fi
+}
+
+@test "75_bun.sh puts bun first on PATH once however often it is sourced" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh /usr/bin:/bin
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh moves bun to the front of a PATH that has it in the middle, leaving it there once" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh "/usr/bin:${HOME}/.bun/bin:/bin"
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh moves bun to the front of a PATH that has it at the end, leaving it there once" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh "/usr/bin:/bin:${HOME}/.bun/bin"
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh leaves PATH alone when there is no ~/.bun" {
+    run_section_twice 75_bun.sh /usr/bin:/bin
+    [ "${output}" = '/usr/bin:/bin' ]
 }

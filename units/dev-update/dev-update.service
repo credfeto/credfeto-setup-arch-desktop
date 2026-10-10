@@ -15,9 +15,10 @@ Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
 # clone, though, so after the next daemon-reload or login they no longer load
 # and the timer stops firing; nothing re-clones it until dev-install is re-run.
 ExecCondition=%h/work/reference/credfeto-setup-arch-desktop/settings/scripts/linux/network-online
-# The user manager reads neither /etc/profile.d nor /etc/bash.bashrc.d. The
-# login shell reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, ...), and
-# run-dev-update adds the PATH and dotnet settings dev-update's steps need
-# from the clone's bash.bashrc.d sections, which a non-interactive shell
-# never reads.
+# The user manager reads neither /etc/profile.d nor /etc/bash.bashrc.d: the
+# login shell reads /etc/profile.d, and run-dev-update sources the clone's
+# bash.bashrc.d sections (see its header). The login shell is /bin/sh, which
+# may be dash, so that it reads only the POSIX profile files (/etc/profile,
+# then ~/.profile) and never ~/.bash_profile or ~/.bashrc. The bash-only
+# sections still load under bash, because run-dev-update's shebang is bash.
 ExecStart=/bin/sh -lc %h/work/reference/credfeto-setup-arch-desktop/units/dev-update/run-dev-update

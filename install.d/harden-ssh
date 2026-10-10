@@ -10,7 +10,7 @@ harden_ssh() {
     info "Hardening SSH"
     for SSHD_CONF in "$BASEDIR"/settings/sshd/*.conf; do
         SSHD_TARGET="/etc/ssh/sshd_config.d/$(basename "$SSHD_CONF")"
-        sudo cp "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
+        sudo install -m 0644 "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
     done
 
     info "Installing curl for key server AuthorizedKeysCommand"

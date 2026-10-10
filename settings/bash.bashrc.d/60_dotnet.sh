@@ -1,6 +1,10 @@
 # shellcheck shell=sh
-[ -d "/usr/share/dotnet" ] && export DOTNET_ROOT=/usr/share/dotnet
-[ -d "/usr/share/dotnet" ] && PATH="$PATH:$DOTNET_ROOT"
+# Depends on _bashrc_d_path_append from 45_path-helpers.sh, sourced ahead of
+# this file.
+if [ -d "/usr/share/dotnet" ]; then
+    export DOTNET_ROOT=/usr/share/dotnet
+    _bashrc_d_path_append "$DOTNET_ROOT"
+fi
 
 # Dotnet settings
 export DOTNET_NOLOGO=true
