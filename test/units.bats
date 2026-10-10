@@ -75,11 +75,14 @@ EOF
     printf '%s\n' "${_root}/units/dev-update/run-dev-update"
 }
 
+# Prints the PATH recorded by the stub dev-update.
+recorded_path() {
+    sed -n 's/^PATH=//p' "${BATS_TEST_TMPDIR}/dev-update.env"
+}
+
 # Succeeds when the PATH recorded by the stub dev-update has the given entry.
 recorded_path_has() {
-    local _path
-    _path="$(sed -n 's/^PATH=//p' "${BATS_TEST_TMPDIR}/dev-update.env")"
-    [[ ":${_path}:" == *":$1:"* ]]
+    [[ ":$(recorded_path):" == *":$1:"* ]]
 }
 
 @test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
@@ -93,6 +96,10 @@ recorded_path_has() {
     recorded_path_has /usr/bin
     recorded_path_has "${HOME}/.local/bin"
     recorded_path_has "${HOME}/.cargo/bin"
+    # The user directories are appended: were they ahead of the system
+    # directories, a user-installed binary would shadow /usr/bin's in timer
+    # runs.
+    [[ ":$(recorded_path):" == *":/usr/bin:/bin"*":${HOME}/.local/bin:${HOME}/.cargo/bin:"* ]]
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
     grep -qx 'DOTNET_NOLOGO=true' "${_env}"
     if [ -d /usr/share/dotnet ]; then
