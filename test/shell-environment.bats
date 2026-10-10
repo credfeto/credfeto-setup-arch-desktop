@@ -202,6 +202,21 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
     refute_fake_called '^stty'
 }
 
+@test "00_shell-options.sh leaves no interactive-test variable behind in either kind of shell" {
+    # The interactive check is made in place, so nothing is kept to hold its
+    # answer. The first source in the shell, so no other section can have set
+    # the name.
+    # shellcheck disable=SC2016
+    local _script='. "$1/00_shell-options.sh"; echo "iatest=${iatest-unset}"'
+    setup_fake_bin stty
+    run_section_shell PATH="${PATH}" interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'iatest=unset' ]
+    run_section_shell PATH="${PATH}" non-interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'iatest=unset' ]
+}
+
 @test "40_bash-completion.sh loads bash-completion only in an interactive shell" {
     [ -f /usr/share/bash-completion/bash_completion ] || [ -f /etc/bash_completion ] || skip "bash-completion not installed"
     # bash-completion installs a default (-D) completion; bash has none

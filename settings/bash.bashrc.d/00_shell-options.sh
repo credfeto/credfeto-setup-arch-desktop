@@ -1,10 +1,5 @@
 # shellcheck shell=bash
 
-case $- in
-    *i*) iatest=1 ;;
-    *) iatest=0 ;;
-esac
-
 if [ -f /etc/os-release ]; then
     # Only the distro ID is extracted (via a subshell) rather than sourcing
     # the whole of /etc/os-release into the shell, which would also export a
@@ -25,7 +20,7 @@ export HISTCONTROL=erasedups:ignoredups:ignorespace
 
 # Interactive-only: this file is also sourced by non-interactive shells,
 # where bind warns that line editing is not enabled.
-if [[ $iatest -gt 0 ]]; then
+if [[ $- == *i* ]]; then
     # Disable the bell
     bind "set bell-style visible"
 
