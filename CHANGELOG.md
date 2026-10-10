@@ -55,6 +55,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-install and dev-update now run the .NET tool install and update scripts from the reference clone instead of whichever copy is on PATH
 - dev-update timer runs now source every bash.bashrc.d section under bash, so nvm's Node.js and npm, Go and bun are on PATH and the npm global install step no longer fails
 - bash.bashrc.d sections no longer write terminal-only errors or nvm first-run output, or register autojump's completion and prompt hook, when sourced by a non-interactive shell
+- The shell environment installer and run-dev-update now fail with a clear error when no shell config sections are found, instead of the installer reporting success with nothing deployed
+- Re-sourcing the bash.bashrc.d sections no longer adds duplicate PATH entries for paths, Go, .NET and bun
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
