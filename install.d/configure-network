@@ -17,20 +17,20 @@ configure_network() {
     # A systemd-networkd host has no /etc/NetworkManager to write to.
     if network_manager_active; then
         info "Enabling IPv6 privacy"
-        sudo cp "$BASEDIR/settings/networkmanager/ip6-privacy.conf" /etc/NetworkManager/conf.d/ip6-privacy.conf || die "Failed to copy /etc/NetworkManager/conf.d/ip6-privacy.conf"
+        sudo install -m 0644 "$BASEDIR/settings/networkmanager/ip6-privacy.conf" /etc/NetworkManager/conf.d/ip6-privacy.conf || die "Failed to copy /etc/NetworkManager/conf.d/ip6-privacy.conf"
 
         if [ "$INCUS_INSTALLED" != 1 ]; then
             info "Enabling MAC privacy"
-            sudo cp "$BASEDIR/settings/networkmanager/wifi_rand_mac.conf" /etc/NetworkManager/conf.d/wifi_rand_mac.conf || die "Failed to copy /etc/NetworkManager/conf.d/wifi_rand_mac.conf"
+            sudo install -m 0644 "$BASEDIR/settings/networkmanager/wifi_rand_mac.conf" /etc/NetworkManager/conf.d/wifi_rand_mac.conf || die "Failed to copy /etc/NetworkManager/conf.d/wifi_rand_mac.conf"
         else
             info "Skipping MAC privacy because incus is installed"
         fi
 
         info "Configuring network availability check"
-        sudo cp "$BASEDIR/settings/networkmanager/connectivity-test.conf" /etc/NetworkManager/conf.d/connectivity-test.conf || die "Failed to copy /etc/NetworkManager/conf.d/connectivity-test.conf"
+        sudo install -m 0644 "$BASEDIR/settings/networkmanager/connectivity-test.conf" /etc/NetworkManager/conf.d/connectivity-test.conf || die "Failed to copy /etc/NetworkManager/conf.d/connectivity-test.conf"
 
         info "Configuring network manager DNS"
-        sudo cp "$BASEDIR/settings/networkmanager/dns.conf" /etc/NetworkManager/conf.d/dns.conf || die "Failed to copy /etc/NetworkManager/conf.d/dns.conf"
+        sudo install -m 0644 "$BASEDIR/settings/networkmanager/dns.conf" /etc/NetworkManager/conf.d/dns.conf || die "Failed to copy /etc/NetworkManager/conf.d/dns.conf"
 
         info "Removing NetworkManager dnsmasq drop-ins"
         sudo rm -f /etc/NetworkManager/dnsmasq.d/00-caching.conf || die "Failed to remove /etc/NetworkManager/dnsmasq.d/00-caching.conf"
@@ -39,7 +39,7 @@ configure_network() {
         sudo rm -f /etc/NetworkManager/dnsmasq.d/03-allow-doh.conf || die "Failed to remove /etc/NetworkManager/dnsmasq.d/03-allow-doh.conf"
 
         info "Installing Network Manager hook"
-        sudo cp "$BASEDIR/hooks/networkmanager/10-update-timesyncd" /etc/NetworkManager/dispatcher.d/10-update-timesyncd || die "Failed to copy /etc/NetworkManager/dispatcher.d/10-update-timesyncd"
+        sudo install -m 0755 "$BASEDIR/hooks/networkmanager/10-update-timesyncd" /etc/NetworkManager/dispatcher.d/10-update-timesyncd || die "Failed to copy /etc/NetworkManager/dispatcher.d/10-update-timesyncd"
 
         info "Reloading network manager config"
         sudo nmcli general reload || die "Failed to reload the NetworkManager config"

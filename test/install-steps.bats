@@ -68,14 +68,112 @@ assert_step_died() {
     [[ "${output}" != *"$2"* ]]
 }
 
+# Prints "<mode> <target>" for every file deployment in the fake log, which
+# is every `sudo install` given a mode, a source and a full target path.
+# Usage: deployed_modes
+deployed_modes() {
+    sed -n -E 's/^sudo install -m ([^ ]+) [^ ]+ ([^ ]+)$/\1 \2/p' "${FAKE_BIN_LOG}"
+}
+
+# Asserts the `sudo install` lines in the fake log are exactly the given
+# deployments, in order: the whole command line, so the mode, the source and
+# the full target of every file. Each argument is "<mode> <source> <target>",
+# with the source relative to the repo root.
+# Usage: assert_installs_exactly "<mode> <source> <target>" ...
+assert_installs_exactly() {
+    local _deployment _expected=()
+    for _deployment in "$@"; do
+        _expected+=("sudo install -m ${_deployment%% *} ${REPO_DIR}/${_deployment#* }")
+    done
+    [ "$(grep '^sudo install ' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "${_expected[@]}")" ]
+}
+
+# ── deployed file modes ──────────────────────────────────────────────────────
+# cp gives a new file the working tree's checkout mode and keeps the mode of
+# one that is already there, so every step deploys with `install -m` instead
+# (ai/local/file-modes.instructions.md).
+
+@test "no install script deploys a file with sudo cp" {
+    run grep -rn 'sudo cp ' "${REPO_DIR}/install" "${INSTALL_D}" "${REPO_DIR}/units" "${REPO_DIR}/lib"
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+}
+
+@test "the steps whose files every user or service reads deploy each one as 0644, to a full target path" {
+    local _step
+    for _step in btrfs-scrub enable-services fail2ban harden-ssh harden-system pacman-hooks shell-prompt; do
+        : > "${FAKE_BIN_LOG}"
+        run_step "${_step}"
+        [ "${status}" -eq 0 ]
+        assert_fake_called '^sudo install '
+        # Nothing but 0644 deployments to a named file under /etc.
+        run ! grep -vE '^0644 /etc/.*[^/]$' <(deployed_modes)
+        [ "$(deployed_modes | wc -l)" -eq "$(grep -c '^sudo install ' "${FAKE_BIN_LOG}")" ]
+    done
+}
+
+@test "configure-network deploys the dispatcher script executable and the NetworkManager configs as 0644" {
+    run_step configure-network
+    [ "${status}" -eq 0 ]
+    # NetworkManager silently ignores a dispatcher script that is not
+    # executable.
+    assert_installs_exactly \
+        '0644 settings/networkmanager/ip6-privacy.conf /etc/NetworkManager/conf.d/ip6-privacy.conf' \
+        '0644 settings/networkmanager/wifi_rand_mac.conf /etc/NetworkManager/conf.d/wifi_rand_mac.conf' \
+        '0644 settings/networkmanager/connectivity-test.conf /etc/NetworkManager/conf.d/connectivity-test.conf' \
+        '0644 settings/networkmanager/dns.conf /etc/NetworkManager/conf.d/dns.conf' \
+        '0755 hooks/networkmanager/10-update-timesyncd /etc/NetworkManager/dispatcher.d/10-update-timesyncd'
+}
+
+@test "enable-services deploys the logrotate defaults and the pacman-sync units as 0644, each to its own file" {
+    run_step enable-services
+    [ "${status}" -eq 0 ]
+    assert_installs_exactly \
+        '0644 settings/logrotate/01-defaults /etc/logrotate.d/01-defaults' \
+        '0644 units/pacman-sync/pacman-sync.service /etc/systemd/system/pacman-sync.service' \
+        '0644 units/pacman-sync/pacman-sync.timer /etc/systemd/system/pacman-sync.timer'
+}
+
+@test "harden-system deploys the banners and the modprobe, mkinitcpio and sysctl configs as 0644, each to its own file" {
+    run_step harden-system
+    [ "${status}" -eq 0 ]
+    assert_installs_exactly \
+        '0644 settings/issue/contents /etc/issue' \
+        '0644 settings/issue/contents /etc/issue.net' \
+        '0644 settings/issue/contents /etc/motd' \
+        '0644 settings/modprobe/blacklist-firewire.conf /etc/modprobe.d/blacklist-firewire.conf' \
+        '0644 settings/modprobe/disable-protocols.conf /etc/modprobe.d/disable-protocols.conf' \
+        '0644 settings/mkinitcpio/01_compression.conf /etc/mkinitcpio.conf.d/01_compression.conf' \
+        '0644 settings/sysctl/dmesg_restrict.conf /etc/sysctl.d/dmesg_restrict.conf' \
+        '0644 settings/sysctl/harden_bpf.conf /etc/sysctl.d/harden_bpf.conf' \
+        '0644 settings/sysctl/kptr_restrict.conf /etc/sysctl.d/kptr_restrict.conf' \
+        '0644 settings/sysctl/ptrace_scope.conf /etc/sysctl.d/ptrace_scope.conf' \
+        '0644 settings/sysctl/fs.conf /etc/sysctl.d/fs.conf' \
+        '0644 settings/sysctl/kernel_modules.conf /etc/sysctl.d/kernel_modules.conf' \
+        '0644 settings/sysctl/unprivileged_userns_clone.conf /etc/sysctl.d/unprivileged_userns_clone.conf' \
+        '0644 settings/sysctl/kexec.conf /etc/sysctl.d/kexec.conf'
+}
+
+@test "security-tools deploys the audit rules as 0640 and the usbguard rules as 0600" {
+    run_step security-tools
+    [ "${status}" -eq 0 ]
+    [ "$(deployed_modes)" = "$(printf '%s\n' \
+        '0640 /etc/audit/rules.d/00_passwd.rules' \
+        '0640 /etc/audit/rules.d/01_security.rules' \
+        '0640 /etc/audit/rules.d/02_audit-config.rules' \
+        '0600 /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf' \
+        '0600 /etc/usbguard/rules.d/02_mass_storage.conf')" ]
+    [ "$(grep -c '^sudo install ' "${FAKE_BIN_LOG}")" -eq 5 ]
+}
+
 # ── btrfs-scrub ──────────────────────────────────────────────────────────────
 
 @test "btrfs-scrub installs and enables the scrub timer" {
     run_step btrfs-scrub
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"btrfs scrub installed"* ]]
-    assert_fake_called '^sudo cp .*/btrfs-scrub\.service /etc/systemd/system/$'
-    assert_fake_called '^sudo cp .*/btrfs-scrub\.timer /etc/systemd/system/$'
+    assert_fake_called '^sudo install -m 0644 .*/btrfs-scrub\.service /etc/systemd/system/btrfs-scrub\.service$'
+    assert_fake_called '^sudo install -m 0644 .*/btrfs-scrub\.timer /etc/systemd/system/btrfs-scrub\.timer$'
     assert_fake_called '^sudo systemctl daemon-reload$'
     assert_fake_called '^sudo systemctl enable --now btrfs-scrub\.timer$'
 }
@@ -122,7 +220,7 @@ assert_step_died() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Network configured"* ]]
     [[ "${output}" == *"Enabling MAC privacy"* ]]
-    assert_fake_called '^sudo cp .*/wifi_rand_mac\.conf /etc/NetworkManager/conf\.d/wifi_rand_mac\.conf$'
+    assert_fake_called '^sudo install -m 0644 .*/wifi_rand_mac\.conf /etc/NetworkManager/conf\.d/wifi_rand_mac\.conf$'
     assert_fake_called '^sudo systemctl disable --now dnsmasq$'
     assert_fake_called '^sudo pacman -Rns --noconfirm dnsmasq$'
     assert_fake_called '^sudo systemctl enable --now firewalld$'
@@ -142,7 +240,7 @@ log_line_of() {
     [ "${status}" -eq 0 ]
     local _resolved _dns_conf _reload _disable _remove _firewalld
     _resolved="$(log_line_of '^sudo systemctl enable --now systemd-resolved$')"
-    _dns_conf="$(log_line_of '^sudo cp .*/dns\.conf /etc/NetworkManager/conf\.d/dns\.conf$')"
+    _dns_conf="$(log_line_of '^sudo install -m 0644 .*/dns\.conf /etc/NetworkManager/conf\.d/dns\.conf$')"
     _reload="$(log_line_of '^sudo nmcli general reload$')"
     _disable="$(log_line_of '^sudo systemctl disable --now dnsmasq$')"
     _remove="$(log_line_of '^sudo pacman -Rns --noconfirm dnsmasq$')"
@@ -169,7 +267,7 @@ log_line_of() {
 }
 
 @test "configure-network stops when copying the MAC randomisation config fails" {
-    run_step configure-network FAKE_SUDO_FAIL='^cp .*/wifi_rand_mac\.conf '
+    run_step configure-network FAKE_SUDO_FAIL='^install -m 0644 .*/wifi_rand_mac\.conf '
     assert_step_died "Failed to copy /etc/NetworkManager/conf.d/wifi_rand_mac.conf" "Network configured"
     refute_fake_called 'connectivity-test\.conf'
 }
@@ -182,7 +280,7 @@ log_line_of() {
     refute_fake_called 'wifi_rand_mac'
     [[ "${output}" == *"Skipping MAC privacy because incus is installed"* ]]
     [[ "${output}" != *"Enabling MAC privacy"* ]]
-    assert_fake_called '^sudo cp .*/connectivity-test\.conf '
+    assert_fake_called '^sudo install -m 0644 .*/connectivity-test\.conf '
 }
 
 @test "configure-network skips disabling and removing dnsmasq when it is absent" {
@@ -308,12 +406,12 @@ log_line_of() {
     run_step fail2ban
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"fail2ban installed"* ]]
-    assert_fake_called '^sudo cp .*/ssh\.local /etc/fail2ban/jail\.d/ssh\.local$'
+    assert_fake_called '^sudo install -m 0644 .*/ssh\.local /etc/fail2ban/jail\.d/ssh\.local$'
     assert_fake_called '^sudo systemctl enable --now fail2ban$'
 }
 
 @test "fail2ban stops when copying the ssh jail fails" {
-    run_step fail2ban FAKE_SUDO_FAIL='^cp .*/ssh\.local '
+    run_step fail2ban FAKE_SUDO_FAIL='^install -m 0644 .*/ssh\.local '
     assert_step_died "Failed to copy /etc/fail2ban/jail.d/ssh.local" "fail2ban installed"
     refute_fake_called 'enable --now fail2ban'
 }
@@ -325,8 +423,8 @@ log_line_of() {
     [ "${status}" -eq 0 ]
     local _expected=(
         "sudo pacman -S --needed --noconfirm fail2ban"
-        "sudo cp ${REPO_DIR}/settings/fail2ban/default.local /etc/fail2ban/jail.d/default.local"
-        "sudo cp ${REPO_DIR}/settings/fail2ban/ssh.local /etc/fail2ban/jail.d/ssh.local"
+        "sudo install -m 0644 ${REPO_DIR}/settings/fail2ban/default.local /etc/fail2ban/jail.d/default.local"
+        "sudo install -m 0644 ${REPO_DIR}/settings/fail2ban/ssh.local /etc/fail2ban/jail.d/ssh.local"
         "sudo systemctl enable --now fail2ban"
     )
     [ "$(cat "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "${_expected[@]}")" ]
@@ -335,7 +433,7 @@ log_line_of() {
 @test "fail2ban stops when installing the package fails, before copying any jail" {
     run_step fail2ban FAKE_SUDO_FAIL='^pacman -S .*fail2ban$'
     assert_step_died "Failed to install fail2ban" "fail2ban installed"
-    refute_fake_called '^sudo cp '
+    refute_fake_called '^sudo install '
     refute_fake_called 'enable --now fail2ban'
 }
 
@@ -365,8 +463,8 @@ log_line_of() {
     run_step harden-system
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"System hardened"* ]]
-    assert_fake_called '^sudo cp .*/unprivileged_userns_clone\.conf /etc/sysctl\.d/unprivileged_userns_clone\.conf$'
-    assert_fake_called '^sudo cp .*/kexec\.conf /etc/sysctl\.d/kexec\.conf$'
+    assert_fake_called '^sudo install -m 0644 .*/unprivileged_userns_clone\.conf /etc/sysctl\.d/unprivileged_userns_clone\.conf$'
+    assert_fake_called '^sudo install -m 0644 .*/kexec\.conf /etc/sysctl\.d/kexec\.conf$'
     refute_fake_called '^sudo rm '
 }
 
@@ -408,12 +506,12 @@ log_line_of() {
     run_step pacman-hooks
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Pacman hooks installed"* ]]
-    assert_fake_called '^sudo cp .*/pacman-cache-cleanup\.hook /etc/pacman\.d/hooks/pacman-cache-cleanup\.hook$'
-    assert_fake_called '^sudo cp .*/spectacle-remove-firejail-wrapper\.hook /etc/pacman\.d/hooks/spectacle-remove-firejail-wrapper\.hook$'
+    assert_fake_called '^sudo install -m 0644 .*/pacman-cache-cleanup\.hook /etc/pacman\.d/hooks/pacman-cache-cleanup\.hook$'
+    assert_fake_called '^sudo install -m 0644 .*/spectacle-remove-firejail-wrapper\.hook /etc/pacman\.d/hooks/spectacle-remove-firejail-wrapper\.hook$'
 }
 
 @test "pacman-hooks stops when copying a hook fails" {
-    run_step pacman-hooks FAKE_SUDO_FAIL='^cp .*/pacman-cache-cleanup\.hook '
+    run_step pacman-hooks FAKE_SUDO_FAIL='^install -m 0644 .*/pacman-cache-cleanup\.hook '
     assert_step_died "Failed to copy /etc/pacman.d/hooks/pacman-cache-cleanup.hook" "Pacman hooks installed"
     refute_fake_called 'spectacle-remove-firejail-wrapper'
 }
@@ -459,9 +557,9 @@ log_line_of() {
     [ "${status}" -eq 0 ]
     [ "$(grep -E ' audit$|/etc/audit/|auditd$' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' \
         'sudo pacman -S --needed --noconfirm audit' \
-        "sudo cp ${REPO_DIR}/settings/audit/rules/00_passwd.rules /etc/audit/rules.d" \
-        "sudo cp ${REPO_DIR}/settings/audit/rules/01_security.rules /etc/audit/rules.d" \
-        "sudo cp ${REPO_DIR}/settings/audit/rules/02_audit-config.rules /etc/audit/rules.d" \
+        "sudo install -m 0640 ${REPO_DIR}/settings/audit/rules/00_passwd.rules /etc/audit/rules.d/00_passwd.rules" \
+        "sudo install -m 0640 ${REPO_DIR}/settings/audit/rules/01_security.rules /etc/audit/rules.d/01_security.rules" \
+        "sudo install -m 0640 ${REPO_DIR}/settings/audit/rules/02_audit-config.rules /etc/audit/rules.d/02_audit-config.rules" \
         'sudo systemctl enable --now auditd')" ]
 }
 
@@ -528,24 +626,24 @@ SSHD_TARGET_DIR="/etc/ssh/sshd_config.d"
 
     local _conf _expected=()
     for _conf in "${SSHD_SOURCE_DIR}"/*.conf; do
-        _expected+=("sudo cp ${_conf} ${SSHD_TARGET_DIR}/$(basename "${_conf}")")
+        _expected+=("sudo install -m 0644 ${_conf} ${SSHD_TARGET_DIR}/$(basename "${_conf}")")
     done
     [ "${#_expected[@]}" -gt 0 ]
-    [ "$(grep '^sudo cp ' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "${_expected[@]}")" ]
+    [ "$(grep '^sudo install ' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "${_expected[@]}")" ]
 }
 
 @test "harden-ssh stops at a failed copy, naming its target, and copies nothing after it" {
-    run_step harden-ssh FAKE_SUDO_FAIL='^cp .*/07_X11Forwarding\.conf '
+    run_step harden-ssh FAKE_SUDO_FAIL='^install -m 0644 .*/07_X11Forwarding\.conf '
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to copy ${SSHD_TARGET_DIR}/07_X11Forwarding.conf"* ]]
     [[ "${output}" != *"SSH hardened"* ]]
-    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo cp ${SSHD_SOURCE_DIR}/07_X11Forwarding.conf ${SSHD_TARGET_DIR}/07_X11Forwarding.conf" ]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo install -m 0644 ${SSHD_SOURCE_DIR}/07_X11Forwarding.conf ${SSHD_TARGET_DIR}/07_X11Forwarding.conf" ]
 }
 
 @test "harden-ssh stops when installing curl fails and never renders the key server config" {
     run_step harden-ssh FAKE_SUDO_FAIL='^pacman -S '
     assert_step_died "Failed to install curl" "SSH hardened"
-    assert_fake_called '^sudo cp .*/13_TCPKeepAlive\.conf '
+    assert_fake_called '^sudo install -m 0644 .*/13_TCPKeepAlive\.conf '
     refute_fake_called '^hostnamectl '
     refute_fake_called '^sudo tee '
 }

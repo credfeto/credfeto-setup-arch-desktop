@@ -10,8 +10,8 @@ install_fail2ban() {
     info "Installing fail2ban"
     # The package creates /etc/fail2ban/jail.d, so it is installed before the jails are copied in.
     sudo pacman -S --needed --noconfirm fail2ban || die "Failed to install fail2ban"
-    sudo cp "$BASEDIR/settings/fail2ban/default.local" "/etc/fail2ban/jail.d/default.local" || die "Failed to copy /etc/fail2ban/jail.d/default.local"
-    sudo cp "$BASEDIR/settings/fail2ban/ssh.local" "/etc/fail2ban/jail.d/ssh.local" || die "Failed to copy /etc/fail2ban/jail.d/ssh.local"
+    sudo install -m 0644 "$BASEDIR/settings/fail2ban/default.local" "/etc/fail2ban/jail.d/default.local" || die "Failed to copy /etc/fail2ban/jail.d/default.local"
+    sudo install -m 0644 "$BASEDIR/settings/fail2ban/ssh.local" "/etc/fail2ban/jail.d/ssh.local" || die "Failed to copy /etc/fail2ban/jail.d/ssh.local"
     sudo systemctl enable --now fail2ban || die "Failed to enable fail2ban"
 
     success "fail2ban installed"
