@@ -115,6 +115,22 @@ recorded_path_has() {
     fi
 }
 
+@test "run-dev-update adds no PATH entry twice when its caller has already loaded the sections" {
+    local _run _path _entry
+    _run="$(setup_run_dev_update_tree)"
+    mkdir -p "${HOME}/.bun/bin"
+    run run_with_clean_tool_env "${_run}" < /dev/null
+    [ "${status}" -eq 3 ]
+    _path="$(recorded_path)"
+    # Second run, started with the PATH the first one built, as a manual run
+    # from a terminal is.
+    run env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH="${_path}" "${_run}" < /dev/null
+    [ "${status}" -eq 3 ]
+    for _entry in "${HOME}/.local/bin" "${HOME}/.cargo/bin" "${HOME}/.bun/bin"; do
+        [ "$(recorded_path | tr ':' '\n' | grep -cxF "${_entry}")" -eq 1 ]
+    done
+}
+
 @test "run-dev-update fails without starting dev-update when bash.bashrc.d holds no sections or is missing" {
     local _run _sections="${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d" _state
     _run="$(setup_run_dev_update_tree)"

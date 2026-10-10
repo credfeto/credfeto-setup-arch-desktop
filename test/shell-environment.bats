@@ -159,14 +159,16 @@ SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 # --noprofile keep the host's deployed /etc/bash.bashrc.d out of the shell,
 # and +m stops it taking over a terminal for job control. Only stdout is
 # asserted: with no terminal, an interactive bash and bind warn on stderr.
-# Usage: run_section_shell interactive|non-interactive <script>
+# Any further arguments reach the script as $2 onwards.
+# Usage: run_section_shell interactive|non-interactive <script> [<arg>...]
 run_section_shell() {
     local _mode="$1" _script="$2"
     local -a _flags=(--norc --noprofile +m)
     if [ "${_mode}" = interactive ]; then
         _flags+=(-i)
     fi
-    run --separate-stderr bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" < /dev/null
+    shift 2
+    run --separate-stderr bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" "$@" < /dev/null
 }
 
 # Clears the settings 00_shell-options.sh turns on and gives PROMPT_COMMAND an
@@ -261,4 +263,56 @@ true'
     run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_dots 2> /dev/null; true'
     [ "${status}" -eq 0 ]
     [ "$(sort <<< "${output}")" = "$(sort <<< "${_expected%$'\n'}")" ]
+}
+
+# ── PATH sections sourced more than once ────────────────────────────────────
+# A nested interactive shell, or run-dev-update started from a terminal,
+# sources these sections in a shell whose PATH already has their entries.
+
+# Sources the named section twice, starting from the given PATH, and leaves
+# the resulting PATH in $output.
+# Usage: run_section_twice <section-file> <starting-path>
+run_section_twice() {
+    # shellcheck disable=SC2016
+    run_section_shell non-interactive 'PATH="$3"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+}
+
+@test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
+    local _toolbox="${HOME}/.local/share/JetBrains/Toolbox/scripts"
+    mkdir -p "${_toolbox}"
+    run_section_twice 50_paths.sh /usr/bin:/bin
+    [ "${output}" = "/usr/bin:/bin:${_toolbox}:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+}
+
+@test "50_paths.sh leaves the JetBrains Toolbox scripts directory off PATH when it does not exist" {
+    run_section_twice 50_paths.sh /usr/bin:/bin
+    [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
+}
+
+@test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
+    [ -x /usr/bin/go ] || skip "go not installed"
+    export GOPATH="${BATS_TEST_TMPDIR}/gopath"
+    run_section_twice 55_go.sh /usr/bin:/bin
+    [ "${output}" = "/usr/bin:/bin:${GOPATH}/bin" ]
+}
+
+@test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
+    run_section_twice 60_dotnet.sh /usr/bin:/bin
+    if [ -d /usr/share/dotnet ]; then
+        [ "${output}" = '/usr/bin:/bin:/usr/share/dotnet' ]
+    else
+        [ "${output}" = '/usr/bin:/bin' ]
+    fi
+}
+
+@test "75_bun.sh puts bun first on PATH once however often it is sourced" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh /usr/bin:/bin
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
+}
+
+@test "75_bun.sh moves bun back to the front of a PATH that has it further along" {
+    mkdir -p "${HOME}/.bun/bin"
+    run_section_twice 75_bun.sh "/usr/bin:${HOME}/.bun/bin:/bin"
+    [ "${output}" = "${HOME}/.bun/bin:/usr/bin:${HOME}/.bun/bin:/bin" ]
 }

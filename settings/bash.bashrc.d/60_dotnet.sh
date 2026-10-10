@@ -1,6 +1,12 @@
 # shellcheck shell=sh
-[ -d "/usr/share/dotnet" ] && export DOTNET_ROOT=/usr/share/dotnet
-[ -d "/usr/share/dotnet" ] && PATH="$PATH:$DOTNET_ROOT"
+if [ -d "/usr/share/dotnet" ]; then
+    export DOTNET_ROOT=/usr/share/dotnet
+    # Skipped when already there, so sourcing this again does not grow PATH.
+    case ":$PATH:" in
+        *":$DOTNET_ROOT:"*) ;;
+        *) PATH="$PATH:$DOTNET_ROOT" ;;
+    esac
+fi
 
 # Dotnet settings
 export DOTNET_NOLOGO=true
