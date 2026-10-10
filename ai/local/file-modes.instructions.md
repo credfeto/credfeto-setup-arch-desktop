@@ -12,12 +12,14 @@ This repo is worked on under a `027` umask, so anything that inherits a mode lan
 
 ## Per-File Deployment
 
-Use `sudo install -m <mode> <src> <dest>`. **Never `sudo cp`**:
+Use `sudo install -m <mode> <src> <dest>`, or `install -m <mode> <src> <dest>` without `sudo` for a file that goes under the user's home (`install.d/firejail`). **Never `cp`, with or without `sudo`**:
 
 - Destination does not exist: `cp` gives it the **source** file's mode, i.e. the working tree's checkout mode.
 - Destination does exist: `cp` silently keeps the **destination's** mode, so the result depends on what was there before and is not reproducible across machines.
 
-`install -m` sets the mode explicitly in both cases. Give it the full target path, not the target directory, so the command line names the file it writes and a test can assert the mode per target.
+Without `sudo` the same two cases apply, and a new file's mode is also masked by the caller's umask.
+
+`install -m` sets the mode explicitly in every case. Give it the full target path, not the target directory, so the command line names the file it writes and a test can assert the mode per target.
 
 Modes: `0644` by default; `0755` for anything that must be executable, including a NetworkManager dispatcher script, which NetworkManager silently ignores otherwise; `0640` for audit rules; `0600` for usbguard rules. Anything tighter than `0644` needs a stated reason.
 
@@ -35,4 +37,4 @@ Setting the mode on the install root alone is not enough: `install-latest-dotnet
 
 ## Verification
 
-Modes cannot be proved by the bats suites: every destination is a hard-coded real system path, and running the deployment for real would mutate the host. Assert the deploying command instead: run the step against the fake sudo from `test/test_helper.bash`, which logs each command line without running it, and check the mode each `install -m` was given (`test/shell-environment.bats`, and `test/install-steps.bats` for the other `install.d/` steps, which also fails when `sudo cp` appears anywhere under `install`, `install.d/`, `units/` or `lib/`); where the script cannot be run at all, assert the construct statically (`test/general.bats`). Confirm the actual modes by re-running the install on the machine and checking with `stat -c '%A %U:%G %n'`.
+Modes under a system path cannot be proved by the bats suites: the destination is a hard-coded real path, and running the deployment for real would mutate the host. Assert the deploying command instead: run the step against the fake sudo from `test/test_helper.bash`, which logs each command line without running it, and check the mode each `install -m` was given (`test/shell-environment.bats`, and `test/install-steps.bats` for the other `install.d/` steps); where the script cannot be run at all, assert the construct statically (`test/general.bats`). A deployment under the user's home is different: the suites run with `HOME` in the test's temporary directory, so run the step for real under a restrictive umask, onto a destination that already exists with another mode, and read the modes back with `stat` (the `firejail` tests in `test/install-steps.bats`). `test/install-steps.bats` also fails when any line under `install`, `install.d/`, `units/` or `lib/` runs `cp` as a command, with or without `sudo`; it makes no exception, because nothing there needs one: the only whole-tree copy is in `settings/scripts/general/install-latest-dotnet`, outside its search. Confirm the actual modes by re-running the install on the machine and checking with `stat -c '%A %U:%G %n'`.

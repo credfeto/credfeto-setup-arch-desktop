@@ -93,10 +93,44 @@ assert_installs_exactly() {
 # one that is already there, so every step deploys with `install -m` instead
 # (ai/local/file-modes.instructions.md).
 
-@test "no install script deploys a file with sudo cp" {
-    run grep -rn 'sudo cp ' "${REPO_DIR}/install" "${INSTALL_D}" "${REPO_DIR}/units" "${REPO_DIR}/lib"
+# Prints, as grep -n does, every line under the given paths that runs cp as a
+# command, with or without sudo and whatever comes ahead of it on the line.
+# Comment lines are left out; so are names that only contain "cp" (scp,
+# get_cp_options). Fails when there is no such line.
+# Usage: cp_command_lines <path> ...
+cp_command_lines() {
+    grep -rnHE '(^|[^[:alnum:]_-])cp[[:space:]]' "$@" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'
+}
+
+@test "no install script deploys a file with cp, with or without sudo" {
+    # A file deployed into the user's home takes the checkout's mode and the
+    # caller's umask from cp just as one deployed with sudo cp does.
+    run cp_command_lines "${REPO_DIR}/install" "${INSTALL_D}" "${REPO_DIR}/units" "${REPO_DIR}/lib"
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
+}
+
+@test "the cp check reports cp run as a command, with or without sudo, and nothing else" {
+    local _step="${BATS_TEST_TMPDIR}/cp-check/step"
+    mkdir -p "${_step%/*}"
+    cat > "${_step}" <<'EOF'
+cp "$src" "$dest"
+    sudo cp "$src" "$dest" || die "Failed to copy $dest"
+[ -f "$src" ] && cp -f "$src" "$dest"
+# install -m, not cp as it was
+    # cp "$src" "$dest"
+scp "$src" host:
+override_switch="$(get_cp_options "$override")"
+install -m 0644 "$src" "$dest/cp"
+EOF
+    local _target
+    # A directory, as the check is given install.d, and a single file, as it
+    # is given install.
+    for _target in "${_step%/*}" "${_step}"; do
+        run cp_command_lines "${_target}"
+        [ "${status}" -eq 0 ]
+        [ "$(cut -d: -f2 <<< "${output}" | tr '\n' ' ')" = '1 2 3 ' ]
+    done
 }
 
 @test "the steps whose files every user or service reads deploy each one as 0644, to a full target path" {
@@ -439,15 +473,43 @@ log_line_of() {
 
 # ── firejail ─────────────────────────────────────────────────────────────────
 
-@test "firejail installs firejail and copies the user profiles" {
+@test "firejail installs firejail and deploys the user profiles as 0644, whatever the umask and the mode of a profile already there" {
+    # The profiles go under the user's home, so install runs for real here,
+    # without sudo, and the modes it leaves can be read back. cp would give
+    # a new profile 0640 under this umask and leave the existing one 0600.
+    mkdir -p "${HOME}/.config/firejail"
+    printf 'stale\n' > "${HOME}/.config/firejail/ssh.local"
+    chmod 0600 "${HOME}/.config/firejail/ssh.local"
+    umask 027
     run_step firejail
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"firejail installed"* ]]
     assert_fake_called '^sudo pacman -S --needed --noconfirm firejail$'
+    refute_fake_called '^sudo install '
     local _profile
     for _profile in git.local shellcheck.local ssh.local; do
-        [ -f "${HOME}/.config/firejail/${_profile}" ]
+        [ "$(stat -c '%a' "${HOME}/.config/firejail/${_profile}")" = 644 ]
+        cmp -s "${REPO_DIR}/settings/firejail/${_profile}" "${HOME}/.config/firejail/${_profile}"
     done
+}
+
+@test "firejail deploys exactly its three profiles, each with install -m 0644 to a full target path" {
+    local _source="${REPO_DIR}/settings/firejail" _target="${HOME}/.config/firejail"
+    setup_fake_bin install
+    run_step firejail
+    [ "${status}" -eq 0 ]
+    [ "$(grep '^install ' "${FAKE_BIN_LOG}")" = "$(printf '%s\n' \
+        "install -m 0644 ${_source}/git.local ${_target}/git.local" \
+        "install -m 0644 ${_source}/shellcheck.local ${_target}/shellcheck.local" \
+        "install -m 0644 ${_source}/ssh.local ${_target}/ssh.local")" ]
+    [ "$(ls "${_source}")" = "$(printf '%s\n' git.local shellcheck.local ssh.local)" ]
+}
+
+@test "firejail stops, naming the profile, when deploying one fails" {
+    setup_fake_bin install
+    run_step firejail FAKE_EXIT_install=1
+    assert_step_died "Failed to copy ${HOME}/.config/firejail/git.local" "firejail installed"
+    [ "$(grep -c '^install ' "${FAKE_BIN_LOG}")" -eq 1 ]
 }
 
 @test "firejail stops when the user profile directory cannot be created" {
