@@ -43,13 +43,6 @@ setup() {
     grep -qx 'Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket' "${DEV_UPDATE_UNITS}/dev-update.service"
 }
 
-# Runs a command with the caller's tool settings cleared and a minimal PATH,
-# so the nvm, Go, bun or dotnet setup of whoever runs the suite cannot leak
-# into what the sections under test produce.
-run_with_clean_tool_env() {
-    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "$@"
-}
-
 # Copies run-dev-update, the lib/common it reports errors through and every
 # bash.bashrc.d section it sources into a clone-shaped tree under the test
 # dir, with a stub dev-update that records the environment it was started with
@@ -124,7 +117,7 @@ recorded_path_has() {
     _path="$(recorded_path)"
     # Second run, started with the PATH the first one built, as a manual run
     # from a terminal is.
-    run env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH="${_path}" "${_run}" < /dev/null
+    run run_with_clean_tool_env PATH="${_path}" "${_run}" < /dev/null
     [ "${status}" -eq 3 ]
     for _entry in "${HOME}/.local/bin" "${HOME}/.cargo/bin" "${HOME}/.bun/bin"; do
         [ "$(recorded_path | tr ':' '\n' | grep -cxF "${_entry}")" -eq 1 ]
@@ -157,19 +150,17 @@ recorded_path_has() {
     [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
 }
 
-# Sources one bash.bashrc.d section the way run-dev-update does: in a
-# non-interactive bash with no terminal and the caller's tool settings
-# cleared. Leaves stdout in $output and stderr in $stderr.
-# Usage: run_section_non_interactively <section-path>
-run_section_non_interactively() {
-    # shellcheck disable=SC2016
-    run --separate-stderr run_with_clean_tool_env bash -c '. "$1"' _ "$1" < /dev/null
-}
+# Sources the section named by $2 from the bash.bashrc.d directory in $1, on
+# its own. Run through run_section_shell non-interactive, this is one section
+# as run-dev-update sources it: in a non-interactive bash with no terminal and
+# the caller's tool settings cleared.
+# shellcheck disable=SC2016
+SOURCE_SECTION_SCRIPT='. "$1/$2"'
 
 @test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced by a non-interactive bash" {
     local _section _offenders=""
-    for _section in "${REPO_DIR}"/settings/bash.bashrc.d/*.sh; do
-        run_section_non_interactively "${_section}"
+    for _section in "${SECTIONS_DIR}"/*.sh; do
+        run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section##*/}"
         if [ -n "${output}" ] || [ -n "${stderr}" ]; then
             _offenders+="${_section##*/}: ${output}${stderr}"$'\n'
         fi
@@ -180,7 +171,7 @@ run_section_non_interactively() {
 
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
     [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
-    run_section_non_interactively "${REPO_DIR}/settings/bash.bashrc.d/70_nvm.sh"
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
@@ -192,7 +183,7 @@ run_section_non_interactively() {
     [ -f /usr/share/nvm/init-nvm.sh ] || skip "nvm package not installed"
     # A regular file where NVM_DIR should be makes the symlinks fail.
     : > "${HOME}/.nvm"
-    run_section_non_interactively "${REPO_DIR}/settings/bash.bashrc.d/70_nvm.sh"
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
     [ -z "${output}" ]
     [[ "${stderr}" == *"${HOME}/.nvm/nvm.sh"* ]]
 }

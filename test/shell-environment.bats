@@ -152,26 +152,6 @@ run_update_setup_install() {
 # run-dev-update sources it non-interactively, so each interactive-only part
 # is checked in both kinds of shell.
 
-SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
-
-# Runs the given script in bash with the bash.bashrc.d directory as $1, in an
-# interactive shell when the first argument is "interactive". --norc and
-# --noprofile keep the host's deployed /etc/bash.bashrc.d out of the shell,
-# and +m stops it taking over a terminal for job control. Stdin is /dev/null,
-# so the shell has no terminal, and stderr cannot be asserted empty: an
-# interactive bash with no terminal warns there that it has no job control.
-# Any further arguments reach the script as $2 onwards.
-# Usage: run_section_shell interactive|non-interactive <script> [<arg>...]
-run_section_shell() {
-    local _mode="$1" _script="$2"
-    local -a _flags=(--norc --noprofile +m)
-    if [ "${_mode}" = interactive ]; then
-        _flags+=(-i)
-    fi
-    shift 2
-    run --separate-stderr bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" "$@" < /dev/null
-}
-
 # Clears the settings 00_shell-options.sh turns on and gives PROMPT_COMMAND an
 # existing hook, sources the section, then prints what it left behind.
 # shellcheck disable=SC2016
@@ -186,7 +166,8 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
 
 @test "00_shell-options.sh in an interactive shell with no terminal sets the window and history options and appends to PROMPT_COMMAND, without calling stty" {
     setup_fake_bin stty
-    run_section_shell interactive "${SHELL_OPTIONS_SCRIPT}"
+    # PATH is passed on so the shell finds the fake stty.
+    run_section_shell PATH="${PATH}" interactive "${SHELL_OPTIONS_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = $'checkwinsize\nhistappend\nPROMPT_COMMAND=existing_hook\nPROMPT_COMMAND=history -a' ]
     refute_fake_called '^stty'
@@ -214,7 +195,8 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
 
 @test "00_shell-options.sh in a non-interactive shell leaves the shell options, PROMPT_COMMAND and the terminal alone" {
     setup_fake_bin stty
-    run_section_shell non-interactive "${SHELL_OPTIONS_SCRIPT}"
+    # PATH is passed on so the shell would find the fake stty.
+    run_section_shell PATH="${PATH}" non-interactive "${SHELL_OPTIONS_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = 'PROMPT_COMMAND=existing_hook' ]
     refute_fake_called '^stty'
@@ -234,14 +216,14 @@ printf "PROMPT_COMMAND=%s\n" "${PROMPT_COMMAND[@]}"
 }
 
 @test "70_nvm.sh loads nvm's bash completion only in an interactive shell" {
-    export NVM_DIR="${BATS_TEST_TMPDIR}/nvm"
-    mkdir -p "${NVM_DIR}"
-    echo 'nvm_completion_loaded=yes' > "${NVM_DIR}/bash_completion"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm"
+    mkdir -p "${_nvm_dir}"
+    echo 'nvm_completion_loaded=yes' > "${_nvm_dir}/bash_completion"
     # shellcheck disable=SC2016
     local _script='. "$1/70_nvm.sh"; echo "nvm_completion_loaded=${nvm_completion_loaded:-no}"'
-    run_section_shell interactive "${_script}"
+    run_section_shell NVM_DIR="${_nvm_dir}" interactive "${_script}"
     [ "${output}" = 'nvm_completion_loaded=yes' ]
-    run_section_shell non-interactive "${_script}"
+    run_section_shell NVM_DIR="${_nvm_dir}" non-interactive "${_script}"
     [ "${output}" = 'nvm_completion_loaded=no' ]
 }
 
@@ -291,11 +273,12 @@ true'
 # sources these sections in a shell whose PATH already has their entries.
 
 # Sources the named section twice, starting from the given PATH, and leaves
-# the resulting PATH in $output.
-# Usage: run_section_twice <section-file> <starting-path>
+# the resulting PATH in $output. Any VAR=value arguments are set in the
+# shell's environment first.
+# Usage: run_section_twice <section-file> <starting-path> [<VAR=value> ...]
 run_section_twice() {
     # shellcheck disable=SC2016
-    run_section_shell non-interactive 'PATH="$3"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
 }
 
 @test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
@@ -312,9 +295,9 @@ run_section_twice() {
 
 @test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
     [ -x /usr/bin/go ] || skip "go not installed"
-    export GOPATH="${BATS_TEST_TMPDIR}/gopath"
-    run_section_twice 55_go.sh /usr/bin:/bin
-    [ "${output}" = "/usr/bin:/bin:${GOPATH}/bin" ]
+    local _gopath="${BATS_TEST_TMPDIR}/gopath"
+    run_section_twice 55_go.sh /usr/bin:/bin GOPATH="${_gopath}"
+    [ "${output}" = "/usr/bin:/bin:${_gopath}/bin" ]
 }
 
 @test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {

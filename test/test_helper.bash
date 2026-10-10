@@ -7,6 +7,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # itself, so shellcheck's single-file analysis can't see the use.
 # shellcheck disable=SC2034
 SCRIPTS_DIR="${REPO_DIR}/settings/scripts"
+# Likewise only consumed by the .bats files.
+# shellcheck disable=SC2034
+SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 
 # Creates fake executables on a PATH prefix, so a script under test invokes
 # the fakes instead of real system tools. Each fake logs its own name plus
@@ -98,4 +101,45 @@ assert_dev_update_units_linked_to() {
         [ -L "${_link}" ] || return 1
         [ "$(readlink -f "${_link}")" = "$(readlink -f "$1/${_unit}")" ] || return 1
     done
+}
+
+# Runs a command with the caller's tool settings cleared and a minimal PATH,
+# so the nvm, Go, bun or dotnet setup of whoever runs the suite cannot leak
+# into what the code under test produces. Leading VAR=value arguments are
+# applied after the clearing (env reads them), so a test can start from another
+# PATH, or give a tool variable a known value, without repeating the list.
+# Usage: run_with_clean_tool_env [<VAR=value> ...] <command> [<arg> ...]
+run_with_clean_tool_env() {
+    env -u NVM_DIR -u GOPATH -u BUN_INSTALL -u DOTNET_NOLOGO -u DOTNET_ROOT PATH=/usr/bin:/bin "$@"
+}
+
+# Runs the given script in bash with the bash.bashrc.d directory as $1, in an
+# interactive shell (as /etc/bash.bashrc sources the sections) or in a
+# non-interactive one (as run-dev-update does). Either kind starts from
+# run_with_clean_tool_env's environment, so every suite means the same thing
+# by "non-interactive"; leading VAR=value arguments are passed on to it.
+# --norc and --noprofile keep the host's deployed /etc/bash.bashrc.d out of
+# the shell, and +m stops it taking over a terminal for job control. Stdin is
+# /dev/null, so the shell has no terminal, and an interactive run's stderr
+# cannot be asserted empty: an interactive bash with no terminal warns there
+# that it has no job control. Any further arguments reach the script as $2
+# onwards. Leaves stdout in $output and stderr in $stderr.
+# Usage: run_section_shell [<VAR=value> ...] interactive|non-interactive <script> [<arg> ...]
+run_section_shell() {
+    local -a _env=() _flags=(--norc --noprofile +m)
+    while [[ "$1" == *=* ]]; do
+        _env+=("$1")
+        shift
+    done
+    local _mode="$1" _script="$2"
+    shift 2
+    case "${_mode}" in
+        interactive) _flags+=(-i) ;;
+        non-interactive) ;;
+        *)
+            echo "run_section_shell: unknown mode '${_mode}'" >&2
+            return 1
+            ;;
+    esac
+    run --separate-stderr run_with_clean_tool_env "${_env[@]}" bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" "$@" < /dev/null
 }
