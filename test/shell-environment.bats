@@ -394,6 +394,52 @@ run_path_helper() {
     [ "${output}" = "/usr/bin:/bin:${_gopath}/bin" ]
 }
 
+# Sources 55_go.sh once, after the PATH helpers it calls, with a fake go that
+# answers every call with the given GOPATH, and leaves the resulting PATH in
+# $output. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_go_section_with_fake_go <gopath-go-reports> [<VAR=value> ...]
+run_go_section_with_fake_go() {
+    setup_fake_bin go
+    seed_fake_output go <<< "$1"
+    # shellcheck disable=SC2016
+    run_section_shell PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" "${@:2}" non-interactive '. "$1/45_path-helpers.sh"; . "$1/55_go.sh"; printf "%s\n" "$PATH"'
+}
+
+@test "55_go.sh takes GOPATH from the environment without starting go" {
+    local _gopath="${BATS_TEST_TMPDIR}/gopath"
+    run_go_section_with_fake_go "${BATS_TEST_TMPDIR}/go-default" GOPATH="${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    refute_fake_called '^go'
+}
+
+@test "55_go.sh asks go for GOPATH, once, when the environment has none" {
+    local _gopath="${BATS_TEST_TMPDIR}/go-default"
+    run_go_section_with_fake_go "${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
+@test "55_go.sh asks go for GOPATH when the environment's is empty" {
+    local _gopath="${BATS_TEST_TMPDIR}/go-default"
+    run_go_section_with_fake_go "${_gopath}" GOPATH=
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'go env GOPATH' ]
+}
+
+@test "55_go.sh leaves no variable of its own behind" {
+    # Compared with the variables 45_path-helpers.sh alone leaves, in a shell
+    # with no GOPATH, so anything 55_go.sh kept to hold go's answer shows up.
+    setup_fake_bin go
+    seed_fake_output go <<< "${BATS_TEST_TMPDIR}/go-default"
+    # shellcheck disable=SC2016
+    run_section_shell PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" non-interactive '. "$1/45_path-helpers.sh"; before="$(compgen -v)"; . "$1/55_go.sh"; diff <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)'
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
 @test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
     run_section_twice 60_dotnet.sh /usr/bin:/bin
     if [ -d /usr/share/dotnet ]; then
