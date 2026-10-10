@@ -150,15 +150,28 @@ EOF
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
 }
 
-@test "run-dev-update reports a section that assigns one of its read-only names, and still starts its own dev-update" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
+@test "run-dev-update reports a section that assigns any of its read-only names, runs the rest of that section and the later ones, and still starts its own dev-update" {
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _name
     _run="$(setup_run_dev_update_tree)"
+    # Every name the wrapper keeps read-only, then a statement of the
+    # section's own, which only runs if none of the failed assignments above
+    # it ended the section.
     cat > "${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d/01_clobber.sh" <<'EOF'
+RUN_DEV_UPDATE_BASEDIR=/nonexistent
 RUN_DEV_UPDATE_COMMAND=/nonexistent/dev-update
+RUN_DEV_UPDATE_SECTIONS_DIR=/nonexistent/bash.bashrc.d
+RUN_DEV_UPDATE_SECTIONS=(/nonexistent/section.sh)
+PATH="${PATH}:/units-test/after-clobber"
 EOF
     run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    # The stub dev-update's status, so the command was not replaced.
     [ "${status}" -eq 3 ]
-    [[ "${stderr}" == *"RUN_DEV_UPDATE_COMMAND: readonly variable"* ]]
+    for _name in BASEDIR COMMAND SECTIONS_DIR SECTIONS; do
+        [[ "${stderr}" == *"RUN_DEV_UPDATE_${_name}: readonly variable"* ]]
+    done
+    recorded_path_has /units-test/after-clobber
+    # Set by 60_dotnet.sh, which sorts after the stub, so the list of
+    # sections was not replaced either.
     grep -qx 'DOTNET_NOLOGO=true' "${_env}"
 }
 
