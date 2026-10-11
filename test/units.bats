@@ -279,22 +279,30 @@ EOF
     grep -q '^> set -o noclobber$' "${_state}"
 }
 
+# Sources the file named by $2, for a section that is run from a copy of
+# itself rather than from the bash.bashrc.d directory in $1.
+# shellcheck disable=SC2016
+SOURCE_FILE_SCRIPT='. "$2"'
+
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
+    local _package _section
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    run_section_shell non-interactive "${SOURCE_FILE_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
     # Proves the first-use setup ran, so the silence above is not vacuous.
-    [ -L "${HOME}/.config/nvm/nvm.sh" ]
+    [ "$(readlink "${HOME}/.config/nvm/nvm.sh")" = "${_package}/nvm.sh" ]
 }
 
 @test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+    local _section
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
     # A regular file where NVM_DIR should be makes the symlinks fail.
     mkdir -p "${HOME}/.config"
     : > "${HOME}/.config/nvm"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
+    run_section_shell non-interactive "${SOURCE_FILE_SCRIPT}" "${_section}"
     [ -z "${output}" ]
     [[ "${stderr}" == *"${HOME}/.config/nvm/nvm.sh"* ]]
 }
