@@ -615,14 +615,27 @@ assert_nvm_loads() {
 # A nested interactive shell, or run-dev-update started from a terminal,
 # sources these sections in a shell whose PATH already has their entries.
 
-# Sources the named section twice, after the PATH helpers it calls, starting
-# from the given PATH, and leaves the resulting PATH in $output. Any VAR=value
-# arguments are set in the shell's environment first.
-# Usage: run_section_twice <section-file> <starting-path> [<VAR=value> ...]
+# Sources a section twice, after the PATH helpers it calls, starting from the
+# given PATH, and leaves the resulting PATH in $output. The section is a file
+# name in the bash.bashrc.d directory, or the absolute path of a copy written
+# by section_reading. Any VAR=value arguments are set in the shell's
+# environment first.
+# Usage: run_section_twice <section-file>|<section-copy-path> <starting-path> [<VAR=value> ...]
 run_section_twice() {
+    local _section="$1"
+    [[ "${_section}" == /* ]] || _section="${SECTIONS_DIR}/${_section}"
     # shellcheck disable=SC2016
-    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$2"; . "$2"; printf "%s\n" "$PATH"' "${_section}" "$2"
 }
+
+# Sources the copy of 60_dotnet.sh in $2 twice, after the PATH helpers it
+# calls, and prints DOTNET_ROOT as the shell declares it, or "unset".
+# shellcheck disable=SC2016
+DOTNET_ROOT_AFTER_SECTION_SCRIPT='
+. "$1/45_path-helpers.sh"
+. "$2"
+. "$2"
+declare -p DOTNET_ROOT 2> /dev/null || echo unset'
 
 # Calls the named helper from 45_path-helpers.sh with a directory, starting
 # from the given PATH, and leaves the resulting PATH in $output.
@@ -792,12 +805,26 @@ run_go_section_with_fake_go() {
 }
 
 @test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
-    run_section_twice 60_dotnet.sh /usr/bin:/bin
-    if [ -d /usr/share/dotnet ]; then
-        [ "${output}" = '/usr/bin:/bin:/usr/share/dotnet' ]
-    else
-        [ "${output}" = '/usr/bin:/bin' ]
-    fi
+    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _section
+    mkdir -p "${_dotnet}"
+    _section="$(dotnet_section_reading "${_dotnet}")"
+    run_section_twice "${_section}" /usr/bin:/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "/usr/bin:/bin:${_dotnet}" ]
+    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "declare -x DOTNET_ROOT=\"${_dotnet}\"" ]
+}
+
+@test "60_dotnet.sh leaves PATH alone and sets no DOTNET_ROOT when .NET is not installed" {
+    local _section
+    _section="$(dotnet_section_reading "${BATS_TEST_TMPDIR}/no-dotnet")"
+    run_section_twice "${_section}" /usr/bin:/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/usr/bin:/bin' ]
+    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = unset ]
 }
 
 @test "75_bun.sh puts bun first on PATH once however often it is sourced" {
