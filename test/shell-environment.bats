@@ -716,10 +716,15 @@ run_path_helper() {
 }
 
 @test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
-    [ -x /usr/bin/go ] || skip "go not installed"
     local _gopath="${BATS_TEST_TMPDIR}/gopath"
-    run_section_twice 55_go.sh /usr/bin:/bin GOPATH="${_gopath}"
-    [ "${output}" = "/usr/bin:/bin:${_gopath}/bin" ]
+    setup_fake_bin go
+    seed_fake_output go <<< "${BATS_TEST_TMPDIR}/go-default"
+    # run_section_twice starts the section from the PATH it is given, so the
+    # fake go is only found when its directory is in that PATH.
+    run_section_twice 55_go.sh "${FAKE_BIN_DIR}:/usr/bin:/bin" GOPATH="${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    refute_fake_called '^go'
 }
 
 # Sources 55_go.sh once, after the PATH helpers it calls, with a fake go that
