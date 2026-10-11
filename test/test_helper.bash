@@ -109,7 +109,7 @@ assert_dev_update_units_linked_to() {
 # a shell that has loaded 00_shell-options.sh exports it, and 85_pacman.sh
 # does nothing without it. The XDG base directories are set to where
 # 20_xdg-dirs.sh puts them, under HOME, rather than left as the caller has
-# them: tools place their own directories from these (init-nvm.sh puts
+# them: tools place their own directories from these (70_nvm.sh puts
 # NVM_DIR under XDG_CONFIG_HOME), so the caller's values would send what the
 # code under test creates to the real ~/.config of whoever runs the suite.
 # HOME must therefore already be the test's own, and the command is not run

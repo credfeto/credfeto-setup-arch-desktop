@@ -379,15 +379,35 @@ run_shell_options_with_os_release() {
 }
 
 @test "70_nvm.sh loads nvm's bash completion only in an interactive shell" {
-    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm"
-    mkdir -p "${_nvm_dir}"
-    echo 'nvm_completion_loaded=yes' > "${_nvm_dir}/bash_completion"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm" _section
+    write_fake_nvm "${_nvm_dir}" own
+    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    [ "${lines[2]}" = 'completion=own' ]
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[2]}" = 'completion=none' ]
+}
+
+@test "70_nvm.sh loads the nvm package's bash completion only in an interactive shell" {
+    local _section
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    run_nvm_section interactive "${_section}"
+    [ "${lines[2]}" = 'completion=package' ]
+    run_nvm_section non-interactive "${_section}"
+    [ "${lines[2]}" = 'completion=none' ]
+}
+
+@test "70_nvm.sh registers no nvm completion from the installed package in a non-interactive shell" {
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
     # shellcheck disable=SC2016
-    local _script='. "$1/70_nvm.sh"; echo "nvm_completion_loaded=${nvm_completion_loaded:-no}"'
-    run_section_shell NVM_DIR="${_nvm_dir}" interactive "${_script}"
-    [ "${output}" = 'nvm_completion_loaded=yes' ]
-    run_section_shell NVM_DIR="${_nvm_dir}" non-interactive "${_script}"
-    [ "${output}" = 'nvm_completion_loaded=no' ]
+    local _script='. "$1/70_nvm.sh"; complete -p nvm'
+    # The control: the same script does find the completion once it is loaded.
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *'-F __nvm nvm' ]]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -ne 0 ]
+    [ -z "${output}" ]
 }
 
 @test "78_socket-cli.sh registers socket's completion only in an interactive shell" {
@@ -429,6 +449,197 @@ true'
     run_section_shell non-interactive '. "$1/14_cd-aliases.sh"; alias -p; declare -p _cd_up_path _cd_up_dots 2> /dev/null; true'
     [ "${status}" -eq 0 ]
     [ "$(sort <<< "${output}")" = "$(sort <<< "${_expected%$'\n'}")" ]
+}
+
+# ── nvm loaded once ──────────────────────────────────────────────────────────
+# nvm.sh is large, and loading it switches to the default Node.js, so every
+# shell must load exactly one copy of it: the package's when that is
+# installed, and otherwise the one NVM_DIR holds.
+
+# Writes a stand-in for nvm into the given directory: an nvm.sh that adds the
+# given label to ${BATS_TEST_TMPDIR}/nvm-loads each time it is sourced, and a
+# bash_completion that leaves the label in nvm_completion_loaded.
+# Usage: write_fake_nvm <dir> <label>
+write_fake_nvm() {
+    mkdir -p "$1"
+    printf 'echo %s >> "%s"\n' "$2" "${BATS_TEST_TMPDIR}/nvm-loads" > "$1/nvm.sh"
+    printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
+}
+
+# Creates a stand-in for the nvm package's directory, labelled "package", and
+# prints its path.
+setup_fake_nvm_package() {
+    local _package="${BATS_TEST_TMPDIR}/nvm-package"
+    write_fake_nvm "${_package}" package
+    : > "${_package}/nvm-exec"
+    printf '%s\n' "${_package}"
+}
+
+# Writes a copy of 70_nvm.sh that looks for the nvm package in the given
+# directory wherever the section names /usr/share/nvm, so a test decides
+# whether the package is there and what it holds. The section itself has no
+# way to be pointed at another directory, and needs none. Prints the copy's
+# path.
+# Usage: nvm_section_reading <package-dir>
+nvm_section_reading() {
+    local _copy="${BATS_TEST_TMPDIR}/nvm-sections/70_nvm.sh"
+    mkdir -p "${_copy%/*}"
+    sed "s|/usr/share/nvm|$1|g" "${SECTIONS_DIR}/70_nvm.sh" > "${_copy}"
+    # The existence test, both loads and both links moved, and nothing still
+    # names the real package.
+    grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
+    grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
+    grep -q -F ". $1/bash_completion" "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
+    ! grep -q -F /usr/share/nvm "${_copy}" || return 1
+    printf '%s\n' "${_copy}"
+}
+
+# Sources the copy of 70_nvm.sh in $2, then prints the status it returned,
+# NVM_DIR, which completion was loaded and whether NVM_DIR is exported.
+# shellcheck disable=SC2016
+NVM_SECTION_SCRIPT='
+. "$2"
+printf "status=%s\n" "$?"
+printf "NVM_DIR=%s\n" "${NVM_DIR-unset}"
+printf "completion=%s\n" "${nvm_completion_loaded-none}"
+printf "exported=%s\n" "$(export -p | grep -c "^declare -x NVM_DIR=")"
+'
+
+# Usage: run_nvm_section [<VAR=value> ...] interactive|non-interactive <copy-of-70_nvm.sh>
+run_nvm_section() {
+    run_section_shell "${@:1:$#-1}" "${NVM_SECTION_SCRIPT}" "${@: -1}"
+}
+
+# Succeeds when the stand-in nvm.sh files were sourced exactly as listed, one
+# label a line, and by nothing when no label is given.
+# Usage: assert_nvm_loads [<label> ...]
+assert_nvm_loads() {
+    local _loads="${BATS_TEST_TMPDIR}/nvm-loads"
+    if [ "$#" -eq 0 ]; then
+        [ ! -e "${_loads}" ]
+        return
+    fi
+    [ "$(cat "${_loads}")" = "$(printf '%s\n' "$@")" ]
+}
+
+@test "70_nvm.sh loads the package's nvm.sh once and sets up NVM_DIR silently on a home that has none" {
+    local _package _section _nvm_dir="${HOME}/.config/nvm"
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    run_nvm_section non-interactive "${_section}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = "$(printf '%s\n' 'status=0' "NVM_DIR=${_nvm_dir}" 'completion=none' 'exported=1')" ]
+    assert_nvm_loads package
+    [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
+    [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
+}
+
+@test "70_nvm.sh loads the package's nvm.sh once when NVM_DIR already links to it, and keeps the NVM_DIR it was given" {
+    local _package _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    mkdir -p "${_nvm_dir}"
+    ln -s "${_package}/nvm.sh" "${_nvm_dir}/nvm.sh"
+    ln -s "${_package}/nvm-exec" "${_nvm_dir}/nvm-exec"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${lines[1]}" = "NVM_DIR=${_nvm_dir}" ]
+    assert_nvm_loads package
+    [ ! -e "${HOME}/.config/nvm" ]
+}
+
+@test "70_nvm.sh loads only the package's nvm.sh and completion when NVM_DIR holds copies of its own" {
+    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    write_fake_nvm "${_nvm_dir}" own
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ "${lines[2]}" = 'completion=package' ]
+    assert_nvm_loads package
+}
+
+@test "70_nvm.sh puts NVM_DIR in ~/.nvm when there is no XDG_CONFIG_HOME, and replaces an empty NVM_DIR" {
+    local _section
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    run_nvm_section XDG_CONFIG_HOME= non-interactive "${_section}"
+    [ "${lines[1]}" = "NVM_DIR=${HOME}/.nvm" ]
+    [ -L "${HOME}/.nvm/nvm.sh" ]
+    run_nvm_section NVM_DIR= non-interactive "${_section}"
+    [ "${lines[1]}" = "NVM_DIR=${HOME}/.config/nvm" ]
+    [ "${lines[3]}" = 'exported=1' ]
+}
+
+@test "70_nvm.sh reports a link it cannot make in NVM_DIR on stderr, and still loads the package's nvm.sh once" {
+    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    # A regular file where NVM_DIR should be makes the links fail.
+    mkdir -p "${_nvm_dir%/*}"
+    : > "${_nvm_dir}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [[ "${stderr}" == *"${_nvm_dir}/nvm.sh"* ]]
+    [[ "${stderr}" == *"${_nvm_dir}/nvm-exec"* ]]
+    assert_nvm_loads package
+}
+
+@test "70_nvm.sh replaces dangling links in NVM_DIR once, silently, and loads the package's nvm.sh once per source" {
+    local _package _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _gone="${BATS_TEST_TMPDIR}/nvm-moved-away"
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    # Links left by an nvm that lived somewhere that is no longer there.
+    mkdir -p "${_nvm_dir}"
+    ln -s "${_gone}/nvm.sh" "${_nvm_dir}/nvm.sh"
+    ln -s "${_gone}/nvm-exec" "${_nvm_dir}/nvm-exec"
+    [ ! -e "${_nvm_dir}/nvm.sh" ]
+    [ ! -e "${_nvm_dir}/nvm-exec" ]
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ -z "${stderr}" ]
+    [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
+    [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
+    assert_nvm_loads package
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ -z "${stderr}" ]
+    [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
+    [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
+    assert_nvm_loads package package
+    # Nothing was made where the old links pointed.
+    [ ! -e "${_gone}" ]
+}
+
+@test "70_nvm.sh loads the nvm.sh NVM_DIR holds once when the package is not installed, and links nothing" {
+    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
+    write_fake_nvm "${_nvm_dir}" own
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = "$(printf '%s\n' 'status=0' "NVM_DIR=${_nvm_dir}" 'completion=none' 'exported=1')" ]
+    assert_nvm_loads own
+    [ ! -e "${_nvm_dir}/nvm-exec" ]
+}
+
+@test "70_nvm.sh loads nothing and creates nothing when neither the package nor NVM_DIR has an nvm.sh" {
+    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
+    run_nvm_section non-interactive "${_section}"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "${output}" = "$(printf '%s\n' 'status=0' 'NVM_DIR=unset' 'completion=none' 'exported=0')" ]
+    [ ! -e "${HOME}/.config/nvm" ]
+    [ ! -e "${HOME}/.nvm" ]
+    # A completion script with no nvm.sh beside it has nothing to complete.
+    mkdir -p "${_nvm_dir}"
+    echo 'nvm_completion_loaded=own' > "${_nvm_dir}/bash_completion"
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ "${lines[2]}" = 'completion=none' ]
+    assert_nvm_loads
 }
 
 # ── PATH sections sourced more than once ────────────────────────────────────
@@ -636,4 +847,39 @@ run_go_section_with_fake_go() {
 @test "75_bun.sh leaves PATH alone when there is no ~/.bun" {
     run_section_twice 75_bun.sh /usr/bin:/bin
     [ "${output}" = '/usr/bin:/bin' ]
+}
+
+# Sources every section of the bash.bashrc.d directory in $1 three times over
+# in one shell, in filename order each time, and prints the PATH that leaves.
+# The script's own names are prefixed so that no section can change them.
+# shellcheck disable=SC2016
+ALL_SECTIONS_THREE_TIMES_SCRIPT='
+for _shell_environment_test_pass in 1 2 3; do
+    for _shell_environment_test_section in "$1"/*.sh; do
+        . "${_shell_environment_test_section}"
+    done
+done
+printf "PATH=%s\n" "$PATH"
+'
+
+@test "the bash.bashrc.d sections, sourced three times in one shell with bun and an nvm default alias, leave no PATH entry twice" {
+    # The real nvm, so that PATH is changed the way nvm changes it.
+    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _node_bin _path
+    _node_bin="${_nvm_dir}/versions/node/v99.0.0/bin"
+    mkdir -p "${HOME}/.bun/bin" "${_node_bin}" "${_nvm_dir}/alias"
+    # An installed version, as far as nvm can tell, and the default alias
+    # that makes nvm put it on PATH each time nvm.sh is sourced.
+    printf '#!/bin/sh\necho v99.0.0\n' > "${_node_bin}/node"
+    chmod +x "${_node_bin}/node"
+    echo 'v99.0.0' > "${_nvm_dir}/alias/default"
+    run_section_shell NVM_DIR="${_nvm_dir}" non-interactive "${ALL_SECTIONS_THREE_TIMES_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    _path="$(sed -n 's/^PATH=//p' <<< "${output}")"
+    [ -n "${_path}" ]
+    printf '%s\n' "${_path}"
+    [ -z "$(tr ':' '\n' <<< "${_path}" | sort | uniq -d)" ]
+    [[ "${_path}" == "${HOME}/.bun/bin:"* ]]
+    # nvm did act on the alias, so the check above covered its entry.
+    [ "$(tr ':' '\n' <<< "${_path}" | grep -cxF "${_node_bin}")" -eq 1 ]
 }
