@@ -490,8 +490,8 @@ nvm_section_reading() {
     grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
     grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
     grep -q -F ". $1/bash_completion" "${_copy}" || return 1
-    grep -q -F "ln -s $1/nvm.sh " "${_copy}" || return 1
-    grep -q -F "ln -s $1/nvm-exec " "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
     ! grep -q -F /usr/share/nvm "${_copy}" || return 1
     printf '%s\n' "${_copy}"
 }
@@ -584,6 +584,32 @@ assert_nvm_loads() {
     [[ "${stderr}" == *"${_nvm_dir}/nvm.sh"* ]]
     [[ "${stderr}" == *"${_nvm_dir}/nvm-exec"* ]]
     assert_nvm_loads package
+}
+
+@test "70_nvm.sh replaces dangling links in NVM_DIR once, silently, and loads the package's nvm.sh once per source" {
+    local _package _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _gone="${BATS_TEST_TMPDIR}/nvm-moved-away"
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    # Links left by an nvm that lived somewhere that is no longer there.
+    mkdir -p "${_nvm_dir}"
+    ln -s "${_gone}/nvm.sh" "${_nvm_dir}/nvm.sh"
+    ln -s "${_gone}/nvm-exec" "${_nvm_dir}/nvm-exec"
+    [ ! -e "${_nvm_dir}/nvm.sh" ]
+    [ ! -e "${_nvm_dir}/nvm-exec" ]
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ -z "${stderr}" ]
+    [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
+    [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
+    assert_nvm_loads package
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    [ "${lines[0]}" = 'status=0' ]
+    [ -z "${stderr}" ]
+    [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
+    [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
+    assert_nvm_loads package package
+    # Nothing was made where the old links pointed.
+    [ ! -e "${_gone}" ]
 }
 
 @test "70_nvm.sh loads the nvm.sh NVM_DIR holds once when the package is not installed, and links nothing" {

@@ -17,11 +17,13 @@ if [ -f /usr/share/nvm/nvm.sh ]; then
     if [ ! -e "$NVM_DIR" ]; then
         mkdir -p "$NVM_DIR"
     fi
+    # -e is also false for a dangling link, which -f replaces: without it ln
+    # would fail on the link's name in every shell and never repair it.
     if [ ! -e "$NVM_DIR/nvm.sh" ]; then
-        ln -s /usr/share/nvm/nvm.sh "$NVM_DIR/nvm.sh"
+        ln -sf /usr/share/nvm/nvm.sh "$NVM_DIR/nvm.sh"
     fi
     if [ ! -e "$NVM_DIR/nvm-exec" ]; then
-        ln -s /usr/share/nvm/nvm-exec "$NVM_DIR/nvm-exec"
+        ln -sf /usr/share/nvm/nvm-exec "$NVM_DIR/nvm-exec"
     fi
 
     # shellcheck source=/dev/null
