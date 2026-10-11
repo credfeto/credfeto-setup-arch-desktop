@@ -1,0 +1,130 @@
+--- # Test: run the bats shell test suite against the repo's shell scripts
+name: "Test: Shell Scripts"
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{github.workflow}}-${{github.ref}}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # @@required: main
+  shell-tests:
+    runs-on: ubuntu-latest
+
+    env:
+      BATS_RESULTS: "bats-results.tap"
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: "Install test tools"
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bats dash bash-completion util-linux
+
+      - name: "Install nvm"
+        shell: bash
+        run: |
+          nvm_source="${RUNNER_TEMP}/nvm-${NVM_VERSION}"
+          git init --quiet "${nvm_source}"
+          git -C "${nvm_source}" fetch --quiet --depth 1 "${NVM_REPOSITORY}" "${NVM_COMMIT}"
+          git -C "${nvm_source}" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+
+          sudo install -d -m 0755 /usr/share/nvm
+          sudo install -m 0644 "${nvm_source}/nvm.sh" /usr/share/nvm/nvm.sh
+          sudo install -m 0755 "${nvm_source}/nvm-exec" /usr/share/nvm/nvm-exec
+          sudo install -m 0644 "${nvm_source}/bash_completion" /usr/share/nvm/bash_completion
+        env:
+          NVM_REPOSITORY: "https://github.com/nvm-sh/nvm"
+          # Fetched by commit, so the content is pinned; NVM_VERSION names the release that commit is.
+          NVM_VERSION: "v0.40.8"
+          NVM_COMMIT: "a885b885fef16fac4bc544188fb25e9e37ae83e8"
+
+      - name: "Run shell tests"
+        id: run-tests
+        shell: bash
+        run: bats --recursive --formatter tap test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}"
+
+      - name: "Report shell test results"
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BATS_OUTCOME: ${{steps.run-tests.outcome}}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const resultsFile = path.join(process.env.RUNNER_TEMP, process.env.BATS_RESULTS);
+            const resultsExist = fs.existsSync(resultsFile);
+            const tap = resultsExist ? fs.readFileSync(resultsFile, 'utf8') : '';
+
+            const results = tap.split('\n').filter(line => /^(not )?ok \d+ /.test(line));
+            const failed = results.filter(line => line.startsWith('not ok '));
+            // bats writes test names unescaped, so only the last " # skip" on a result line can be its skip marker.
+            const skipped = results
+              .map(line => line.match(/^ok \d+ (.*) # skip( .*)?$/))
+              .filter(Boolean)
+              .map(match => match[1]);
+
+            const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            core.summary
+              .addHeading('Shell tests', 2)
+              .addTable([
+                [{data: 'Run', header: true}, {data: 'Failed', header: true}, {data: 'Skipped', header: true}],
+                [`${results.length}`, `${failed.length}`, `${skipped.length}`],
+              ]);
+            if (skipped.length > 0) {
+              core.summary.addHeading('Skipped', 3).addList(skipped.map(escapeHtml));
+            }
+            await core.summary.write();
+
+            const problems = [];
+            if (process.env.BATS_OUTCOME !== 'success') {
+              problems.push(`the bats step did not succeed (${process.env.BATS_OUTCOME})`);
+            }
+            if (!resultsExist) {
+              problems.push(`the results file ${resultsFile} is missing`);
+            } else if (results.length === 0) {
+              problems.push('bats ran no tests');
+            }
+            if (failed.length > 0) {
+              problems.push(`${failed.length} of ${results.length} test(s) failed`);
+            }
+            if (skipped.length > 0) {
+              skipped.forEach(name => core.error(`❌ Skipped test: ${name}`));
+              problems.push(`${skipped.length} test(s) skipped: ${skipped.join('; ')}`);
+            }
+
+            if (problems.length > 0) {
+              core.setFailed(`❌ ${problems.join('; ')}`);
+            } else {
+              core.info(`✅ ${results.length} test(s) passed, none skipped`);
+            }
