@@ -227,3 +227,11 @@ autojump_section_reading() {
     section_reading 77_autojump.sh /usr/share/autojump "$1" \
         "[ -f $1/autojump.sh ]" ". $1/autojump.sh"
 }
+
+# Writes the copy of 60_dotnet.sh that looks for .NET in the given directory:
+# its existence test and the DOTNET_ROOT it exports.
+# Usage: dotnet_section_reading <dotnet-dir>
+dotnet_section_reading() {
+    section_reading 60_dotnet.sh /usr/share/dotnet "$1" \
+        "[ -d \"$1\" ]" "export DOTNET_ROOT=$1"
+}
