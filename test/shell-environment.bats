@@ -509,12 +509,7 @@ printf "exported=%s\n" "$(export -p | grep -c "^declare -x NVM_DIR=")"
 
 # Usage: run_nvm_section [<VAR=value> ...] interactive|non-interactive <copy-of-70_nvm.sh>
 run_nvm_section() {
-    local -a _env=()
-    while [[ "$1" == *=* ]]; do
-        _env+=("$1")
-        shift
-    done
-    run_section_shell "${_env[@]}" "$1" "${NVM_SECTION_SCRIPT}" "$2"
+    run_section_shell "${@:1:$#-1}" "${NVM_SECTION_SCRIPT}" "${@: -1}"
 }
 
 # Succeeds when the stand-in nvm.sh files were sourced exactly as listed, one
