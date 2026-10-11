@@ -397,19 +397,6 @@ run_shell_options_with_os_release() {
     [ "${lines[2]}" = 'completion=none' ]
 }
 
-@test "70_nvm.sh registers no nvm completion from the installed package in a non-interactive shell" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
-    # shellcheck disable=SC2016
-    local _script='. "$1/70_nvm.sh"; complete -p nvm'
-    # The control: the same script does find the completion once it is loaded.
-    run_section_shell interactive "${_script}"
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *'-F __nvm nvm' ]]
-    run_section_shell non-interactive "${_script}"
-    [ "${status}" -ne 0 ]
-    [ -z "${output}" ]
-}
-
 @test "78_socket-cli.sh registers socket's completion only in an interactive shell" {
     local _completion_dir="${HOME}/.local/share/socket/completion"
     mkdir -p "${_completion_dir}"
@@ -455,46 +442,6 @@ true'
 # nvm.sh is large, and loading it switches to the default Node.js, so every
 # shell must load exactly one copy of it: the package's when that is
 # installed, and otherwise the one NVM_DIR holds.
-
-# Writes a stand-in for nvm into the given directory: an nvm.sh that adds the
-# given label to ${BATS_TEST_TMPDIR}/nvm-loads each time it is sourced, and a
-# bash_completion that leaves the label in nvm_completion_loaded.
-# Usage: write_fake_nvm <dir> <label>
-write_fake_nvm() {
-    mkdir -p "$1"
-    printf 'echo %s >> "%s"\n' "$2" "${BATS_TEST_TMPDIR}/nvm-loads" > "$1/nvm.sh"
-    printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
-}
-
-# Creates a stand-in for the nvm package's directory, labelled "package", and
-# prints its path.
-setup_fake_nvm_package() {
-    local _package="${BATS_TEST_TMPDIR}/nvm-package"
-    write_fake_nvm "${_package}" package
-    : > "${_package}/nvm-exec"
-    printf '%s\n' "${_package}"
-}
-
-# Writes a copy of 70_nvm.sh that looks for the nvm package in the given
-# directory wherever the section names /usr/share/nvm, so a test decides
-# whether the package is there and what it holds. The section itself has no
-# way to be pointed at another directory, and needs none. Prints the copy's
-# path.
-# Usage: nvm_section_reading <package-dir>
-nvm_section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/nvm-sections/70_nvm.sh"
-    mkdir -p "${_copy%/*}"
-    sed "s|/usr/share/nvm|$1|g" "${SECTIONS_DIR}/70_nvm.sh" > "${_copy}"
-    # The existence test, both loads and both links moved, and nothing still
-    # names the real package.
-    grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
-    grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
-    grep -q -F ". $1/bash_completion" "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
-    ! grep -q -F /usr/share/nvm "${_copy}" || return 1
-    printf '%s\n' "${_copy}"
-}
 
 # Sources the copy of 70_nvm.sh in $2, then prints the status it returned,
 # NVM_DIR, which completion was loaded and whether NVM_DIR is exported.

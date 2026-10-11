@@ -7,8 +7,6 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # itself, so shellcheck's single-file analysis can't see the use.
 # shellcheck disable=SC2034
 SCRIPTS_DIR="${REPO_DIR}/settings/scripts"
-# Likewise only consumed by the .bats files.
-# shellcheck disable=SC2034
 SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 
 # Creates fake executables on a PATH prefix, so a script under test invokes
@@ -157,4 +155,44 @@ run_section_shell() {
             ;;
     esac
     run --separate-stderr run_with_clean_tool_env "${_env[@]}" bash "${_flags[@]}" -c "${_script}" _ "${SECTIONS_DIR}" "$@" < /dev/null
+}
+
+# Writes a stand-in for nvm into the given directory: an nvm.sh that adds the
+# given label to ${BATS_TEST_TMPDIR}/nvm-loads each time it is sourced, and a
+# bash_completion that leaves the label in nvm_completion_loaded.
+# Usage: write_fake_nvm <dir> <label>
+write_fake_nvm() {
+    mkdir -p "$1"
+    printf 'echo %s >> "%s"\n' "$2" "${BATS_TEST_TMPDIR}/nvm-loads" > "$1/nvm.sh"
+    printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
+}
+
+# Creates a stand-in for the nvm package's directory, labelled "package", and
+# prints its path.
+setup_fake_nvm_package() {
+    local _package="${BATS_TEST_TMPDIR}/nvm-package"
+    write_fake_nvm "${_package}" package
+    : > "${_package}/nvm-exec"
+    printf '%s\n' "${_package}"
+}
+
+# Writes a copy of 70_nvm.sh that looks for the nvm package in the given
+# directory wherever the section names /usr/share/nvm, so a test decides
+# whether the package is there and what it holds. The section itself has no
+# way to be pointed at another directory, and needs none. Prints the copy's
+# path.
+# Usage: nvm_section_reading <package-dir>
+nvm_section_reading() {
+    local _copy="${BATS_TEST_TMPDIR}/nvm-sections/70_nvm.sh"
+    mkdir -p "${_copy%/*}"
+    sed "s|/usr/share/nvm|$1|g" "${SECTIONS_DIR}/70_nvm.sh" > "${_copy}"
+    # The existence test, both loads and both links moved, and nothing still
+    # names the real package.
+    grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
+    grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
+    grep -q -F ". $1/bash_completion" "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
+    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
+    ! grep -q -F /usr/share/nvm "${_copy}" || return 1
+    printf '%s\n' "${_copy}"
 }
