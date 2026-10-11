@@ -26,7 +26,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
-- Required CI check that runs the bats test suite on every pull request
+- Required CI check that runs the bats shell test suite on every pull request to main and fails when any test fails or is skipped, with nvm installed from a pinned commit
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -70,6 +70,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
 - dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 - The cd aliases, Go section and distro lookup in the shell sections no longer start extra processes, so shell start and timer runs are faster
+- Shell script tests now use fake versions of nvm, autojump, Go and .NET instead of skipping when these tools are not installed, so tests run fully on every machine
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
