@@ -80,10 +80,22 @@ recorded_path_has() {
 }
 
 @test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _gopath
+    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _section
+    local _sections="${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d"
+    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _gopath="${BATS_TEST_TMPDIR}/go-default"
     _run="$(setup_run_dev_update_tree)"
-    mkdir -p "${HOME}/.bun/bin"
-    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    mkdir -p "${HOME}/.bun/bin" "${_dotnet}"
+    # .NET, nvm and Go are stand-ins, so what each section does when its tool
+    # is there is checked whether or not the machine running the suite has it.
+    _section="$(dotnet_section_reading "${_dotnet}")"
+    cp "${_section}" "${_sections}/60_dotnet.sh"
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    cp "${_section}" "${_sections}/70_nvm.sh"
+    setup_fake_bin go
+    seed_fake_output go <<< "${_gopath}"
+    # run-dev-update sources the sections with the PATH it is started with,
+    # so 55_go.sh only finds the fake go when its directory is in that PATH.
+    run --separate-stderr run_with_clean_tool_env PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" "${_run}" < /dev/null
     [ "${status}" -eq 3 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
@@ -98,19 +110,16 @@ recorded_path_has() {
     # shell has, and timer runs are meant to find the same tools.
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
     grep -qx 'DOTNET_NOLOGO=true' "${_env}"
-    if [ -d /usr/share/dotnet ]; then
-        grep -qx 'DOTNET_ROOT=/usr/share/dotnet' "${_env}"
-        recorded_path_has /usr/share/dotnet
-    fi
-    if [ -x /usr/bin/go ]; then
-        _gopath="$(run_with_clean_tool_env go env GOPATH)"
-        recorded_path_has "${_gopath}/bin"
-    fi
-    if [ -f /usr/share/nvm/nvm.sh ]; then
-        # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on
-        # every machine this repo installs.
-        grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
-    fi
+    grep -qx "DOTNET_ROOT=${_dotnet}" "${_env}"
+    recorded_path_has "${_dotnet}"
+    # run_with_clean_tool_env clears GOPATH, so the entry is the answer the
+    # fake go gave, not one a real go or the caller's GOPATH would give.
+    assert_fake_called '^go env GOPATH$'
+    recorded_path_has "${_gopath}/bin"
+    # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on every
+    # machine this repo installs.
+    grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
+    [ "$(cat "${BATS_TEST_TMPDIR}/nvm-loads")" = package ]
 }
 
 @test "run-dev-update adds no PATH entry twice when its caller has already loaded the sections" {
