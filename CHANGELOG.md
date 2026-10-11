@@ -59,7 +59,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Installed config files, units and scripts now get explicit permissions instead of inheriting the installing user's umask, so their modes are the same on every machine
 - Shell sections no longer leave a stray iatest variable set in every shell
 - Re-sourcing the bash.bashrc.d sections no longer adds duplicate PATH entries for paths, Go, .NET and bun, and the Go section now adds the bin directory of the first GOPATH entry when GOPATH lists several
-- 70_nvm.sh loads nvm once and registers its completion only in an interactive shell
+- 70_nvm.sh loads nvm once and registers its completion only in an interactive shell; it now replaces dangling nvm.sh or nvm-exec links in NVM_DIR instead of failing with 'File exists' on every shell start and dev-update timer run
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
