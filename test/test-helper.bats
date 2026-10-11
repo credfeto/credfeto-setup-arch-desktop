@@ -59,13 +59,15 @@ setup() {
 }
 
 @test "70_nvm.sh run through the clean environment sets nvm up under the test's HOME, not where the caller's XDG_CONFIG_HOME points" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+    local _package _section
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
     # Stands in for the real ~/.config of whoever runs the suite, which
     # 20_xdg-dirs.sh exports on every machine this repo installs.
     # shellcheck disable=SC2016
-    XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/callers-config" run_section_shell non-interactive '. "$1/45_path-helpers.sh"; . "$1/70_nvm.sh"; printf "%s\n" "${NVM_DIR}"'
+    XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/callers-config" run_section_shell non-interactive '. "$2"; printf "%s\n" "${NVM_DIR}"' "${_section}"
     [ "${status}" -eq 0 ]
     [ "${output}" = "${HOME}/.config/nvm" ]
-    [ -L "${HOME}/.config/nvm/nvm.sh" ]
+    [ "$(readlink "${HOME}/.config/nvm/nvm.sh")" = "${_package}/nvm.sh" ]
     [ ! -e "${BATS_TEST_TMPDIR}/callers-config" ]
 }
