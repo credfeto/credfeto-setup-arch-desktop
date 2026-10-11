@@ -410,19 +410,41 @@ run_shell_options_with_os_release() {
     [ "${status}" -ne 0 ]
 }
 
-@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
-    [ -f /usr/share/autojump/autojump.sh ] || skip "autojump not installed"
-    # shellcheck disable=SC2016
-    local _script='. "$1/77_autojump.sh"
-complete -p j > /dev/null 2>&1 && echo completion
+# Sources the copy of 77_autojump.sh in $2, then prints the status it
+# returned, the j completion when there is one, and "hook" when
+# PROMPT_COMMAND calls autojump.
+# shellcheck disable=SC2016
+AUTOJUMP_SECTION_SCRIPT='
+. "$2"
+printf "status=%s\n" "$?"
+complete -p j 2> /dev/null
 [[ "${PROMPT_COMMAND[*]}" == *autojump_add_to_database* ]] && echo hook
 true'
-    run_section_shell interactive "${_script}"
+
+@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
+    local _autojump_dir="${BATS_TEST_TMPDIR}/autojump" _section
+    write_fake_autojump "${_autojump_dir}"
+    _section="$(autojump_section_reading "${_autojump_dir}")"
+    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
-    [ "${output}" = $'completion\nhook' ]
-    run_section_shell non-interactive "${_script}"
+    [ "${output}" = $'status=0\ncomplete -F _autojump j\nhook' ]
+    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
-    [ -z "${output}" ]
+    [ "${output}" = 'status=0' ]
+    [ -z "${stderr}" ]
+}
+
+@test "77_autojump.sh registers nothing and reports nothing when autojump is not installed" {
+    local _section
+    _section="$(autojump_section_reading "${BATS_TEST_TMPDIR}/no-autojump")"
+    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'status=0' ]
+    [[ "${stderr}" != *autojump* ]]
+    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'status=0' ]
+    [ -z "${stderr}" ]
 }
 
 @test "14_cd-aliases.sh defines the .. to .......... and cd.. to cd.......... aliases and cleans up its variables" {

@@ -176,23 +176,54 @@ setup_fake_nvm_package() {
     printf '%s\n' "${_package}"
 }
 
-# Writes a copy of 70_nvm.sh that looks for the nvm package in the given
-# directory wherever the section names /usr/share/nvm, so a test decides
-# whether the package is there and what it holds. The section itself has no
-# way to be pointed at another directory, and needs none. Prints the copy's
-# path.
+# Writes a copy of a bash.bashrc.d section that reads a package from the
+# given directory wherever the section names the package's system directory,
+# so a test decides whether the package is there and what it holds. The
+# sections themselves have no way to be pointed at another directory, and
+# need none. Fails unless the copy holds every expected line and no longer
+# names the system directory, so a section that changes shape cannot leave a
+# test reading the real package unnoticed. Prints the copy's path.
+# Usage: section_reading <section-file> <system-dir> <package-dir> [<expected-line> ...]
+section_reading() {
+    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _expected
+    mkdir -p "${_copy%/*}"
+    sed "s|${_system_dir}|$3|g" "${SECTIONS_DIR}/$1" > "${_copy}"
+    shift 3
+    for _expected in "$@"; do
+        grep -q -F "${_expected}" "${_copy}" || return 1
+    done
+    ! grep -q -F "${_system_dir}" "${_copy}" || return 1
+    printf '%s\n' "${_copy}"
+}
+
+# Writes the copy of 70_nvm.sh that looks for the nvm package in the given
+# directory: its existence test, both loads and both links.
 # Usage: nvm_section_reading <package-dir>
 nvm_section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/nvm-sections/70_nvm.sh"
-    mkdir -p "${_copy%/*}"
-    sed "s|/usr/share/nvm|$1|g" "${SECTIONS_DIR}/70_nvm.sh" > "${_copy}"
-    # The existence test, both loads and both links moved, and nothing still
-    # names the real package.
-    grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
-    grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
-    grep -q -F ". $1/bash_completion" "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
-    ! grep -q -F /usr/share/nvm "${_copy}" || return 1
-    printf '%s\n' "${_copy}"
+    section_reading 70_nvm.sh /usr/share/nvm "$1" \
+        "[ -f $1/nvm.sh ]" ". $1/nvm.sh" ". $1/bash_completion" \
+        "ln -sf $1/nvm.sh " "ln -sf $1/nvm-exec "
+}
+
+# Writes a stand-in for autojump into the given directory: an autojump.sh
+# that registers the j completion and the PROMPT_COMMAND hook the real one
+# does. It registers them in any shell, so only the section sourcing it
+# decides which shells get them.
+# Usage: write_fake_autojump <dir>
+write_fake_autojump() {
+    mkdir -p "$1"
+    cat > "$1/autojump.sh" <<'EOF'
+_autojump() { :; }
+complete -F _autojump j
+autojump_add_to_database() { :; }
+PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND} ; }autojump_add_to_database"
+EOF
+}
+
+# Writes the copy of 77_autojump.sh that looks for autojump in the given
+# directory: its existence test and its load.
+# Usage: autojump_section_reading <autojump-dir>
+autojump_section_reading() {
+    section_reading 77_autojump.sh /usr/share/autojump "$1" \
+        "[ -f $1/autojump.sh ]" ". $1/autojump.sh"
 }
