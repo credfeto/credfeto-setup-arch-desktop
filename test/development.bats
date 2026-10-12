@@ -27,7 +27,7 @@ setup_fake_dotnet_with_buildcheck_tool() {
     setup_fake_bin dotnet
     replace_fake dotnet <<'EOF'
 #!/bin/sh
-printf 'dotnet %s\n' "$*" >> "__FAKE_BIN_LOG__"
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
 case "$1 $2" in
     "tool list")
         printf 'Package Id      Version      Commands\n----------------------------------------\nfunfair.buildcheck   1.0.0   buildcheck\n'
@@ -35,7 +35,9 @@ case "$1 $2" in
 esac
 exit 0
 EOF
-    sed -i "s#__FAKE_BIN_LOG__#${FAKE_BIN_LOG}#" "${FAKE_BIN_DIR}/dotnet"
+    # The fake reads where to log from its environment: a path written into
+    # its text would need escaping for whatever the temporary directory holds.
+    export FAKE_BIN_LOG
 }
 
 # ── pre-commit-check ────────────────────────────────────────────────────────
