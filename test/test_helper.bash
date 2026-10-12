@@ -19,8 +19,18 @@ SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 # than one kept here, so a variable a later git adds is cleared as well, and
 # git prints it without looking for a repository, so it does not matter
 # where the suite is started from.
+#
+# git is not asked when no variable whose name starts with GIT_ is set, which
+# is the usual case and saves starting it for every test: every name it lists
+# starts with GIT_ (test-helper.bats fails if one ever does not), so there is
+# then nothing it could name. Any other GIT_ variable only costs the call,
+# and once git is asked, a list that cannot be had still stops the load. The
+# check is a parameter expansion, which bash always has, rather than compgen,
+# which a bash built without completion lacks: the load would carry on as if
+# nothing were set.
 clear_git_repository_env() {
     local _vars _var
+    [ -n "${!GIT_*}" ] || return 0
     if ! _vars="$(git rev-parse --local-env-vars)" || [ -z "${_vars}" ]; then
         echo "clear_git_repository_env: git did not list its repository variables" >&2
         return 1
