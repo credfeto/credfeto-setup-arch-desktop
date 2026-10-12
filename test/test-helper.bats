@@ -183,3 +183,28 @@ load_test_helper_afresh() {
     [ "$(readlink "${HOME}/.config/nvm/nvm.sh")" = "${_package}/nvm.sh" ]
     [ ! -e "${BATS_TEST_TMPDIR}/callers-config" ]
 }
+
+@test "section_reading substitutes a directory whose name holds sed's special characters literally" {
+    # An ampersand, the delimiter and a back-reference are what a sed
+    # replacement would act on; the space is what a shell would split on.
+    local _package="${BATS_TEST_TMPDIR}/R&D a|b\\1 c"
+    printf '%s\n' '[ -f /usr/share/pkg/load.sh ] && . /usr/share/pkg/load.sh' 'unrelated' > "${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh /usr/share/pkg "${_package}" "[ -f ${_package}/load.sh ]"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${BATS_TEST_TMPDIR}/sections/section.sh" ]
+    [ "$(cat "${output}")" = "[ -f ${_package}/load.sh ] && . ${_package}/load.sh
+unrelated" ]
+}
+
+@test "section_reading leaves alone a directory the system directory only matches as a pattern" {
+    # The system directory's "." and "*" would match the second line as a
+    # regular expression and the third as a glob.
+    printf '%s\n' '. /opt/pkg.d*/load.sh' '. /opt/pkgXd/load.sh' '. /opt/pkg.dir/load.sh' > "${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh '/opt/pkg.d*' /elsewhere
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${output}")" = ". /elsewhere/load.sh
+. /opt/pkgXd/load.sh
+. /opt/pkg.dir/load.sh" ]
+}
