@@ -101,17 +101,34 @@ EOF
     run ! grep -F "${_elsewhere}" <<< "${output}"
 }
 
+@test "every variable git lists as naming a repository starts with GIT_" {
+    # test_helper asks git for the list only when a GIT_ variable is set, so
+    # a listed name without the prefix would be one it could leave in place.
+    run git rev-parse --local-env-vars
+    [ "${status}" -eq 0 ]
+    [ "${#lines[@]}" -gt 0 ]
+    run ! grep -v '^GIT_' <<< "${output}"
+}
+
 # Loads test_helper in a bash of its own, which prints "loaded" only when
-# the load ran to its end.
+# the load ran to its end, then the name of each GIT_ variable still set, one
+# a line. That bash has no GIT_ variable but the ones given, whatever setup
+# and whoever runs the suite have set.
+# Usage: load_test_helper_afresh [<GIT_VAR=value> ...]
 load_test_helper_afresh() {
-    # shellcheck disable=SC2016 # expanded by the bash that run starts
-    run --separate-stderr bash -c '. "$1"; echo loaded' _ "${REPO_DIR}/test/test_helper.bash"
+    local _var
+    local -a _env=()
+    for _var in "${!GIT_@}"; do
+        _env+=(-u "${_var}")
+    done
+    # shellcheck disable=SC2016 # expanded by the bash that env starts
+    run --separate-stderr env "${_env[@]}" "$@" bash -c '. "$1"; printf "%s\n" loaded ${!GIT_@}' _ "${REPO_DIR}/test/test_helper.bash"
 }
 
 @test "loading test_helper stops when git fails to list its repository variables" {
     setup_fake_bin git
     export FAKE_EXIT_git=1
-    load_test_helper_afresh
+    load_test_helper_afresh GIT_INDEX_FILE="${BATS_TEST_TMPDIR}/index"
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
     [[ "${stderr}" == *"git did not list its repository variables"* ]]
@@ -119,10 +136,41 @@ load_test_helper_afresh() {
 
 @test "loading test_helper stops when git lists no repository variables" {
     setup_fake_bin git
-    load_test_helper_afresh
+    load_test_helper_afresh GIT_INDEX_FILE="${BATS_TEST_TMPDIR}/index"
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
     [[ "${stderr}" == *"git did not list its repository variables"* ]]
+}
+
+@test "loading test_helper asks git for the list when the only GIT_ variable set is one git does not list" {
+    # GIT_EDITOR is what git gives a pre-commit hook when the commit opens no
+    # editor. Nothing tells it apart from a listed variable but the list.
+    setup_fake_bin git
+    load_test_helper_afresh GIT_EDITOR=:
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^git rev-parse --local-env-vars$'
+}
+
+@test "loading test_helper asks git for the list and clears a listed variable that is set but empty" {
+    # A variable git lists counts as set with no value: it is the name being
+    # set that sends the load to git, not what the variable holds.
+    setup_fake_bin git
+    seed_fake_output git <<< "GIT_INDEX_FILE"
+    load_test_helper_afresh GIT_INDEX_FILE=
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^git rev-parse --local-env-vars$'
+    # Nothing after "loaded": the variable is no longer set.
+    [ "${output}" = loaded ]
+}
+
+@test "loading test_helper does not start git when no GIT_ variable is set" {
+    # The fake lists nothing, so the load would stop if git were asked.
+    setup_fake_bin git
+    load_test_helper_afresh
+    [ "${status}" -eq 0 ]
+    [ "${output}" = loaded ]
+    [ -z "${stderr}" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
 }
 
 @test "run_with_clean_tool_env clears the caller's tool settings and gives the command a minimal PATH" {
