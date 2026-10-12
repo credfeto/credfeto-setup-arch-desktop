@@ -223,9 +223,14 @@ setup_fake_nvm_package() {
 # test reading the real package unnoticed. Prints the copy's path.
 # Usage: section_reading <section-file> <system-dir> <package-dir> [<expected-line> ...]
 section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _expected
+    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _content
+    local _expected
     mkdir -p "${_copy%/*}"
-    sed "s|${_system_dir}|$3|g" "${SECTIONS_DIR}/$1" > "${_copy}"
+    _content="$(< "${SECTIONS_DIR}/$1")" || return 1
+    # Both directories are quoted so each is taken as it is written: unquoted,
+    # the first would be a pattern and an "&" in the second would stand for
+    # what the first matched, and a test's directory can hold any character.
+    printf '%s\n' "${_content//"${_system_dir}"/"$3"}" > "${_copy}"
     shift 3
     for _expected in "$@"; do
         grep -q -F "${_expected}" "${_copy}" || return 1
