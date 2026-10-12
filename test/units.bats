@@ -119,7 +119,7 @@ recorded_path_has() {
     # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on every
     # machine this repo installs.
     grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
-    [ "$(cat "${BATS_TEST_TMPDIR}/nvm-loads")" = package ]
+    assert_nvm_loads package
 }
 
 @test "run-dev-update adds no PATH entry twice when its caller has already loaded the sections" {
@@ -210,18 +210,18 @@ EOF
     [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
 }
 
-# Sources the section named by $2 from the bash.bashrc.d directory in $1, on
-# its own apart from the shared PATH helpers, which the PATH sections cannot
-# run without. Run through run_section_shell non-interactive, this is one
-# section as run-dev-update sources it: in a non-interactive bash with no
+# Sources the section at the path in $2, on its own apart from the shared
+# PATH helpers in the bash.bashrc.d directory in $1, which the PATH sections
+# cannot run without. Run through run_section_shell non-interactive, this is
+# one section as run-dev-update sources it: in a non-interactive bash with no
 # terminal and the caller's tool settings cleared.
 # shellcheck disable=SC2016
-SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
+SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$2"'
 
 @test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced on its own by a non-interactive bash" {
     local _section _offenders=""
     for _section in "${SECTIONS_DIR}"/*.sh; do
-        run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section##*/}"
+        run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
         if [ -n "${output}" ] || [ -n "${stderr}" ]; then
             _offenders+="${_section##*/}: ${output}${stderr}"$'\n'
         fi
@@ -288,16 +288,11 @@ EOF
     grep -q '^> set -o noclobber$' "${_state}"
 }
 
-# Sources the file named by $2, for a section that is run from a copy of
-# itself rather than from the bash.bashrc.d directory in $1.
-# shellcheck disable=SC2016
-SOURCE_FILE_SCRIPT='. "$2"'
-
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
     local _package _section
     _package="$(setup_fake_nvm_package)"
     _section="$(nvm_section_reading "${_package}")"
-    run_section_shell non-interactive "${SOURCE_FILE_SCRIPT}" "${_section}"
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
@@ -311,7 +306,7 @@ SOURCE_FILE_SCRIPT='. "$2"'
     # A regular file where NVM_DIR should be makes the symlinks fail.
     mkdir -p "${HOME}/.config"
     : > "${HOME}/.config/nvm"
-    run_section_shell non-interactive "${SOURCE_FILE_SCRIPT}" "${_section}"
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
     [ -z "${output}" ]
     [[ "${stderr}" == *"${HOME}/.config/nvm/nvm.sh"* ]]
 }

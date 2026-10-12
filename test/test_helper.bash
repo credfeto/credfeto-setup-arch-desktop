@@ -167,6 +167,18 @@ write_fake_nvm() {
     printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
 }
 
+# Succeeds when the stand-in nvm.sh files were sourced exactly as listed, one
+# label a line, and by nothing when no label is given.
+# Usage: assert_nvm_loads [<label> ...]
+assert_nvm_loads() {
+    local _loads="${BATS_TEST_TMPDIR}/nvm-loads"
+    if [ "$#" -eq 0 ]; then
+        [ ! -e "${_loads}" ]
+        return
+    fi
+    [ "$(cat "${_loads}")" = "$(printf '%s\n' "$@")" ]
+}
+
 # Creates a stand-in for the nvm package's directory, labelled "package", and
 # prints its path.
 setup_fake_nvm_package() {
