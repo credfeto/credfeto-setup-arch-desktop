@@ -138,14 +138,12 @@ OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scri
 # step without any real root/sudo.
 # Usage: fail_sudo_for <command-name>
 fail_sudo_for() {
-    mkdir -p "${BATS_TEST_TMPDIR}/fakesudo"
-    cat > "${BATS_TEST_TMPDIR}/fakesudo/sudo" <<EOF
+    setup_fake_bin sudo
+    replace_fake sudo <<EOF
 #!/bin/sh
 [ "\$1" = "$1" ] && exit 1
 exit 0
 EOF
-    chmod +x "${BATS_TEST_TMPDIR}/fakesudo/sudo"
-    export PATH="${BATS_TEST_TMPDIR}/fakesudo:${PATH}"
     chmod 555 "${DEV_SCRIPTS_BIN_DIR}"
 }
 
