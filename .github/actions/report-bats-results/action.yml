@@ -1,0 +1,71 @@
+--- # Summarise a bats TAP results file and fail on a failed, skipped or missing test run
+name: "Report Bats Results"
+description: "Writes a job summary from a bats TAP results file and fails on a failed bats step, missing or empty results, or any failed or skipped test"
+
+inputs:
+  results-file:
+    description: "Path to the TAP results file written by the bats step"
+    required: true
+  bats-outcome:
+    description: "Outcome of the step that ran bats (steps.<id>.outcome)"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: "Report bats results"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        RESULTS_FILE: ${{inputs.results-file}}
+        BATS_OUTCOME: ${{inputs.bats-outcome}}
+      with:
+        script: |
+          const fs = require('fs');
+
+          const resultsFile = process.env.RESULTS_FILE;
+          const resultsExist = fs.existsSync(resultsFile);
+          const tap = resultsExist ? fs.readFileSync(resultsFile, 'utf8') : '';
+
+          const results = tap.split('\n').filter(line => /^(not )?ok \d+ /.test(line));
+          const failed = results.filter(line => line.startsWith('not ok '));
+          // bats writes test names unescaped, so only the last " # skip" on a result line can be its skip marker.
+          const skipped = results
+            .map(line => line.match(/^ok \d+ (.*) # skip( .*)?$/))
+            .filter(Boolean)
+            .map(match => match[1]);
+
+          const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+          core.summary
+            .addHeading('Shell tests', 2)
+            .addTable([
+              [{data: 'Run', header: true}, {data: 'Failed', header: true}, {data: 'Skipped', header: true}],
+              [`${results.length}`, `${failed.length}`, `${skipped.length}`],
+            ]);
+          if (skipped.length > 0) {
+            core.summary.addHeading('Skipped', 3).addList(skipped.map(escapeHtml));
+          }
+          await core.summary.write();
+
+          const problems = [];
+          if (process.env.BATS_OUTCOME !== 'success') {
+            problems.push(`the bats step did not succeed (${process.env.BATS_OUTCOME})`);
+          }
+          if (!resultsExist) {
+            problems.push(`the results file ${resultsFile} is missing`);
+          } else if (results.length === 0) {
+            problems.push('bats ran no tests');
+          }
+          if (failed.length > 0) {
+            problems.push(`${failed.length} of ${results.length} test(s) failed`);
+          }
+          if (skipped.length > 0) {
+            skipped.forEach(name => core.error(`❌ Skipped test: ${name}`));
+            problems.push(`${skipped.length} test(s) skipped: ${skipped.join('; ')}`);
+          }
+
+          if (problems.length > 0) {
+            core.setFailed(`❌ ${problems.join('; ')}`);
+          } else {
+            core.info(`✅ ${results.length} test(s) passed, none skipped`);
+          }
