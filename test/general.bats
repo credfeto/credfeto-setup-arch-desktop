@@ -165,11 +165,8 @@ make_wallpapers_clone() {
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/dotnet" <<'EOF'
+    setup_fake_bin dotnet
+    replace_fake dotnet <<'EOF'
 #!/bin/sh
 printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
 case "$1 $2" in
@@ -186,8 +183,6 @@ EOF
     # The fake reads where to log from its environment: a path written into
     # its text would need escaping for whatever the temporary directory holds.
     export FAKE_BIN_LOG
-    chmod +x "${FAKE_BIN_DIR}/dotnet"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
