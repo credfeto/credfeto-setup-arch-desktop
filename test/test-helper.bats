@@ -1,8 +1,10 @@
 #!/usr/bin/env bats
-# Tests for the environment test_helper's run_with_clean_tool_env gives the
-# code under test, which every suite that sources a bash.bashrc.d section
-# relies on to keep the settings of whoever runs the suite out of the result
-# and what the code creates out of their home.
+# Tests for the environment test_helper gives the code under test. Loading it
+# clears the variables that name a git repository, so a suite started from a
+# git hook works on its own scratch repositories. Its run_with_clean_tool_env
+# is what every suite that sources a bash.bashrc.d section relies on to keep
+# the settings of whoever runs the suite out of the result and what the code
+# creates out of their home.
 
 bats_require_minimum_version 1.5.0
 
@@ -11,6 +13,105 @@ load test_helper
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
+    # The git these tests run must read no config of whoever runs the suite.
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_CONFIG_SYSTEM=/dev/null
+}
+
+# Creates a repository with one commit whose git directory sits apart from
+# its working tree, which is what makes git export GIT_DIR to the hooks it
+# runs there. Sets DECOY_GIT_DIR.
+setup_decoy_repository() {
+    DECOY_GIT_DIR="${BATS_TEST_TMPDIR}/decoy.git"
+    git init --quiet --separate-git-dir "${DECOY_GIT_DIR}" "${BATS_TEST_TMPDIR}/decoy"
+    git -C "${BATS_TEST_TMPDIR}/decoy" -c user.name=Decoy -c user.email=decoy@example.com \
+        commit --quiet --allow-empty -m "decoy"
+}
+
+# Prints the decoy's config, every ref with the commit it points at, and
+# what its index holds.
+decoy_state() {
+    cat "${DECOY_GIT_DIR}/config"
+    git --git-dir="${DECOY_GIT_DIR}" show-ref --head
+    git --git-dir="${DECOY_GIT_DIR}" ls-files --stage
+}
+
+# Writes a suite that loads test_helper and then uses git the way the real
+# suites do: a bare and a plain scratch repository, an identity, a commit and
+# a staged file. Prints its path.
+write_git_using_suite() {
+    local _suite="${BATS_TEST_TMPDIR}/git-using.bats"
+    cat > "${_suite}" <<EOF
+load "${REPO_DIR}/test/test_helper"
+
+@test "git works on the scratch repositories" {
+    cd "\${BATS_TEST_TMPDIR}"
+    git init --quiet --bare origin.git
+    git init --quiet repo
+    git -C repo config user.email "test@example.com"
+    git -C repo config user.name "Test"
+    git -C repo commit --quiet --allow-empty -m "initial"
+    : > repo/Changed.cs
+    git -C repo add Changed.cs
+
+    [ "\$(git -C origin.git rev-parse --is-bare-repository)" = true ]
+    [ "\$(git -C repo rev-parse --absolute-git-dir)" = "\$(readlink -f repo/.git)" ]
+    [ "\$(git -C repo config --local user.name)" = Test ]
+    [ "\$(git -C repo log --format=%s)" = initial ]
+    [ "\$(git -C repo ls-files)" = Changed.cs ]
+}
+EOF
+    printf '%s\n' "${_suite}"
+}
+
+@test "a suite started from a git hook leaves the hook's repository untouched and works on its own scratch repositories" {
+    local _suite _before
+    setup_decoy_repository
+    _suite="$(write_git_using_suite)"
+    _before="$(decoy_state)"
+
+    # What git exports to a pre-commit hook of a repository like the decoy.
+    run env GIT_DIR="${DECOY_GIT_DIR}" GIT_INDEX_FILE="${DECOY_GIT_DIR}/index" GIT_PREFIX= bats "${_suite}"
+    [ "$(decoy_state)" = "${_before}" ]
+    [ "${status}" -eq 0 ]
+}
+
+@test "loading test_helper clears every variable git lists as naming a repository" {
+    local _elsewhere="${BATS_TEST_TMPDIR}/elsewhere" _var
+    local -a _named=()
+    while IFS= read -r _var; do
+        _named+=("${_var}=${_elsewhere}")
+    done < <(git rev-parse --local-env-vars)
+    [ "${#_named[@]}" -gt 0 ]
+
+    # shellcheck disable=SC2016 # expanded by the bash that env starts
+    run env "${_named[@]}" bash -c '. "$1" && env' _ "${REPO_DIR}/test/test_helper.bash"
+    [ "${status}" -eq 0 ]
+    run ! grep -F "${_elsewhere}" <<< "${output}"
+}
+
+# Loads test_helper in a bash of its own, which prints "loaded" only when
+# the load ran to its end.
+load_test_helper_afresh() {
+    # shellcheck disable=SC2016 # expanded by the bash that run starts
+    run --separate-stderr bash -c '. "$1"; echo loaded' _ "${REPO_DIR}/test/test_helper.bash"
+}
+
+@test "loading test_helper stops when git fails to list its repository variables" {
+    setup_fake_bin git
+    export FAKE_EXIT_git=1
+    load_test_helper_afresh
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [[ "${stderr}" == *"git did not list its repository variables"* ]]
+}
+
+@test "loading test_helper stops when git lists no repository variables" {
+    setup_fake_bin git
+    load_test_helper_afresh
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [[ "${stderr}" == *"git did not list its repository variables"* ]]
 }
 
 @test "run_with_clean_tool_env clears the caller's tool settings and gives the command a minimal PATH" {

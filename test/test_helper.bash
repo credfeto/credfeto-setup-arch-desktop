@@ -9,6 +9,32 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${REPO_DIR}/settings/scripts"
 SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 
+# Clears the variables that tell git which repository to act on. git exports
+# some of them to the hooks it runs: GIT_INDEX_FILE always, and GIT_DIR when
+# the repository's .git is a file naming a git directory elsewhere, as it is
+# in a linked worktree. A git command that inherits them acts on the
+# repository they name whatever directory or -C it is given, so a suite
+# started from a pre-commit hook would set up its scratch repositories
+# inside the repository being committed to. The list is git's own rather
+# than one kept here, so a variable a later git adds is cleared as well, and
+# git prints it without looking for a repository, so it does not matter
+# where the suite is started from.
+clear_git_repository_env() {
+    local _vars _var
+    if ! _vars="$(git rev-parse --local-env-vars)" || [ -z "${_vars}" ]; then
+        echo "clear_git_repository_env: git did not list its repository variables" >&2
+        return 1
+    fi
+    while IFS= read -r _var; do
+        unset "${_var}"
+    done <<< "${_vars}"
+}
+
+# Run while the helper loads, which is before any test or setup can run git.
+# A suite that could not be cut off from its caller's repository must not
+# run, hence the exit: bats reports it as a failure of the whole file.
+clear_git_repository_env || exit 1
+
 # Creates fake executables on a PATH prefix, so a script under test invokes
 # the fakes instead of real system tools. Each fake logs its own name plus
 # arguments to $FAKE_BIN_LOG, echoes back any canned output seeded via
