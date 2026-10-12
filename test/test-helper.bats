@@ -36,16 +36,23 @@ decoy_state() {
     git --git-dir="${DECOY_GIT_DIR}" ls-files --stage
 }
 
+GIT_USING_TEST_NAME="git works on the scratch repositories"
+
 # Writes a suite that loads test_helper and then uses git the way the real
 # suites do: a bare and a plain scratch repository, an identity, a commit and
 # a staged file. Prints its path.
+#
+# The line that declares the suite's test is printed rather than written out
+# in the heredoc: bats finds tests by matching each line of a file, heredocs
+# included, so a line here that began with the test keyword would be taken
+# for a test of this file and rewritten before the heredoc was ever read.
 write_git_using_suite() {
     local _suite="${BATS_TEST_TMPDIR}/git-using.bats"
-    cat > "${_suite}" <<EOF
-load "${REPO_DIR}/test/test_helper"
-
-@test "git works on the scratch repositories" {
-    cd "\${BATS_TEST_TMPDIR}"
+    {
+        printf 'load "%s/test/test_helper"\n\n' "${REPO_DIR}"
+        printf '%s "%s" {\n' '@test' "${GIT_USING_TEST_NAME}"
+        cat <<'EOF'
+    cd "${BATS_TEST_TMPDIR}"
     git init --quiet --bare origin.git
     git init --quiet repo
     git -C repo config user.email "test@example.com"
@@ -54,13 +61,14 @@ load "${REPO_DIR}/test/test_helper"
     : > repo/Changed.cs
     git -C repo add Changed.cs
 
-    [ "\$(git -C origin.git rev-parse --is-bare-repository)" = true ]
-    [ "\$(git -C repo rev-parse --absolute-git-dir)" = "\$(readlink -f repo/.git)" ]
-    [ "\$(git -C repo config --local user.name)" = Test ]
-    [ "\$(git -C repo log --format=%s)" = initial ]
-    [ "\$(git -C repo ls-files)" = Changed.cs ]
+    [ "$(git -C origin.git rev-parse --is-bare-repository)" = true ]
+    [ "$(git -C repo rev-parse --absolute-git-dir)" = "$(readlink -f repo/.git)" ]
+    [ "$(git -C repo config --local user.name)" = Test ]
+    [ "$(git -C repo log --format=%s)" = initial ]
+    [ "$(git -C repo ls-files)" = Changed.cs ]
 }
 EOF
+    } > "${_suite}"
     printf '%s\n' "${_suite}"
 }
 
@@ -74,6 +82,9 @@ EOF
     run env GIT_DIR="${DECOY_GIT_DIR}" GIT_INDEX_FILE="${DECOY_GIT_DIR}/index" GIT_PREFIX= bats "${_suite}"
     [ "$(decoy_state)" = "${_before}" ]
     [ "${status}" -eq 0 ]
+    # A suite bats found no test in passes as well, having run no git at all.
+    [ "${lines[0]}" = "1..1" ]
+    [ "${lines[1]}" = "ok 1 ${GIT_USING_TEST_NAME}" ]
 }
 
 @test "loading test_helper clears every variable git lists as naming a repository" {
