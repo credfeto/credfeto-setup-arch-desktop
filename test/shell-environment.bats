@@ -481,18 +481,6 @@ run_nvm_section() {
     run_section_shell "${@:1:$#-1}" "${NVM_SECTION_SCRIPT}" "${@: -1}"
 }
 
-# Succeeds when the stand-in nvm.sh files were sourced exactly as listed, one
-# label a line, and by nothing when no label is given.
-# Usage: assert_nvm_loads [<label> ...]
-assert_nvm_loads() {
-    local _loads="${BATS_TEST_TMPDIR}/nvm-loads"
-    if [ "$#" -eq 0 ]; then
-        [ ! -e "${_loads}" ]
-        return
-    fi
-    [ "$(cat "${_loads}")" = "$(printf '%s\n' "$@")" ]
-}
-
 @test "70_nvm.sh loads the package's nvm.sh once and sets up NVM_DIR silently on a home that has none" {
     local _package _section _nvm_dir="${HOME}/.config/nvm"
     _package="$(setup_fake_nvm_package)"
@@ -615,17 +603,13 @@ assert_nvm_loads() {
 # A nested interactive shell, or run-dev-update started from a terminal,
 # sources these sections in a shell whose PATH already has their entries.
 
-# Sources a section twice, after the PATH helpers it calls, starting from the
-# given PATH, and leaves the resulting PATH in $output. The section is a file
-# name in the bash.bashrc.d directory, or the absolute path of a copy written
-# by section_reading. Any VAR=value arguments are set in the shell's
-# environment first.
-# Usage: run_section_twice <section-file>|<section-copy-path> <starting-path> [<VAR=value> ...]
+# Sources the section at the given path twice, after the PATH helpers it
+# calls, starting from the given PATH, and leaves the resulting PATH in
+# $output. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_section_twice <section-path> <starting-path> [<VAR=value> ...]
 run_section_twice() {
-    local _section="$1"
-    [[ "${_section}" == /* ]] || _section="${SECTIONS_DIR}/${_section}"
     # shellcheck disable=SC2016
-    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$2"; . "$2"; printf "%s\n" "$PATH"' "${_section}" "$2"
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$2"; . "$2"; printf "%s\n" "$PATH"' "$1" "$2"
 }
 
 # Sources the copy of 60_dotnet.sh in $2 twice, after the PATH helpers it
@@ -719,22 +703,21 @@ run_path_helper() {
 @test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
     local _toolbox="${HOME}/.local/share/JetBrains/Toolbox/scripts"
     mkdir -p "${_toolbox}"
-    run_section_twice 50_paths.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/50_paths.sh" /usr/bin:/bin
     [ "${output}" = "/usr/bin:/bin:${_toolbox}:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "50_paths.sh leaves the JetBrains Toolbox scripts directory off PATH when it does not exist" {
-    run_section_twice 50_paths.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/50_paths.sh" /usr/bin:/bin
     [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
     local _gopath="${BATS_TEST_TMPDIR}/gopath"
     setup_fake_bin go
-    seed_fake_output go <<< "${BATS_TEST_TMPDIR}/go-default"
     # run_section_twice starts the section from the PATH it is given, so the
     # fake go is only found when its directory is in that PATH.
-    run_section_twice 55_go.sh "${FAKE_BIN_DIR}:/usr/bin:/bin" GOPATH="${_gopath}"
+    run_section_twice "${SECTIONS_DIR}/55_go.sh" "${FAKE_BIN_DIR}:/usr/bin:/bin" GOPATH="${_gopath}"
     [ "${status}" -eq 0 ]
     [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
     refute_fake_called '^go'
@@ -829,24 +812,24 @@ run_go_section_with_fake_go() {
 
 @test "75_bun.sh puts bun first on PATH once however often it is sourced" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" /usr/bin:/bin
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh moves bun to the front of a PATH that has it in the middle, leaving it there once" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh "/usr/bin:${HOME}/.bun/bin:/bin"
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" "/usr/bin:${HOME}/.bun/bin:/bin"
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh moves bun to the front of a PATH that has it at the end, leaving it there once" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh "/usr/bin:/bin:${HOME}/.bun/bin"
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" "/usr/bin:/bin:${HOME}/.bun/bin"
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh leaves PATH alone when there is no ~/.bun" {
-    run_section_twice 75_bun.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" /usr/bin:/bin
     [ "${output}" = '/usr/bin:/bin' ]
 }
 
