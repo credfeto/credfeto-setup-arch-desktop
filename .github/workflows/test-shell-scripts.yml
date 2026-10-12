@@ -51,7 +51,7 @@ jobs:
       - name: "Install nvm"
         shell: bash
         run: |
-          nvm_source="${RUNNER_TEMP}/nvm-${NVM_VERSION}"
+          nvm_source="${RUNNER_TEMP}/nvm"
           git init --quiet "${nvm_source}"
           git -C "${nvm_source}" fetch --quiet --depth 1 "${NVM_REPOSITORY}" "${NVM_COMMIT}"
           git -C "${nvm_source}" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
@@ -62,9 +62,8 @@ jobs:
           sudo install -m 0644 "${nvm_source}/bash_completion" /usr/share/nvm/bash_completion
         env:
           NVM_REPOSITORY: "https://github.com/nvm-sh/nvm"
-          # Fetched by commit, so the content is pinned; NVM_VERSION names the release that commit is.
-          NVM_VERSION: "v0.40.8"
-          NVM_COMMIT: "a885b885fef16fac4bc544188fb25e9e37ae83e8"
+          # Fetched by commit, so the content is pinned.
+          NVM_COMMIT: "a885b885fef16fac4bc544188fb25e9e37ae83e8" # v0.40.8
 
       - name: "Run shell tests"
         id: run-tests
