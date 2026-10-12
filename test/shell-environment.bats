@@ -390,6 +390,21 @@ run_shell_options_with_os_release() {
     [ "${lines[2]}" = 'completion=none' ]
 }
 
+# The installed package, not a stand-in: only nvm's own bash_completion shows
+# whether it still registers __nvm for nvm when it is sourced in a shell that
+# has no terminal. The stand-ins above only show which file was sourced.
+@test "70_nvm.sh registers the installed nvm package's completion only in an interactive shell" {
+    [ -f /usr/share/nvm/bash_completion ]
+    # shellcheck disable=SC2016
+    local _script='. "$1/70_nvm.sh"; complete -p nvm'
+    run_section_shell interactive "${_script}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *'-F __nvm nvm' ]]
+    run_section_shell non-interactive "${_script}"
+    [ "${status}" -ne 0 ]
+    [ -z "${output}" ]
+}
+
 @test "78_socket-cli.sh registers socket's completion only in an interactive shell" {
     local _completion_dir="${HOME}/.local/share/socket/completion"
     mkdir -p "${_completion_dir}"
