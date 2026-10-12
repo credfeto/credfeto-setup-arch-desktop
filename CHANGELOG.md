@@ -61,6 +61,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Shell sections no longer leave a stray iatest variable set in every shell
 - Re-sourcing the bash.bashrc.d sections no longer adds duplicate PATH entries for paths, Go, .NET and bun, and the Go section now adds the bin directory of the first GOPATH entry when GOPATH lists several
 - 70_nvm.sh loads nvm once and registers its completion only in an interactive shell; it now replaces dangling nvm.sh or nvm-exec links in NVM_DIR instead of failing with 'File exists' on every shell start and dev-update timer run
+- Running the bats test suite from a git commit hook in a linked worktree would corrupt the developer's repository by modifying its git config and creating unwanted commits. The test helper now clears all git repository environment variables before each test.
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
