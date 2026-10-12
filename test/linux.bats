@@ -55,8 +55,8 @@ setup() {
 setup_fake_network() {
     local _active="$1"
     shift
-    setup_fake_bin nm-online systemd-networkd-wait-online "$@"
-    cat > "${FAKE_BIN_DIR}/systemctl" <<EOF
+    setup_fake_bin nm-online systemd-networkd-wait-online systemctl "$@"
+    replace_fake systemctl <<EOF
 #!/bin/sh
 printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
 if [ "\$1" = "is-active" ]; then
@@ -68,7 +68,6 @@ if [ "\$2" = "start" ] && [ -n "\${FAKE_EXIT_systemctl_start:-}" ]; then
 fi
 exit "\${FAKE_EXIT_systemctl:-0}"
 EOF
-    chmod +x "${FAKE_BIN_DIR}/systemctl"
     export SYSTEMD_NETWORKD_WAIT_ONLINE="${FAKE_BIN_DIR}/systemd-networkd-wait-online"
 }
 
@@ -102,11 +101,10 @@ printf '%s %s\n' "${_name}" "\$(pwd)" >> "${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
     chmod +x "${_path}"
-    cat > "${FAKE_BIN_DIR}/${_name}" <<EOF
+    replace_fake "${_name}" <<EOF
 #!/bin/sh
 printf 'PATH %s\n' "${_name}" >> "${FAKE_BIN_LOG}"
 EOF
-    chmod +x "${FAKE_BIN_DIR}/${_name}"
 }
 
 # Lines of the fake log in order, minus the network and session probes.
@@ -254,7 +252,7 @@ run_clone_reference_repo() {
 setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
-    cat > "${FAKE_BIN_DIR}/git" <<EOF
+    replace_fake git <<EOF
 #!/bin/sh
 printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
 [ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
@@ -286,7 +284,6 @@ if [ "\$1" = "-C" ]; then
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/git"
 }
 
 # Prints the fake log lines expected when a reference clone is brought up
@@ -988,7 +985,8 @@ setup_dev_install_fixture() {
 
 setup_fake_flatpak_with_installed() {
     # $1: newline-separated list of installed app IDs `flatpak list` reports.
-    setup_fake_bin flatpak
+    # Any further arguments are more tools to fake via setup_fake_bin.
+    setup_fake_bin flatpak "${@:2}"
     replace_fake flatpak <<EOF
 #!/bin/sh
 printf 'flatpak %s\n' "\$*" >> "${FAKE_BIN_LOG}"
@@ -1027,17 +1025,7 @@ EOF
 }
 
 @test "login starts the stream when streamlink is present" {
-    setup_fake_flatpak_with_installed ""
-    cat > "${FAKE_BIN_DIR}/streamlink" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-    cat > "${FAKE_BIN_DIR}/stream" <<EOF
-#!/bin/sh
-printf 'stream %s\n' "\$*" >> "${FAKE_BIN_LOG}"
-exit 0
-EOF
-    chmod +x "${FAKE_BIN_DIR}/streamlink" "${FAKE_BIN_DIR}/stream"
+    setup_fake_flatpak_with_installed "" streamlink stream
 
     run "${LINUX_DIR}/login"
     [ "${status}" -eq 0 ]
