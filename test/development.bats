@@ -24,11 +24,8 @@ setup() {
 # require_dotnet_tool for buildcheck/FunFair.BuildCheck; every other
 # subcommand just logs and succeeds, like the plain setup_fake_bin fakes.
 setup_fake_dotnet_with_buildcheck_tool() {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/dotnet" <<'EOF'
+    setup_fake_bin dotnet
+    replace_fake dotnet <<'EOF'
 #!/bin/sh
 printf 'dotnet %s\n' "$*" >> "__FAKE_BIN_LOG__"
 case "$1 $2" in
@@ -39,8 +36,6 @@ esac
 exit 0
 EOF
     sed -i "s#__FAKE_BIN_LOG__#${FAKE_BIN_LOG}#" "${FAKE_BIN_DIR}/dotnet"
-    chmod +x "${FAKE_BIN_DIR}/dotnet"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
 # ── pre-commit-check ────────────────────────────────────────────────────────

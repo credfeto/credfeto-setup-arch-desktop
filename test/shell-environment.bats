@@ -262,19 +262,12 @@ printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
 # Writes a copy of 00_shell-options.sh that reads the given file wherever the
 # section names /etc/os-release, so the parsing can be given any content. The
 # section itself has no way to be pointed at another file, and must not have
-# one: LINUX_DISTRIBUTION is only ever this machine's own. Prints the copy's
-# path.
+# one: LINUX_DISTRIBUTION is only ever this machine's own. Fails unless the
+# existence test and the read both moved. Prints the copy's path.
 # Usage: shell_options_reading <os-release-file>
 shell_options_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/os-release-sections/00_shell-options.sh"
-    mkdir -p "${_copy%/*}"
-    sed "s|/etc/os-release|$1|g" "${SECTIONS_DIR}/00_shell-options.sh" > "${_copy}"
-    # The existence test and the read both moved, and nothing still reads
-    # the real file.
-    grep -q -F "[ -f $1 ]" "${_copy}" || return 1
-    grep -q -F "done < $1" "${_copy}" || return 1
-    ! grep -q -F /etc/os-release "${_copy}" || return 1
-    printf '%s\n' "${_copy}"
+    section_reading 00_shell-options.sh /etc/os-release "$1" \
+        "[ -f $1 ]" "done < $1"
 }
 
 # Sources 00_shell-options.sh reading an os-release with the given content,

@@ -988,11 +988,8 @@ setup_dev_install_fixture() {
 
 setup_fake_flatpak_with_installed() {
     # $1: newline-separated list of installed app IDs `flatpak list` reports.
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/flatpak" <<EOF
+    setup_fake_bin flatpak
+    replace_fake flatpak <<EOF
 #!/bin/sh
 printf 'flatpak %s\n' "\$*" >> "${FAKE_BIN_LOG}"
 if [ "\$1 \$2" = "list --app" ]; then
@@ -1000,8 +997,6 @@ if [ "\$1 \$2" = "list --app" ]; then
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/flatpak"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
 @test "login only launches candidate apps that are actually installed" {
@@ -1058,7 +1053,7 @@ setup_fake_tmux() {
     setup_fake_bin tmux
     # FAKE_EXIT_tmux applies to every subcommand, so the stock fake is
     # replaced with one that fails only has-session.
-    cat > "${FAKE_BIN_DIR}/tmux" <<EOF
+    replace_fake tmux <<EOF
 #!/bin/sh
 printf 'tmux %s\n' "\$*" >> "${FAKE_BIN_LOG}"
 if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; then
