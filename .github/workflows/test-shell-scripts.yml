@@ -71,7 +71,7 @@ jobs:
         run: bats --recursive --formatter tap test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}"
 
       - name: "Report shell test results"
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/report-bats-results
         with:
           results-file: ${{runner.temp}}/${{env.BATS_RESULTS}}
