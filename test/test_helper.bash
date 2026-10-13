@@ -88,6 +88,23 @@ isolate_git_config() {
 clear_git_repository_env || exit 1
 isolate_git_config
 
+# Creates the directory the fakes live in, with their log and canned-output
+# directory, and puts it first on PATH. Whichever helper needs the directory
+# calls this, so a test may start with any of them. Calling it again changes
+# nothing: the log keeps what it holds, and PATH gets the directory once
+# however many helpers a test uses.
+ensure_fake_bin_dir() {
+    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
+    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
+    FAKE_BIN_OUTPUT_DIR="${BATS_TEST_TMPDIR}/fakebin-output"
+    mkdir -p "${FAKE_BIN_DIR}" "${FAKE_BIN_OUTPUT_DIR}"
+    [ -e "${FAKE_BIN_LOG}" ] || : > "${FAKE_BIN_LOG}"
+    case ":${PATH}:" in
+        *":${FAKE_BIN_DIR}:"*) ;;
+        *) export PATH="${FAKE_BIN_DIR}:${PATH}" ;;
+    esac
+}
+
 # Creates fake executables on a PATH prefix, so a script under test invokes
 # the fakes instead of real system tools. Each fake logs its own name plus
 # arguments to $FAKE_BIN_LOG, echoes back any canned output seeded via
@@ -95,10 +112,7 @@ isolate_git_config
 #
 # Usage: setup_fake_bin <tool-name> [<tool-name> ...]
 setup_fake_bin() {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    FAKE_BIN_OUTPUT_DIR="${BATS_TEST_TMPDIR}/fakebin-output"
-    mkdir -p "${FAKE_BIN_DIR}" "${FAKE_BIN_OUTPUT_DIR}"
+    ensure_fake_bin_dir
     : > "${FAKE_BIN_LOG}"
 
     local _tool _varname
@@ -117,8 +131,6 @@ exit "\${${_varname}:-0}"
 EOF
         chmod +x "${FAKE_BIN_DIR}/${_tool}"
     done
-
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
 # Creates the fakes setup_fake_bin would, plus a fake sudo that never runs
@@ -142,10 +154,15 @@ EOF
     chmod +x "${FAKE_BIN_DIR}/sudo"
 }
 
-# Replaces a fake created by setup_fake_bin with a script read from stdin,
-# for a tool whose fake has to do more than log and echo canned output.
+# Writes a fake from a script read from stdin, for a tool whose fake has to
+# do more than log and echo canned output. It takes the place of the fake
+# setup_fake_bin made for that tool, if there is one; no call to
+# setup_fake_bin is needed first, unless the script is an unquoted heredoc
+# that names FAKE_BIN_LOG or FAKE_BIN_DIR: bash expands those before this
+# function runs, which is before it has set them.
 # Usage: replace_fake <tool-name> <<'EOF' ... EOF
 replace_fake() {
+    ensure_fake_bin_dir
     cat > "${FAKE_BIN_DIR}/$1"
     chmod +x "${FAKE_BIN_DIR}/$1"
 }
