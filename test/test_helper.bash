@@ -93,10 +93,19 @@ isolate_git_config
 # calls this, so a test may start with any of them. Calling it again changes
 # nothing: the log keeps what it holds, and PATH gets the directory once
 # however many helpers a test uses.
+#
+# FAKE_BIN_LOG and FAKE_BIN_OUTPUT_DIR are exported because every fake reads
+# them from its environment when it runs, as it does FAKE_EXIT_<tool>; none
+# has either path written into its text. A fake is then written the same way
+# wherever it is, a path holding a character the shell acts on needs no
+# escaping, and no test exports either variable itself. Nothing the suites
+# run starts a fake without them: run_with_clean_tool_env and the other env
+# calls remove only the variables they name, and the fake sudos either run
+# nothing or run the command with the environment they were given.
 ensure_fake_bin_dir() {
     FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    FAKE_BIN_OUTPUT_DIR="${BATS_TEST_TMPDIR}/fakebin-output"
+    export FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
+    export FAKE_BIN_OUTPUT_DIR="${BATS_TEST_TMPDIR}/fakebin-output"
     mkdir -p "${FAKE_BIN_DIR}" "${FAKE_BIN_OUTPUT_DIR}"
     [ -e "${FAKE_BIN_LOG}" ] || : > "${FAKE_BIN_LOG}"
     case ":${PATH}:" in
@@ -123,9 +132,9 @@ setup_fake_bin() {
         _varname="FAKE_EXIT_${_tool//-/_}"
         cat > "${FAKE_BIN_DIR}/${_tool}" <<EOF
 #!/bin/sh
-printf '%s %s\n' "${_tool}" "\$*" >> "${FAKE_BIN_LOG}"
-if [ -f "${FAKE_BIN_OUTPUT_DIR}/${_tool}" ]; then
-    cat "${FAKE_BIN_OUTPUT_DIR}/${_tool}"
+printf '%s %s\n' "${_tool}" "\$*" >> "\${FAKE_BIN_LOG}"
+if [ -f "\${FAKE_BIN_OUTPUT_DIR}/${_tool}" ]; then
+    cat "\${FAKE_BIN_OUTPUT_DIR}/${_tool}"
 fi
 exit "\${${_varname}:-0}"
 EOF
@@ -145,7 +154,7 @@ setup_fake_sudo() {
     setup_fake_bin "$@"
     cat > "${FAKE_BIN_DIR}/sudo" <<EOF
 #!/bin/sh
-printf 'sudo %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'sudo %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ -n "\${FAKE_SUDO_FAIL:-}" ] && printf '%s\n' "\$*" | grep -qE "\${FAKE_SUDO_FAIL}"; then
     exit 1
 fi
@@ -157,9 +166,11 @@ EOF
 # Writes a fake from a script read from stdin, for a tool whose fake has to
 # do more than log and echo canned output. It takes the place of the fake
 # setup_fake_bin made for that tool, if there is one; no call to
-# setup_fake_bin is needed first, unless the script is an unquoted heredoc
-# that names FAKE_BIN_LOG or FAKE_BIN_DIR: bash expands those before this
-# function runs, which is before it has set them.
+# setup_fake_bin is needed first. A fake that logs appends to
+# "${FAKE_BIN_LOG}" as its environment has it when it runs: written as that
+# in a quoted heredoc, and with the "$" escaped in an unquoted one, where
+# bash would otherwise put the path into the script, and would do so before
+# this function has set it.
 # Usage: replace_fake <tool-name> <<'EOF' ... EOF
 replace_fake() {
     ensure_fake_bin_dir
