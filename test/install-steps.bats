@@ -39,7 +39,7 @@ mark_installed() {
 fake_systemctl_probes() {
     replace_fake systemctl <<EOF
 #!/bin/sh
-printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 case "\$1" in
     is-active) exit "\${FAKE_EXIT_systemctl_is_active:-0}" ;;
     is-enabled) exit "\${FAKE_EXIT_systemctl_is_enabled:-0}" ;;
