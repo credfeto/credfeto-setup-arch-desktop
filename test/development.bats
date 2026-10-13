@@ -20,7 +20,6 @@ setup() {
 # require_dotnet_tool for buildcheck/FunFair.BuildCheck; every other
 # subcommand just logs and succeeds, like the plain setup_fake_bin fakes.
 setup_fake_dotnet_with_buildcheck_tool() {
-    setup_fake_bin dotnet
     replace_fake dotnet <<'EOF'
 #!/bin/sh
 printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
@@ -318,7 +317,6 @@ stage_in_bench_solution() {
     # unresolved-references file read-only before the script writes to it.
     local _tmp="${BATS_TEST_TMPDIR}/tmp"
     mkdir -p "${_tmp}"
-    setup_fake_bin mktemp
     replace_fake mktemp <<'EOF'
 #!/bin/sh
 p="${1%.XXXXXXXXXX}"

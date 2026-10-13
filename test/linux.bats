@@ -55,7 +55,7 @@ setup() {
 setup_fake_network() {
     local _active="$1"
     shift
-    setup_fake_bin nm-online systemd-networkd-wait-online systemctl "$@"
+    setup_fake_bin nm-online systemd-networkd-wait-online "$@"
     replace_fake systemctl <<EOF
 #!/bin/sh
 printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
@@ -986,7 +986,7 @@ setup_dev_install_fixture() {
 setup_fake_flatpak_with_installed() {
     # $1: newline-separated list of installed app IDs `flatpak list` reports.
     # Any further arguments are more tools to fake via setup_fake_bin.
-    setup_fake_bin flatpak "${@:2}"
+    setup_fake_bin "${@:2}"
     replace_fake flatpak <<EOF
 #!/bin/sh
 printf 'flatpak %s\n' "\$*" >> "${FAKE_BIN_LOG}"
