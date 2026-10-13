@@ -9,6 +9,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${REPO_DIR}/settings/scripts"
 SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 
+# The variables isolate_git_config sets, and so the only GIT_ variables
+# clear_git_repository_env does not ask git about. The array's own name must
+# not start with GIT_: it would then be one of the variables looked at.
+ISOLATED_GIT_CONFIG_VARS=(GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM)
+
 # Clears the variables that tell git which repository to act on. git exports
 # some of them to the hooks it runs: GIT_INDEX_FILE always, and GIT_DIR when
 # the repository's .git is a file naming a git directory elsewhere, as it is
@@ -20,17 +25,31 @@ SECTIONS_DIR="${REPO_DIR}/settings/bash.bashrc.d"
 # git prints it without looking for a repository, so it does not matter
 # where the suite is started from.
 #
-# git is not asked when no variable whose name starts with GIT_ is set, which
-# is the usual case and saves starting it for every test: every name it lists
-# starts with GIT_ (test-helper.bats fails if one ever does not), so there is
-# then nothing it could name. Any other GIT_ variable only costs the call,
-# and once git is asked, a list that cannot be had still stops the load. The
-# check is a parameter expansion, which bash always has, rather than compgen,
-# which a bash built without completion lacks: the load would carry on as if
-# nothing were set.
+# git is not asked when no variable whose name starts with GIT_ is set but
+# the ones this helper sets itself, which is the usual case and saves starting
+# it for every test: every name it lists starts with GIT_, and none is one of
+# this helper's (test-helper.bats fails if either ever stops being so), so
+# there is then nothing it could name. The helper's own names have to be let
+# through because a load exports them and the next one inherits them: bats
+# loads the helper once for the file and again in the process of each test.
+# They are matched whole, so GIT_CONFIG, GIT_CONFIG_COUNT and
+# GIT_CONFIG_PARAMETERS, which git does list, still send the load to git. Any
+# other GIT_ variable only costs the call, and once git is asked, a list that
+# cannot be had still stops the load. The check is a parameter expansion,
+# which bash always has, rather than compgen, which a bash built without
+# completion lacks: the load would carry on as if nothing were set.
 clear_git_repository_env() {
-    local _vars _var
-    [ -n "${!GIT_*}" ] || return 0
+    local _vars _var _ask=""
+    for _var in "${!GIT_@}"; do
+        case " ${ISOLATED_GIT_CONFIG_VARS[*]} " in
+            *" ${_var} "*) ;;
+            *)
+                _ask=yes
+                break
+                ;;
+        esac
+    done
+    [ -n "${_ask}" ] || return 0
     if ! _vars="$(git rev-parse --local-env-vars)" || [ -z "${_vars}" ]; then
         echo "clear_git_repository_env: git did not list its repository variables" >&2
         return 1
@@ -40,10 +59,34 @@ clear_git_repository_env() {
     done <<< "${_vars}"
 }
 
-# Run while the helper loads, which is before any test or setup can run git.
-# A suite that could not be cut off from its caller's repository must not
-# run, hence the exit: bats reports it as a failure of the whole file.
+# Points git at no global and no system config, so no git a test or a script
+# under test runs reads the settings of whoever runs the suite or of the
+# machine: an identity, commit.gpgsign, init.defaultBranch, core.hooksPath, a
+# url rewrite or an alias there would change what a test does, and CI has
+# none of them. A scratch HOME is not enough: it hides ~/.gitconfig, but not
+# /etc/gitconfig, nor the config under an XDG_CONFIG_HOME still naming the
+# real one. Set whatever the caller has them set to, and exported so the
+# scripts under test get them too. A test that needs a global config points
+# GIT_CONFIG_GLOBAL at a file of its own; a repository's own config is still
+# read, which is where a test puts the settings it needs.
+#
+# The other way to give git configuration through the environment is
+# GIT_CONFIG_COUNT with its GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n>, and
+# GIT_CONFIG_PARAMETERS. git lists the first and the last as repository
+# variables, so clear_git_repository_env has cleared them by now, and the
+# numbered ones are not read without the count.
+isolate_git_config() {
+    local _var
+    for _var in "${ISOLATED_GIT_CONFIG_VARS[@]}"; do
+        export "${_var}=/dev/null"
+    done
+}
+
+# Both run while the helper loads, which is before any test or setup can run
+# git. A suite that could not be cut off from its caller's repository must
+# not run, hence the exit: bats reports it as a failure of the whole file.
 clear_git_repository_env || exit 1
+isolate_git_config
 
 # Creates fake executables on a PATH prefix, so a script under test invokes
 # the fakes instead of real system tools. Each fake logs its own name plus
