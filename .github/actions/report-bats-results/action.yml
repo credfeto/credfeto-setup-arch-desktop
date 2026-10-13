@@ -47,10 +47,11 @@ runs:
           }
           await core.summary.write();
 
+          const batsOutcome = process.env.BATS_OUTCOME;
+          // A failed test is what makes bats exit non-zero, so it already accounts for a 'failure' outcome and for no other.
+          const outcomeExplained = batsOutcome === 'success' || (batsOutcome === 'failure' && failed.length > 0);
+
           const problems = [];
-          if (process.env.BATS_OUTCOME !== 'success') {
-            problems.push(`the bats step did not succeed (${process.env.BATS_OUTCOME})`);
-          }
           if (!resultsExist) {
             problems.push(`the results file ${resultsFile} is missing`);
           } else if (results.length === 0) {
@@ -62,6 +63,9 @@ runs:
           if (skipped.length > 0) {
             skipped.forEach(name => core.error(`❌ Skipped test: ${name}`));
             problems.push(`${skipped.length} test(s) skipped: ${skipped.join('; ')}`);
+          }
+          if (!outcomeExplained) {
+            problems.push(`the bats step did not succeed (${batsOutcome}) for a reason the test results do not show`);
           }
 
           if (problems.length > 0) {
