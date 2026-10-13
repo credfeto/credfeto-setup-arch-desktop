@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 # Tests for the environment test_helper gives the code under test. Loading it
 # clears the variables that name a git repository, so a suite started from a
-# git hook works on its own scratch repositories. Its run_with_clean_tool_env
+# git hook works on its own scratch repositories, and points git at no global
+# and no system config, so no suite reads the git settings of whoever runs it
+# or of the machine. Its run_with_clean_tool_env
 # is what every suite that sources a bash.bashrc.d section relies on to keep
 # the settings of whoever runs the suite out of the result and what the code
 # creates out of their home.
@@ -13,9 +15,6 @@ load test_helper
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
-    # The git these tests run must read no config of whoever runs the suite.
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
 }
 
 # Creates a repository with one commit whose git directory sits apart from
@@ -72,6 +71,15 @@ EOF
     printf '%s\n' "${_suite}"
 }
 
+# Succeeds when load_test_helper_afresh ran the load to its end and left no
+# GIT_ variable set but the two test_helper sets itself.
+assert_loaded_with_only_the_config_isolation_set() {
+    [ "${lines[0]}" = loaded ] || return 1
+    [ "${#lines[@]}" -eq 3 ] || return 1
+    grep -qx GIT_CONFIG_GLOBAL <<< "${output}" || return 1
+    grep -qx GIT_CONFIG_SYSTEM <<< "${output}"
+}
+
 @test "a suite started from a git hook leaves the hook's repository untouched and works on its own scratch repositories" {
     local _suite _before
     setup_decoy_repository
@@ -110,20 +118,41 @@ EOF
     run ! grep -v '^GIT_' <<< "${output}"
 }
 
-# Loads test_helper in a bash of its own, which prints "loaded" only when
-# the load ran to its end, then the name of each GIT_ variable still set, one
-# a line. That bash has no GIT_ variable but the ones given, whatever setup
-# and whoever runs the suite have set.
-# Usage: load_test_helper_afresh [<GIT_VAR=value> ...]
-load_test_helper_afresh() {
-    local _var
+# Runs the given script in a bash of its own that has loaded test_helper
+# first, with the path of test_helper as $1. That bash starts with no GIT_
+# variable but the ones given, whatever the load of this file, setup and
+# whoever runs the suite have set.
+# Usage: run_after_loading_test_helper_afresh <script> [<VAR=value> ...]
+run_after_loading_test_helper_afresh() {
+    local _script="$1" _var
     local -a _env=()
+    shift
     for _var in "${!GIT_@}"; do
         _env+=(-u "${_var}")
     done
-    # shellcheck disable=SC2016 # expanded by the bash that env starts
-    run --separate-stderr env "${_env[@]}" "$@" bash -c '. "$1"; printf "%s\n" loaded ${!GIT_@}' _ "${REPO_DIR}/test/test_helper.bash"
+    run --separate-stderr env "${_env[@]}" "$@" bash -c ". \"\$1\"; ${_script}" _ "${REPO_DIR}/test/test_helper.bash"
 }
+
+# Loads test_helper in such a bash, which prints "loaded" only when the load
+# ran to its end, then the name of each GIT_ variable still set, one a line.
+# Usage: load_test_helper_afresh [<GIT_VAR=value> ...]
+load_test_helper_afresh() {
+    # shellcheck disable=SC2016 # expanded by the bash that env starts
+    run_after_loading_test_helper_afresh 'printf "%s\n" loaded ${!GIT_@}' "$@"
+}
+
+# Writes a git config file holding the setting decoy.<name> = seen at the
+# given path, for a test to find out whether git reads that file.
+# Usage: write_decoy_git_config <path> <name>
+write_decoy_git_config() {
+    mkdir -p "${1%/*}"
+    printf '[decoy]\n\t%s = seen\n' "$2" > "$1"
+}
+
+# Prints every decoy setting the git config in force holds, as git sees it
+# from a directory that is in no repository.
+# shellcheck disable=SC2016 # expanded by the bash that runs it
+DECOY_SETTINGS_SEEN='git -C "${BATS_TEST_TMPDIR}" config --get-regexp "^decoy\\."'
 
 @test "loading test_helper stops when git fails to list its repository variables" {
     setup_fake_bin git
@@ -159,8 +188,8 @@ load_test_helper_afresh() {
     load_test_helper_afresh GIT_INDEX_FILE=
     [ "${status}" -eq 0 ]
     assert_fake_called '^git rev-parse --local-env-vars$'
-    # Nothing after "loaded": the variable is no longer set.
-    [ "${output}" = loaded ]
+    # The variable is no longer set.
+    assert_loaded_with_only_the_config_isolation_set
 }
 
 @test "loading test_helper does not start git when no GIT_ variable is set" {
@@ -168,9 +197,131 @@ load_test_helper_afresh() {
     setup_fake_bin git
     load_test_helper_afresh
     [ "${status}" -eq 0 ]
-    [ "${output}" = loaded ]
+    assert_loaded_with_only_the_config_isolation_set
     [ -z "${stderr}" ]
     [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "loading test_helper does not start git when the only GIT_ variables set are the two it sets itself" {
+    # What every load after the first inherits: bats loads test_helper for
+    # the file and again in the process of each test. The fake lists nothing,
+    # so the load would stop if git were asked.
+    setup_fake_bin git
+    load_test_helper_afresh GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+    [ "${status}" -eq 0 ]
+    assert_loaded_with_only_the_config_isolation_set
+    [ -z "${stderr}" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "loading test_helper still asks git for the list when a repository or config variable is set beside the two it sets itself" {
+    # GIT_CONFIG, GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS begin as the
+    # helper's own names do, and GIT_CONFIG_GLOBAL_ and GIT_CONFIG_NOSYSTEM
+    # are near them without being listed: none may pass for one of the two.
+    local _var
+    setup_fake_bin git
+    for _var in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_CONFIG_GLOBAL_ GIT_CONFIG_NOSYSTEM; do
+        : > "${FAKE_BIN_LOG}"
+        load_test_helper_afresh GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "${_var}=${BATS_TEST_TMPDIR}/elsewhere"
+        [ "${status}" -eq 1 ]
+        [ -z "${output}" ]
+        [[ "${stderr}" == *"git did not list its repository variables"* ]]
+        assert_fake_called '^git rev-parse --local-env-vars$'
+    done
+}
+
+@test "git lists neither of the variables test_helper sets itself as naming a repository" {
+    # test_helper does not ask git for the list when these are the only GIT_
+    # variables set, so one that git listed would be one it left in place.
+    run git rev-parse --local-env-vars
+    [ "${status}" -eq 0 ]
+    [ "${#lines[@]}" -gt 0 ]
+    run ! grep -x -e GIT_CONFIG_GLOBAL -e GIT_CONFIG_SYSTEM <<< "${output}"
+}
+
+@test "git reads no global config after test_helper loads, in HOME or under XDG_CONFIG_HOME" {
+    # Stand in for the ~/.gitconfig and ~/.config/git/config of whoever runs
+    # the suite. This file loaded test_helper before the test started.
+    local _xdg="${BATS_TEST_TMPDIR}/xdg"
+    write_decoy_git_config "${HOME}/.gitconfig" home
+    write_decoy_git_config "${_xdg}/git/config" xdg
+
+    # Precondition: git reads both when it is not told where its config is.
+    XDG_CONFIG_HOME="${_xdg}" run env -u GIT_CONFIG_GLOBAL git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "decoy.xdg seen
+decoy.home seen" ]
+
+    XDG_CONFIG_HOME="${_xdg}" run git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+}
+
+@test "git finds an empty global and an empty system config after test_helper loads" {
+    # The machine's /etc/gitconfig cannot be stood in for, so this asks git
+    # for all it holds at each scope. Left to itself git prints the settings
+    # of whoever runs the suite and of the machine, and fails where there is
+    # no such file, as there is no ~/.gitconfig in the test's HOME.
+    local _scope
+    for _scope in --global --system; do
+        run --separate-stderr git config "${_scope}" --list
+        [ "${status}" -eq 0 ]
+        [ -z "${output}" ]
+        [ -z "${stderr}" ]
+    done
+    [ "${GIT_CONFIG_GLOBAL}" = /dev/null ]
+    [ "${GIT_CONFIG_SYSTEM}" = /dev/null ]
+}
+
+@test "loading test_helper replaces a global and a system config the caller points git at" {
+    local _global="${BATS_TEST_TMPDIR}/callers/gitconfig" _system="${BATS_TEST_TMPDIR}/callers/etc-gitconfig"
+    write_decoy_git_config "${_global}" global
+    write_decoy_git_config "${_system}" system
+
+    # Precondition: git reads both where the caller points it.
+    run env GIT_CONFIG_GLOBAL="${_global}" GIT_CONFIG_SYSTEM="${_system}" git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "decoy.system seen
+decoy.global seen" ]
+
+    run_after_loading_test_helper_afresh "${DECOY_SETTINGS_SEEN}" GIT_CONFIG_GLOBAL="${_global}" GIT_CONFIG_SYSTEM="${_system}"
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+}
+
+@test "loading test_helper clears the config a caller gives git through the environment" {
+    local -a _given=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=decoy.counted GIT_CONFIG_VALUE_0=seen "GIT_CONFIG_PARAMETERS='decoy.parameter=seen'")
+
+    # Precondition: git takes both settings from the environment.
+    run env "${_given[@]}" git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "decoy.counted seen
+decoy.parameter seen" ]
+
+    run_after_loading_test_helper_afresh "${DECOY_SETTINGS_SEEN}" "${_given[@]}"
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+}
+
+@test "a script a test runs after test_helper loads inherits the config isolation" {
+    # A script under test is a process of its own, as this one is, and the
+    # git it runs must read no more than the git of the test does.
+    local _script="${BATS_TEST_TMPDIR}/script-under-test"
+    write_decoy_git_config "${HOME}/.gitconfig" home
+    cat > "${_script}" <<'EOF'
+#!/bin/sh
+printf '%s\n' "global=${GIT_CONFIG_GLOBAL-unset}" "system=${GIT_CONFIG_SYSTEM-unset}"
+git config --global --list
+git config --system --list
+EOF
+    chmod +x "${_script}"
+
+    run "${_script}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "global=/dev/null
+system=/dev/null" ]
 }
 
 @test "run_with_clean_tool_env clears the caller's tool settings and gives the command a minimal PATH" {

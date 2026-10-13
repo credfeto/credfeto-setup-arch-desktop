@@ -12,10 +12,6 @@ BUILDCHECK="${DEV_DIR}/buildcheck"
 BUILDTEST="${DEV_DIR}/buildtest"
 
 setup() {
-    # Isolate every test from the real machine's global/system git config -
-    # pre-commit-check and buildtest's require_dotnet_tool both consult it.
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
 }
