@@ -454,3 +454,51 @@ EOF
     [ "$(cat "${FAKE_BIN_LOG}")" = "bats-stock-tool before
 bats-stock-tool after" ]
 }
+
+@test "a fake replace_fake writes from a quoted heredoc logs to the shared log without the test exporting anything" {
+    # The fake is a process of its own, so it sees the log's path only if
+    # the helper exported it. Without it the fake still exits 0, having
+    # logged nowhere, so what the log holds is the thing to assert.
+    replace_fake bats-replaced-tool <<'EOF'
+#!/bin/sh
+printf 'bats-replaced-tool %s\n' "$*" >> "${FAKE_BIN_LOG}"
+EOF
+    run --separate-stderr bats-replaced-tool one two
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = "bats-replaced-tool one two" ]
+}
+
+@test "the fakes setup_fake_bin and setup_fake_sudo write have no path of the test's written into them and still log and echo canned output" {
+    setup_fake_sudo bats-stock-tool
+    seed_fake_output bats-stock-tool <<< "canned"
+    # Each reads where the log and the canned output are from its
+    # environment, as a fake given to replace_fake does.
+    run grep -rF -- "${BATS_TEST_TMPDIR}" "${FAKE_BIN_DIR}"
+    [ "${status}" -eq 1 ]
+    grep -qF ">> \"\${FAKE_BIN_LOG}\"" "${FAKE_BIN_DIR}/bats-stock-tool"
+    grep -qF "\"\${FAKE_BIN_OUTPUT_DIR}/bats-stock-tool\"" "${FAKE_BIN_DIR}/bats-stock-tool"
+    grep -qF ">> \"\${FAKE_BIN_LOG}\"" "${FAKE_BIN_DIR}/sudo"
+
+    run --separate-stderr bats-stock-tool one two
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "canned" ]
+    [ -z "${stderr}" ]
+    run --separate-stderr sudo three
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = "bats-stock-tool one two
+sudo three" ]
+}
+
+@test "a fake started through run_with_clean_tool_env still logs and echoes its canned output" {
+    # The suites run fakes this way, so it must leave the two variables the
+    # fakes read in the environment.
+    setup_fake_bin bats-stock-tool
+    seed_fake_output bats-stock-tool <<< "canned"
+    run --separate-stderr run_with_clean_tool_env PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" bats-stock-tool one
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "canned" ]
+    [ -z "${stderr}" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = "bats-stock-tool one" ]
+}

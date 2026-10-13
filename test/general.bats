@@ -179,9 +179,6 @@ case "$1 $2" in
 esac
 exit 0
 EOF
-    # The fake reads where to log from its environment: a path written into
-    # its text would need escaping for whatever the temporary directory holds.
-    export FAKE_BIN_LOG
 
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
