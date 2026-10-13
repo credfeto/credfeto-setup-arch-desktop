@@ -12,8 +12,6 @@ setup() {
     # Where wallpaper keeps its clone of the wallpapers repo.
     WALLPAPERS_DIR="${HOME}/work/thirdparty/wallpapers"
     mkdir -p "${HOME}"
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
 }
 
 # ── mkrelease ────────────────────────────────────────────────────────────────

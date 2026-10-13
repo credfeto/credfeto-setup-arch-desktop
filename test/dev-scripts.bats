@@ -9,8 +9,9 @@ GIT_ENVIRONMENT="${REPO_DIR}/install.d/git-environment"
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
+    # git-environment writes the global config, so it gets one of the test's
+    # own in place of the none test_helper gives every suite.
     export GIT_CONFIG_GLOBAL="${BATS_TEST_TMPDIR}/gitconfig"
-    export GIT_CONFIG_SYSTEM=/dev/null
     # DEV_SCRIPTS_BIN_DIR is user-writable, so dev-scripts's sudo-avoidance
     # path is exercised - no real root/sudo needed for these tests.
     export DEV_SCRIPTS_BIN_DIR="${BATS_TEST_TMPDIR}/bin"
