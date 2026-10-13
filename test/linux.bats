@@ -58,7 +58,7 @@ setup_fake_network() {
     setup_fake_bin nm-online systemd-networkd-wait-online "$@"
     replace_fake systemctl <<EOF
 #!/bin/sh
-printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1" = "is-active" ]; then
     [ "\$3" = "${_active}" ]
     exit
@@ -79,7 +79,7 @@ make_logging_stub() {
     mkdir -p "$(dirname "${_path}")"
     cat > "${_path}" <<EOF
 #!/bin/sh
-printf '%s %s\n' "$2" "\$*" >> "${FAKE_BIN_LOG}"
+printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
     chmod +x "${_path}"
@@ -97,13 +97,13 @@ make_cwd_logging_stub() {
     mkdir -p "$(dirname "${_path}")"
     cat > "${_path}" <<EOF
 #!/bin/sh
-printf '%s %s\n' "${_name}" "\$(pwd)" >> "${FAKE_BIN_LOG}"
+printf '%s %s\n' "${_name}" "\$(pwd)" >> "\${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
     chmod +x "${_path}"
     replace_fake "${_name}" <<EOF
 #!/bin/sh
-printf 'PATH %s\n' "${_name}" >> "${FAKE_BIN_LOG}"
+printf 'PATH %s\n' "${_name}" >> "\${FAKE_BIN_LOG}"
 EOF
 }
 
@@ -254,7 +254,7 @@ setup_fake_git() {
     mkdir -p "${FAKE_CLONE_SOURCE}"
     replace_fake git <<EOF
 #!/bin/sh
-printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 [ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
 if [ "\$1" = "clone" ]; then
     if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
@@ -399,7 +399,7 @@ setup_dev_update_fixture() {
     cat > "${HOME}/work/reference/claude/install" <<EOF
 #!/bin/sh
 "${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
-printf 'nested dev-update exited %s\n' "\$?" >> "${FAKE_BIN_LOG}"
+printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
 
     run "${LINUX_DIR}/dev-update"
@@ -418,10 +418,10 @@ EOF
 #!/bin/sh
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
-        *dev-update.lock) printf 'lock fd inherited\n' >> "${FAKE_BIN_LOG}" ;;
+        *dev-update.lock) printf 'lock fd inherited\n' >> "\${FAKE_BIN_LOG}" ;;
     esac
 done
-printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
+printf 'claude/install ran\n' >> "\${FAKE_BIN_LOG}"
 EOF
 
     run "${LINUX_DIR}/dev-update"
@@ -521,12 +521,12 @@ EOF
     # and have its service exit "already running".
     replace_fake systemctl <<EOF
 #!/bin/sh
-printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$2" = "start" ]; then
     if flock -n "${XDG_RUNTIME_DIR}/dev-update.lock" true; then
-        printf 'lock free at timer start\n' >> "${FAKE_BIN_LOG}"
+        printf 'lock free at timer start\n' >> "\${FAKE_BIN_LOG}"
     else
-        printf 'lock held at timer start\n' >> "${FAKE_BIN_LOG}"
+        printf 'lock held at timer start\n' >> "\${FAKE_BIN_LOG}"
     fi
 fi
 [ "\$1" = "is-active" ] && [ "\$3" != "NetworkManager.service" ] && exit 1
@@ -989,7 +989,7 @@ setup_fake_flatpak_with_installed() {
     setup_fake_bin "${@:2}"
     replace_fake flatpak <<EOF
 #!/bin/sh
-printf 'flatpak %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'flatpak %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1 \$2" = "list --app" ]; then
     printf '%s\n' "$1"
 fi
@@ -1038,12 +1038,11 @@ EOF
 # A fake tmux that logs every call and reports has-session as failing (no
 # session) unless the marker file $BATS_TEST_TMPDIR/session-exists is present.
 setup_fake_tmux() {
-    setup_fake_bin tmux
-    # FAKE_EXIT_tmux applies to every subcommand, so the stock fake is
-    # replaced with one that fails only has-session.
+    # FAKE_EXIT_tmux would apply to every subcommand of the stock fake, so
+    # this one is written out to fail only has-session.
     replace_fake tmux <<EOF
 #!/bin/sh
-printf 'tmux %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'tmux %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; then
     exit 1
 fi
