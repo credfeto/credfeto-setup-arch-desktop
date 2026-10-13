@@ -407,3 +407,50 @@ unrelated" ]
 . /opt/pkgXd/load.sh
 . /opt/pkg.dir/load.sh" ]
 }
+
+# Prints how many times the directory the fakes live in is on PATH.
+fake_bin_dir_path_entries() {
+    tr ':' '\n' <<< "${PATH}" | grep -cxF -- "${FAKE_BIN_DIR}"
+}
+
+@test "replace_fake puts its fake on PATH without setup_fake_bin being called first" {
+    replace_fake bats-replaced-tool <<'EOF'
+#!/bin/sh
+echo "replacement ran with $*"
+EOF
+    [ "$(command -v bats-replaced-tool)" = "${FAKE_BIN_DIR}/bats-replaced-tool" ]
+    run bats-replaced-tool one two
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "replacement ran with one two" ]
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    # The log is there for the fake to write to, and for the assertions.
+    [ -f "${FAKE_BIN_LOG}" ]
+    refute_fake_called '.'
+}
+
+@test "the fake directory is on PATH once however the fake helpers are combined" {
+    replace_fake bats-replaced-tool <<< '#!/bin/sh'
+    replace_fake bats-replaced-tool <<< '#!/bin/sh'
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    setup_fake_bin bats-stock-tool
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    setup_fake_sudo
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    replace_fake bats-stock-tool <<< '#!/bin/sh'
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    [ "${PATH%%:*}" = "${FAKE_BIN_DIR}" ]
+}
+
+@test "replace_fake replaces one fake setup_fake_bin made and leaves the others and the log alone" {
+    setup_fake_bin bats-replaced-tool bats-stock-tool
+    bats-stock-tool before
+    replace_fake bats-replaced-tool <<'EOF'
+#!/bin/sh
+echo "replacement ran"
+EOF
+    run bats-replaced-tool
+    [ "${output}" = "replacement ran" ]
+    bats-stock-tool after
+    [ "$(cat "${FAKE_BIN_LOG}")" = "bats-stock-tool before
+bats-stock-tool after" ]
+}
