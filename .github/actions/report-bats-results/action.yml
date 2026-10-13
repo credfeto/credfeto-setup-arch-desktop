@@ -1,6 +1,6 @@
 --- # Summarise a bats TAP results file and fail on a failed, skipped or missing test run
 name: "Report Bats Results"
-description: "Writes a job summary from a bats TAP results file and fails on a failed bats step, missing or empty results, or any failed or skipped test"
+description: "Summarises a bats TAP results file and fails on a failed bats step, missing, empty or miscounted results, or any failed or skipped test"
 
 inputs:
   results-file:
@@ -26,7 +26,12 @@ runs:
           const resultsExist = fs.existsSync(resultsFile);
           const tap = resultsExist ? fs.readFileSync(resultsFile, 'utf8') : '';
 
-          const results = tap.split('\n').filter(line => /^(not )?ok \d+ /.test(line));
+          const lines = tap.split(/\r?\n/);
+          // bats writes the plan once, as the first line, before any test runs; a later "1..N" is test output.
+          const plan = lines[0].match(/^1\.\.(\d+)\s*$/);
+          const planned = plan ? Number(plan[1]) : null;
+
+          const results = lines.filter(line => /^(not )?ok \d+ /.test(line));
           const failed = results.filter(line => line.startsWith('not ok '));
           // bats writes test names unescaped, so only the last " # skip" on a result line can be its skip marker.
           const skipped = results
@@ -39,8 +44,13 @@ runs:
           core.summary
             .addHeading('Shell tests', 2)
             .addTable([
-              [{data: 'Run', header: true}, {data: 'Failed', header: true}, {data: 'Skipped', header: true}],
-              [`${results.length}`, `${failed.length}`, `${skipped.length}`],
+              [
+                {data: 'Planned', header: true},
+                {data: 'Run', header: true},
+                {data: 'Failed', header: true},
+                {data: 'Skipped', header: true},
+              ],
+              [`${planned ?? 'unknown'}`, `${results.length}`, `${failed.length}`, `${skipped.length}`],
             ]);
           if (skipped.length > 0) {
             core.summary.addHeading('Skipped', 3).addList(skipped.map(escapeHtml));
@@ -48,14 +58,21 @@ runs:
           await core.summary.write();
 
           const batsOutcome = process.env.BATS_OUTCOME;
-          // A failed test is what makes bats exit non-zero, so it already accounts for a 'failure' outcome and for no other.
-          const outcomeExplained = batsOutcome === 'success' || (batsOutcome === 'failure' && failed.length > 0);
+          const countMismatch = planned !== null && planned !== results.length;
+          // A failed test or a result count that differs from the plan makes bats exit non-zero, so either accounts for a 'failure' outcome and for no other.
+          const outcomeExplained =
+            batsOutcome === 'success' || (batsOutcome === 'failure' && (failed.length > 0 || countMismatch));
 
           const problems = [];
           if (!resultsExist) {
             problems.push(`the results file ${resultsFile} is missing`);
           } else if (results.length === 0) {
             problems.push('bats ran no tests');
+          } else if (planned === null) {
+            problems.push('the results file has no TAP plan line (1..N), so the number of tests bats planned is unknown');
+          }
+          if (countMismatch) {
+            problems.push(`bats planned ${planned} test(s) but ${results.length} reported a result`);
           }
           if (failed.length > 0) {
             problems.push(`${failed.length} of ${results.length} test(s) failed`);
