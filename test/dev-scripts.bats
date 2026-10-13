@@ -141,7 +141,6 @@ OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scri
 # step without any real root/sudo.
 # Usage: fail_sudo_for <command-name>
 fail_sudo_for() {
-    setup_fake_bin sudo
     replace_fake sudo <<EOF
 #!/bin/sh
 [ "\$1" = "$1" ] && exit 1

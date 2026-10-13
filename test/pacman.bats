@@ -16,7 +16,6 @@ setup() {
 
     # A real sudo is neither available nor wanted in tests; this fake execs
     # the wrapped command directly as the current (fixture-owning) user.
-    setup_fake_bin sudo
     replace_fake sudo <<'EOF'
 #!/bin/sh
 exec "$@"

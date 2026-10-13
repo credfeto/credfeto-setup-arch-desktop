@@ -165,7 +165,6 @@ make_wallpapers_clone() {
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
-    setup_fake_bin dotnet
     replace_fake dotnet <<'EOF'
 #!/bin/sh
 printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
@@ -261,7 +260,7 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
-    setup_fake_sudo curl tar
+    setup_fake_sudo curl
     # Only the 8.0 channel exists, so a run that wrongly carried on would
     # stop at the next channel rather than go on to the tool steps.
     seed_fake_output curl <<'EOF'
