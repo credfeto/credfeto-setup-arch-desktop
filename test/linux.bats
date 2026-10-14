@@ -77,12 +77,11 @@ EOF
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
-    cat > "${_path}" <<EOF
+    write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
 printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
-    chmod +x "${_path}"
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<name> <cwd>" to
@@ -95,12 +94,11 @@ make_cwd_logging_stub() {
     local _path="$1/$2" _name
     _name="$(basename "$2")"
     mkdir -p "$(dirname "${_path}")"
-    cat > "${_path}" <<EOF
+    write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
 printf '%s %s\n' "${_name}" "\$(pwd)" >> "\${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
-    chmod +x "${_path}"
     replace_fake "${_name}" <<EOF
 #!/bin/sh
 printf 'PATH %s\n' "${_name}" >> "\${FAKE_BIN_LOG}"
@@ -396,7 +394,7 @@ setup_dev_update_fixture() {
 @test "dev-update holds the lock while its steps run" {
     setup_dev_update_fixture
     # A second dev-update started from inside a step must find the lock held.
-    cat > "${HOME}/work/reference/claude/install" <<EOF
+    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
 "${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
 printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
@@ -414,7 +412,7 @@ EOF
     setup_dev_update_fixture
     # A process a step leaves behind keeps every fd it inherited, so an
     # inherited lock fd would keep the lock held after dev-update ends.
-    cat > "${HOME}/work/reference/claude/install" <<EOF
+    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
