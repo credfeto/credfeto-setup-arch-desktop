@@ -90,9 +90,10 @@ isolate_git_config
 
 # Creates the directory the fakes live in, with their log and canned-output
 # directory, and puts it first on PATH. Whichever helper needs the directory
-# calls this, so a test may start with any of them. Calling it again changes
-# nothing: the log keeps what it holds, and PATH gets the directory once
-# however many helpers a test uses.
+# calls this, so a test may start with any of them. Calling it again leaves
+# the log holding what it holds, and puts the directory first on PATH, and
+# there once, however many helpers a test uses and whatever it has put on
+# PATH ahead of the directory since.
 #
 # FAKE_BIN_LOG and FAKE_BIN_OUTPUT_DIR are exported because every fake reads
 # them from its environment when it runs, as it does FAKE_EXIT_<tool>; none
@@ -110,10 +111,18 @@ ensure_fake_bin_dir() {
     export FAKE_BIN_OUTPUT_DIR="${BATS_TEST_TMPDIR}/fakebin-output"
     mkdir -p "${FAKE_BIN_DIR}" "${FAKE_BIN_OUTPUT_DIR}"
     [ -e "${FAKE_BIN_LOG}" ] || : > "${FAKE_BIN_LOG}"
-    case ":${PATH}:" in
-        *":${FAKE_BIN_DIR}:"*) ;;
-        *) export PATH="${FAKE_BIN_DIR}:${PATH}" ;;
-    esac
+    # Every entry PATH already has for the directory is taken out before it
+    # goes on the front, so a directory a test put ahead of it since the last
+    # call cannot shadow a fake. This mirrors _bashrc_d_path_prepend rather
+    # than sourcing it: that is code under test, and a fault in it must not
+    # take every fake down with it.
+    local rest=":${PATH}:"
+    while [[ "${rest}" == *":${FAKE_BIN_DIR}:"* ]]; do
+        rest="${rest%%":${FAKE_BIN_DIR}:"*}:${rest#*":${FAKE_BIN_DIR}:"}"
+    done
+    rest="${rest#:}"
+    rest="${rest%:}"
+    export PATH="${FAKE_BIN_DIR}${rest:+:${rest}}"
 }
 
 # Creates fake executables on a PATH prefix, so a script under test invokes

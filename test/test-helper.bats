@@ -487,6 +487,66 @@ EOF
     [ "${PATH%%:*}" = "${FAKE_BIN_DIR}" ]
 }
 
+# Puts the given directory at the front of PATH, as a test would to bring in
+# tools of its own after the fake helpers have run.
+put_dir_ahead_on_path() {
+    PATH="$1:${PATH}"
+}
+
+# Prints the PATH ensure_fake_bin_dir leaves when started from the given PATH.
+# PATH is local to it, so the caller's PATH is back as it was once it returns.
+# None of the PATHs the tests give finds mkdir, which the helper runs, so its
+# path goes in the hash table, which bash empties on every PATH assignment.
+path_after_ensure_fake_bin_dir() {
+    local mkdir_path
+    mkdir_path="$(command -v mkdir)"
+    local PATH="$1"
+    hash -p "${mkdir_path}" mkdir
+    ensure_fake_bin_dir
+    printf '%s\n' "${PATH}"
+}
+
+@test "replace_fake moves the fake directory back in front of a directory put ahead of it" {
+    setup_fake_bin bats-stock-tool
+    local decoy_dir="${BATS_TEST_TMPDIR}/decoy-bin"
+    mkdir -p "${decoy_dir}"
+    printf '#!/bin/sh\necho "decoy ran"\n' > "${decoy_dir}/bats-replaced-tool"
+    chmod +x "${decoy_dir}/bats-replaced-tool"
+    put_dir_ahead_on_path "${decoy_dir}"
+    replace_fake bats-replaced-tool <<'EOF'
+#!/bin/sh
+echo "fake ran"
+EOF
+    [ "${PATH%%:*}" = "${FAKE_BIN_DIR}" ]
+    [ "$(fake_bin_dir_path_entries)" -eq 1 ]
+    run bats-replaced-tool
+    [ "${output}" = "fake ran" ]
+}
+
+@test "ensure_fake_bin_dir puts the fake directory first exactly once wherever PATH holds it" {
+    # Each case is a PATH to start from and the PATH that must follow. The
+    # names that only start or end like the fake directory must stay put.
+    local fake="${BATS_TEST_TMPDIR}/fakebin"
+    local -a cases=(
+        "" "${fake}"
+        "${fake}" "${fake}"
+        "${fake}:/a" "${fake}:/a"
+        "/a:${fake}:/b" "${fake}:/a:/b"
+        "/a:${fake}" "${fake}:/a"
+        "${fake}:/a:${fake}:${fake}" "${fake}:/a"
+        "${fake}x:/a:x${fake}" "${fake}:${fake}x:/a:x${fake}"
+        "${fake}/sub:/a" "${fake}:${fake}/sub:/a"
+    )
+    local i result
+    for ((i = 0; i < ${#cases[@]}; i += 2)); do
+        result="$(path_after_ensure_fake_bin_dir "${cases[i]}")"
+        [ "${result}" = "${cases[i + 1]}" ] || {
+            printf 'from [%s] got [%s], wanted [%s]\n' "${cases[i]}" "${result}" "${cases[i + 1]}"
+            return 1
+        }
+    done
+}
+
 @test "replace_fake replaces one fake setup_fake_bin made and leaves the others and the log alone" {
     setup_fake_bin bats-replaced-tool bats-stock-tool
     bats-stock-tool before
