@@ -17,7 +17,8 @@ jobs:
   # @@required: main
   shell-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Backstop only: a job timeout cancels the run, which skips the report step.
+    timeout-minutes: 15
 
     env:
       BATS_RESULTS: "bats-results.tap"
@@ -69,6 +70,8 @@ jobs:
 
       - name: "Run shell tests"
         id: run-tests
+        # A step timeout fails the step rather than cancelling the run, so a hung test still gets reported.
+        timeout-minutes: 10
         shell: bash
         run: bats --recursive --formatter tap test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}"
 
