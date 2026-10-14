@@ -503,8 +503,8 @@ bats-stock-tool after" ]
 
 @test "a fake replace_fake writes from a quoted heredoc logs to the shared log without the test exporting anything" {
     # The fake is a process of its own, so it sees the log's path only if
-    # the helper exported it. Without it the fake still exits 0, having
-    # logged nowhere, so what the log holds is the thing to assert.
+    # the helper exported it. Without it the fake stops at its guard, so its
+    # status, its stderr and what the log holds are the things to assert.
     replace_fake bats-replaced-tool <<'EOF'
 #!/bin/sh
 printf 'bats-replaced-tool %s\n' "$*" >> "${FAKE_BIN_LOG}"
@@ -547,4 +547,55 @@ sudo three" ]
     [ "${output}" = "canned" ]
     [ -z "${stderr}" ]
     [ "$(cat "${FAKE_BIN_LOG}")" = "bats-stock-tool one" ]
+}
+
+@test "a fake setup_fake_bin writes fails, without logging or echoing its canned output, when FAKE_BIN_LOG is not set" {
+    # Logging nowhere and exiting as asked would let every refute_fake_called
+    # pass without looking at anything.
+    setup_fake_bin bats-stock-tool
+    seed_fake_output bats-stock-tool <<< "canned"
+    run --separate-stderr env -u FAKE_BIN_LOG bats-stock-tool one
+    [ "${status}" -eq "${FAKE_ENV_MISSING_STATUS}" ]
+    [ "${stderr}" = "fake bats-stock-tool: FAKE_BIN_LOG is not set" ]
+    [ -z "${output}" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "a fake setup_fake_bin writes fails, without logging or echoing its canned output, when FAKE_BIN_OUTPUT_DIR is empty" {
+    setup_fake_bin bats-stock-tool
+    seed_fake_output bats-stock-tool <<< "canned"
+    run --separate-stderr env FAKE_BIN_OUTPUT_DIR= bats-stock-tool one
+    [ "${status}" -eq "${FAKE_ENV_MISSING_STATUS}" ]
+    [ "${stderr}" = "fake bats-stock-tool: FAKE_BIN_OUTPUT_DIR is not set" ]
+    [ -z "${output}" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "the fake sudo setup_fake_sudo writes fails without logging when FAKE_BIN_LOG is empty" {
+    setup_fake_sudo
+    run --separate-stderr env FAKE_BIN_LOG= sudo one
+    [ "${status}" -eq "${FAKE_ENV_MISSING_STATUS}" ]
+    [ "${stderr}" = "fake sudo: FAKE_BIN_LOG is not set" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "a fake replace_fake writes fails without logging when FAKE_BIN_LOG is not set" {
+    replace_fake bats-replaced-tool <<'EOF'
+#!/bin/sh
+printf 'bats-replaced-tool %s\n' "$*" >> "${FAKE_BIN_LOG}"
+echo "replacement ran"
+EOF
+    run --separate-stderr env -u FAKE_BIN_LOG bats-replaced-tool one
+    [ "${status}" -eq "${FAKE_ENV_MISSING_STATUS}" ]
+    [ "${stderr}" = "fake bats-replaced-tool: FAKE_BIN_LOG is not set" ]
+    [ -z "${output}" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+}
+
+@test "write_fake_script writes no fake from a script that does not start with a #! line" {
+    ensure_fake_bin_dir
+    run --separate-stderr write_fake_script "${FAKE_BIN_DIR}/bats-replaced-tool" bats-replaced-tool <<< 'echo "no interpreter"'
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "write_fake_script: the script for bats-replaced-tool does not start with a #! line" ]
+    [ ! -e "${FAKE_BIN_DIR}/bats-replaced-tool" ]
 }

@@ -101,7 +101,9 @@ isolate_git_config
 # escaping, and no test exports either variable itself. Nothing the suites
 # run starts a fake without them: run_with_clean_tool_env and the other env
 # calls remove only the variables they name, and the fake sudos either run
-# nothing or run the command with the environment they were given.
+# nothing or run the command with the environment they were given. Should
+# that ever change, every fake fails rather than logging nowhere: see
+# write_fake_script.
 ensure_fake_bin_dir() {
     FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
     export FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
@@ -117,7 +119,9 @@ ensure_fake_bin_dir() {
 # Creates fake executables on a PATH prefix, so a script under test invokes
 # the fakes instead of real system tools. Each fake logs its own name plus
 # arguments to $FAKE_BIN_LOG, echoes back any canned output seeded via
-# seed_fake_output, and exits 0 unless FAKE_EXIT_<tool> overrides it.
+# seed_fake_output, and exits 0 unless FAKE_EXIT_<tool> overrides it. Each
+# fails, as write_fake_script describes, when FAKE_BIN_LOG or
+# FAKE_BIN_OUTPUT_DIR is not set.
 #
 # Usage: setup_fake_bin <tool-name> [<tool-name> ...]
 setup_fake_bin() {
@@ -130,7 +134,7 @@ setup_fake_bin() {
         # not valid in a bash variable name - sanitised to underscores for
         # the FAKE_EXIT_<tool> override lookup below.
         _varname="FAKE_EXIT_${_tool//-/_}"
-        cat > "${FAKE_BIN_DIR}/${_tool}" <<EOF
+        write_fake_script "${FAKE_BIN_DIR}/${_tool}" "${_tool}" FAKE_BIN_LOG FAKE_BIN_OUTPUT_DIR <<EOF
 #!/bin/sh
 printf '%s %s\n' "${_tool}" "\$*" >> "\${FAKE_BIN_LOG}"
 if [ -f "\${FAKE_BIN_OUTPUT_DIR}/${_tool}" ]; then
@@ -138,7 +142,6 @@ if [ -f "\${FAKE_BIN_OUTPUT_DIR}/${_tool}" ]; then
 fi
 exit "\${${_varname}:-0}"
 EOF
-        chmod +x "${FAKE_BIN_DIR}/${_tool}"
     done
 }
 
@@ -152,7 +155,7 @@ EOF
 # Usage: setup_fake_sudo [<tool-name> ...]
 setup_fake_sudo() {
     setup_fake_bin "$@"
-    cat > "${FAKE_BIN_DIR}/sudo" <<EOF
+    write_fake_script "${FAKE_BIN_DIR}/sudo" sudo <<EOF
 #!/bin/sh
 printf 'sudo %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ -n "\${FAKE_SUDO_FAIL:-}" ] && printf '%s\n' "\$*" | grep -qE "\${FAKE_SUDO_FAIL}"; then
@@ -160,7 +163,6 @@ if [ -n "\${FAKE_SUDO_FAIL:-}" ] && printf '%s\n' "\$*" | grep -qE "\${FAKE_SUDO
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/sudo"
 }
 
 # Writes a fake from a script read from stdin, for a tool whose fake has to
@@ -170,12 +172,46 @@ EOF
 # "${FAKE_BIN_LOG}" as its environment has it when it runs: written as that
 # in a quoted heredoc, and with the "$" escaped in an unquoted one, where
 # bash would otherwise put the path into the script, and would do so before
-# this function has set it.
+# this function has set it. The fake is written by write_fake_script, so it
+# fails when FAKE_BIN_LOG is not set.
 # Usage: replace_fake <tool-name> <<'EOF' ... EOF
 replace_fake() {
     ensure_fake_bin_dir
-    cat > "${FAKE_BIN_DIR}/$1"
-    chmod +x "${FAKE_BIN_DIR}/$1"
+    write_fake_script "${FAKE_BIN_DIR}/$1" "$1"
+}
+
+# The status a fake exits with when a variable it reads is not set. No
+# FAKE_EXIT_<tool> a test sets uses it, and neither env (125 when it fails
+# itself) nor the shell (126, 127 and 128 onwards) does.
+FAKE_ENV_MISSING_STATUS=97
+
+# Writes the script read from stdin to <path> as an executable fake, with a
+# guard after its #! line for each named variable (FAKE_BIN_LOG when none is
+# named). The guard stops the fake, printing "fake <name>: <variable> is not
+# set" to stderr and exiting with FAKE_ENV_MISSING_STATUS, when the variable
+# is unset or empty. The fakes read these from their environment, so a fake
+# started without them would otherwise log nowhere and still exit as asked,
+# and every refute_fake_called would pass without looking at anything. The
+# guard is POSIX sh, as the fakes are. The script must start with a #! line.
+# Usage: write_fake_script <path> <name> [<variable> ...] <<'EOF' ... EOF
+write_fake_script() {
+    local _path="$1" _name="$2" _shebang _var
+    shift 2
+    [ "$#" -gt 0 ] || set -- FAKE_BIN_LOG
+    if ! IFS= read -r _shebang || [[ "${_shebang}" != '#!'* ]]; then
+        echo "write_fake_script: the script for ${_name} does not start with a #! line" >&2
+        return 1
+    fi
+    {
+        printf '%s\n' "${_shebang}"
+        for _var in "$@"; do
+            cat <<EOF
+[ -n "\${${_var}:-}" ] || { echo 'fake ${_name}: ${_var} is not set' >&2; exit ${FAKE_ENV_MISSING_STATUS}; }
+EOF
+        done
+        cat
+    } > "${_path}"
+    chmod +x "${_path}"
 }
 
 # Seeds canned stdout for a fake tool created by setup_fake_bin.
