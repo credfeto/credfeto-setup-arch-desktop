@@ -26,6 +26,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a dev-install command that clones the six tooling repos into ~/work/reference over SSH, installs the .NET tools, installs a user systemd timer and runs dev-update, refusing inside a Claude Code session, when offline or without dotnet
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
+- Added a required CI check that runs the bats shell test suite on every pull request to main and fails when any test fails, is skipped or does not run
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -60,6 +61,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Shell sections no longer leave a stray iatest variable set in every shell
 - Re-sourcing the bash.bashrc.d sections no longer adds duplicate PATH entries for paths, Go, .NET and bun, and the Go section now adds the bin directory of the first GOPATH entry when GOPATH lists several
 - 70_nvm.sh loads nvm once and registers its completion only in an interactive shell; it now replaces dangling nvm.sh or nvm-exec links in NVM_DIR instead of failing with 'File exists' on every shell start and dev-update timer run
+- The bats test suite no longer corrupts the developer's repository when run from a git commit hook in a linked worktree
+- The bats test suite no longer reads the developer's global or system git configuration files
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -69,6 +72,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The update command runs the install from the ~/work/reference clone when present, falling back to the ~/work/personal checkout
 - dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 - The cd aliases, Go section and distro lookup in the shell sections no longer start extra processes, so shell start and timer runs are faster
+- Shell script tests now use fake versions of nvm, autojump, Go and .NET instead of skipping when these tools are not installed
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited

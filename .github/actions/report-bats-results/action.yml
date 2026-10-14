@@ -1,0 +1,99 @@
+--- # Summarise a bats TAP results file and fail on a failed, skipped or missing test run
+name: "Report Bats Results"
+description: "Summarises a bats TAP results file and fails on a failed bats step, missing, empty or miscounted results, or any failed or skipped test"
+
+inputs:
+  results-file:
+    description: "Path to the TAP results file written by the bats step"
+    required: true
+  bats-outcome:
+    description: "Outcome of the step that ran bats (steps.<id>.outcome)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Report bats results"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        RESULTS_FILE: "${{inputs.results-file}}"
+        BATS_OUTCOME: "${{inputs.bats-outcome}}"
+      with:
+        script: |
+          const fs = require('fs');
+
+          const resultsFile = process.env.RESULTS_FILE;
+          const resultsExist = fs.existsSync(resultsFile);
+          const tap = resultsExist ? fs.readFileSync(resultsFile, 'utf8') : '';
+
+          const lines = tap.split(/\r?\n/);
+          const isResult = line => /^(not )?ok \d+ /.test(line);
+          // bats writes the plan once, before any test runs, so the plan is the first "1..N" line ahead of the first
+          // result; other lines ahead of it are ignored rather than hiding it. Taking the first match matters because
+          // a test (or setup_file/setup_suite) writing "1..N" to fd 3 prints after the plan but before its own result.
+          const firstResult = lines.findIndex(isResult);
+          const beforeResults = firstResult === -1 ? lines : lines.slice(0, firstResult);
+          const plan = beforeResults.map(line => line.match(/^1\.\.(\d+)\s*$/)).find(Boolean);
+          const planned = plan ? Number(plan[1]) : null;
+
+          const results = lines.filter(isResult);
+          const failed = results.filter(line => line.startsWith('not ok '));
+          // bats writes test names and skip reasons unescaped, so a result line does not say where the name ends and the
+          // skip directive begins: a passing test named "a # skip b" prints exactly as test "a" skipped with reason "b".
+          // This is the pattern bats' own tap and junit parsers use, so the split and the skip count match what bats reports.
+          const skipped = results
+            .map(line => line.match(/^ok \d+ (.*) # skip( .*)?$/))
+            .filter(Boolean)
+            .map(match => match[1]);
+
+          const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+          core.summary
+            .addHeading('Shell tests', 2)
+            .addTable([
+              [
+                {data: 'Planned', header: true},
+                {data: 'Run', header: true},
+                {data: 'Failed', header: true},
+                {data: 'Skipped', header: true},
+              ],
+              [`${planned ?? 'unknown'}`, `${results.length}`, `${failed.length}`, `${skipped.length}`],
+            ]);
+          if (skipped.length > 0) {
+            core.summary.addHeading('Skipped', 3).addList(skipped.map(escapeHtml));
+          }
+          await core.summary.write();
+
+          const batsOutcome = process.env.BATS_OUTCOME;
+          const countMismatch = planned !== null && planned !== results.length;
+          // A failed test or a result count that differs from the plan makes bats exit non-zero, so either accounts for a 'failure' outcome and for no other.
+          const outcomeExplained =
+            batsOutcome === 'success' || (batsOutcome === 'failure' && (failed.length > 0 || countMismatch));
+
+          const problems = [];
+          if (!resultsExist) {
+            problems.push(`the results file ${resultsFile} is missing`);
+          } else if (results.length === 0) {
+            problems.push('bats ran no tests');
+          } else if (planned === null) {
+            problems.push('the results file has no TAP plan line (1..N), so the number of tests bats planned is unknown');
+          }
+          if (countMismatch) {
+            problems.push(`bats planned ${planned} test(s) but ${results.length} reported a result`);
+          }
+          if (failed.length > 0) {
+            problems.push(`${failed.length} of ${results.length} test(s) failed`);
+          }
+          if (skipped.length > 0) {
+            skipped.forEach(name => core.error(`❌ Skipped test: ${name}`));
+            problems.push(`${skipped.length} test(s) skipped: ${skipped.join('; ')}`);
+          }
+          if (!outcomeExplained) {
+            problems.push(`the bats step did not succeed (${batsOutcome}) for a reason the test results do not show`);
+          }
+
+          if (problems.length > 0) {
+            core.setFailed(`❌ ${problems.join('; ')}`);
+          } else {
+            core.info(`✅ ${results.length} test(s) passed, none skipped`);
+          }

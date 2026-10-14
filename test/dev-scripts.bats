@@ -9,12 +9,15 @@ GIT_ENVIRONMENT="${REPO_DIR}/install.d/git-environment"
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
+    # git-environment writes the global config, so it gets one of the test's
+    # own in place of the none test_helper gives every suite.
     export GIT_CONFIG_GLOBAL="${BATS_TEST_TMPDIR}/gitconfig"
-    export GIT_CONFIG_SYSTEM=/dev/null
     # DEV_SCRIPTS_BIN_DIR is user-writable, so dev-scripts's sudo-avoidance
     # path is exercised - no real root/sudo needed for these tests.
     export DEV_SCRIPTS_BIN_DIR="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${DEV_SCRIPTS_BIN_DIR}"
+    # The throwaway repo tree run_dev_scripts_against_fake_repo runs in.
+    FAKE_SCRIPTS_REPO="${BATS_TEST_TMPDIR}/fake-scripts-repo"
 }
 
 @test "dev-scripts symlinks every executable script into the bin dir" {
@@ -27,23 +30,23 @@ setup() {
 }
 
 # Copies install.d/dev-scripts and lib/common into a throwaway fake repo
-# tree under BATS_TEST_TMPDIR/fake-scripts-repo, so a test can populate
+# tree at FAKE_SCRIPTS_REPO, so a test can populate
 # settings/scripts/ with fixtures without touching the real repo tree, then
 # runs the copied dev-scripts against it.
 run_dev_scripts_against_fake_repo() {
-    mkdir -p "${BATS_TEST_TMPDIR}/fake-scripts-repo/lib" "${BATS_TEST_TMPDIR}/fake-scripts-repo/install.d"
-    cp "${REPO_DIR}/lib/common" "${BATS_TEST_TMPDIR}/fake-scripts-repo/lib/common"
-    cp "${DEV_SCRIPTS}" "${BATS_TEST_TMPDIR}/fake-scripts-repo/install.d/dev-scripts"
-    chmod +x "${BATS_TEST_TMPDIR}/fake-scripts-repo/install.d/dev-scripts"
+    mkdir -p "${FAKE_SCRIPTS_REPO}/lib" "${FAKE_SCRIPTS_REPO}/install.d"
+    cp "${REPO_DIR}/lib/common" "${FAKE_SCRIPTS_REPO}/lib/common"
+    cp "${DEV_SCRIPTS}" "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    chmod +x "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
 
-    run "${BATS_TEST_TMPDIR}/fake-scripts-repo/install.d/dev-scripts"
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
 }
 
 @test "dev-scripts dies on a basename collision across source directories" {
-    mkdir -p "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db" "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/development"
-    printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dup"
-    printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/development/dup"
-    chmod +x "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dup" "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/development/dup"
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db" "${FAKE_SCRIPTS_REPO}/settings/scripts/development"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dup"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/development/dup"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dup" "${FAKE_SCRIPTS_REPO}/settings/scripts/development/dup"
 
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 1 ]
@@ -52,13 +55,13 @@ run_dev_scripts_against_fake_repo() {
 }
 
 @test "dev-scripts does not link a non-executable sibling data file" {
-    mkdir -p "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db"
-    printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
-    chmod +x "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
     # Non-executable data file living alongside a real script, e.g. a
     # config/template file a script reads - must not be linked into
     # DEV_SCRIPTS_BIN_DIR as if it were a standalone command.
-    printf 'not a script\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool-config"
+    printf 'not a script\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-config"
 
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 0 ]
@@ -138,14 +141,11 @@ OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scri
 # step without any real root/sudo.
 # Usage: fail_sudo_for <command-name>
 fail_sudo_for() {
-    mkdir -p "${BATS_TEST_TMPDIR}/fakesudo"
-    cat > "${BATS_TEST_TMPDIR}/fakesudo/sudo" <<EOF
+    replace_fake sudo <<EOF
 #!/bin/sh
 [ "\$1" = "$1" ] && exit 1
 exit 0
 EOF
-    chmod +x "${BATS_TEST_TMPDIR}/fakesudo/sudo"
-    export PATH="${BATS_TEST_TMPDIR}/fakesudo:${PATH}"
     chmod 555 "${DEV_SCRIPTS_BIN_DIR}"
 }
 
@@ -157,9 +157,9 @@ teardown() {
 # A single executable fixture script in the fake repo, so the link step has
 # exactly one deterministic target.
 add_fake_dev_script() {
-    mkdir -p "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db"
-    printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
-    chmod +x "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/dbtool"
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
 }
 
 @test "dev-scripts fails, naming the bin dir, when creating it fails" {
@@ -187,7 +187,7 @@ add_fake_dev_script() {
 @test "dev-scripts fails, naming the link, when removing a stale symlink fails" {
     [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
     add_fake_dev_script
-    ln -s "${BATS_TEST_TMPDIR}/fake-scripts-repo/settings/scripts/db/no-longer-here" "${DEV_SCRIPTS_BIN_DIR}/no-longer-here"
+    ln -s "${FAKE_SCRIPTS_REPO}/settings/scripts/db/no-longer-here" "${DEV_SCRIPTS_BIN_DIR}/no-longer-here"
     fail_sudo_for rm
 
     run_dev_scripts_against_fake_repo

@@ -47,14 +47,20 @@ setup() {
 # Copies run-dev-update, the lib/common it reports errors through and every
 # bash.bashrc.d section it sources into a clone-shaped tree under the test
 # dir, with a stub dev-update that records the environment it was started with
-# and exits 3, so the real dev-update never runs. Prints the path of the
-# copied run-dev-update.
+# and exits 3, so the real dev-update never runs. Sets CLONE_RUN_DEV_UPDATE to
+# the copied run-dev-update, CLONE_SECTIONS_DIR to the copied sections'
+# directory, CLONE_LIB_COMMON to the copied lib/common and RECORDED_ENV to the
+# file the stub writes, so no test has to know how the tree is laid out.
 setup_run_dev_update_tree() {
     local _root="${BATS_TEST_TMPDIR}/clone"
+    CLONE_RUN_DEV_UPDATE="${_root}/units/dev-update/run-dev-update"
+    CLONE_SECTIONS_DIR="${_root}/settings/bash.bashrc.d"
+    CLONE_LIB_COMMON="${_root}/lib/common"
+    RECORDED_ENV="${BATS_TEST_TMPDIR}/dev-update.env"
     mkdir -p "${_root}/units/dev-update" "${_root}/settings/scripts/linux" "${_root}/lib"
-    cp "${DEV_UPDATE_UNITS}/run-dev-update" "${_root}/units/dev-update/"
-    cp "${REPO_DIR}/lib/common" "${_root}/lib/"
-    cp -r "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    cp "${DEV_UPDATE_UNITS}/run-dev-update" "${CLONE_RUN_DEV_UPDATE}"
+    cp "${REPO_DIR}/lib/common" "${CLONE_LIB_COMMON}"
+    cp -r "${REPO_DIR}/settings/bash.bashrc.d" "${CLONE_SECTIONS_DIR}"
     cat > "${_root}/settings/scripts/linux/dev-update" <<EOF
 #!/bin/sh
 {
@@ -62,16 +68,15 @@ setup_run_dev_update_tree() {
     printf 'DOTNET_NOLOGO=%s\n' "\${DOTNET_NOLOGO:-}"
     printf 'DOTNET_ROOT=%s\n' "\${DOTNET_ROOT:-}"
     printf 'NVM_DIR=%s\n' "\${NVM_DIR:-}"
-} > "${BATS_TEST_TMPDIR}/dev-update.env"
+} > "${RECORDED_ENV}"
 exit 3
 EOF
     chmod +x "${_root}/settings/scripts/linux/dev-update"
-    printf '%s\n' "${_root}/units/dev-update/run-dev-update"
 }
 
 # Prints the PATH recorded by the stub dev-update.
 recorded_path() {
-    sed -n 's/^PATH=//p' "${BATS_TEST_TMPDIR}/dev-update.env"
+    sed -n 's/^PATH=//p' "${RECORDED_ENV}"
 }
 
 # Succeeds when the PATH recorded by the stub dev-update has the given entry.
@@ -80,10 +85,21 @@ recorded_path_has() {
 }
 
 @test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _gopath
-    _run="$(setup_run_dev_update_tree)"
-    mkdir -p "${HOME}/.bun/bin"
-    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    local _section
+    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _gopath="${BATS_TEST_TMPDIR}/go-default"
+    setup_run_dev_update_tree
+    mkdir -p "${HOME}/.bun/bin" "${_dotnet}"
+    # .NET, nvm and Go are stand-ins, so what each section does when its tool
+    # is there is checked whether or not the machine running the suite has it.
+    _section="$(dotnet_section_reading "${_dotnet}")"
+    cp "${_section}" "${CLONE_SECTIONS_DIR}/60_dotnet.sh"
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    cp "${_section}" "${CLONE_SECTIONS_DIR}/70_nvm.sh"
+    setup_fake_bin go
+    seed_fake_output go <<< "${_gopath}"
+    # run-dev-update sources the sections with the PATH it is started with,
+    # so 55_go.sh only finds the fake go when its directory is in that PATH.
+    run --separate-stderr run_with_clean_tool_env PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     [ "${status}" -eq 3 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
@@ -96,33 +112,30 @@ recorded_path_has() {
     # bun is prepended, as nvm's Node.js directory is, so those two do come
     # ahead of /usr/bin. That is deliberate: it is the order every interactive
     # shell has, and timer runs are meant to find the same tools.
-    grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
-    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
-    if [ -d /usr/share/dotnet ]; then
-        grep -qx 'DOTNET_ROOT=/usr/share/dotnet' "${_env}"
-        recorded_path_has /usr/share/dotnet
-    fi
-    if [ -x /usr/bin/go ]; then
-        _gopath="$(run_with_clean_tool_env go env GOPATH)"
-        recorded_path_has "${_gopath}/bin"
-    fi
-    if [ -f /usr/share/nvm/nvm.sh ]; then
-        # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on
-        # every machine this repo installs.
-        grep -qx "NVM_DIR=${HOME}/.config/nvm" "${_env}"
-    fi
+    grep -qx "PATH=${HOME}/.bun/bin:.*" "${RECORDED_ENV}"
+    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
+    grep -qx "DOTNET_ROOT=${_dotnet}" "${RECORDED_ENV}"
+    recorded_path_has "${_dotnet}"
+    # run_with_clean_tool_env clears GOPATH, so the entry is the answer the
+    # fake go gave, not one a real go or the caller's GOPATH would give.
+    assert_fake_called '^go env GOPATH$'
+    recorded_path_has "${_gopath}/bin"
+    # Where 70_nvm.sh puts it when XDG_CONFIG_HOME is set, as it is on every
+    # machine this repo installs.
+    grep -qx "NVM_DIR=${HOME}/.config/nvm" "${RECORDED_ENV}"
+    assert_nvm_loads package
 }
 
 @test "run-dev-update adds no PATH entry twice when its caller has already loaded the sections" {
-    local _run _path _entry
-    _run="$(setup_run_dev_update_tree)"
+    local _path _entry
+    setup_run_dev_update_tree
     mkdir -p "${HOME}/.bun/bin"
-    run run_with_clean_tool_env "${_run}" < /dev/null
+    run run_with_clean_tool_env "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     [ "${status}" -eq 3 ]
     _path="$(recorded_path)"
     # Second run, started with the PATH the first one built, as a manual run
     # from a terminal is.
-    run run_with_clean_tool_env PATH="${_path}" "${_run}" < /dev/null
+    run run_with_clean_tool_env PATH="${_path}" "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     [ "${status}" -eq 3 ]
     for _entry in "${HOME}/.local/bin" "${HOME}/.cargo/bin" "${HOME}/.bun/bin"; do
         [ "$(recorded_path | tr ':' '\n' | grep -cxF "${_entry}")" -eq 1 ]
@@ -130,40 +143,39 @@ recorded_path_has() {
 }
 
 @test "run-dev-update sources the remaining sections and starts dev-update when a section assigns the names the wrapper might use" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env"
-    _run="$(setup_run_dev_update_tree)"
+    setup_run_dev_update_tree
     mkdir -p "${HOME}/.bun/bin"
     # Sorts ahead of every section but the first, so the rest are sourced
     # after it has run.
-    cat > "${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d/01_clobber.sh" <<'EOF'
+    cat > "${CLONE_SECTIONS_DIR}/01_clobber.sh" <<'EOF'
 section=/nonexistent/section.sh
 sections=(/nonexistent/section.sh)
 BASEDIR=/nonexistent
 SCRIPTDIR=/nonexistent
 EOF
-    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    run --separate-stderr run_with_clean_tool_env "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     [ "${status}" -eq 3 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
     # Set by 60_dotnet.sh and 75_bun.sh, which sort after the stub.
-    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
-    grep -qx "PATH=${HOME}/.bun/bin:.*" "${_env}"
+    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
+    grep -qx "PATH=${HOME}/.bun/bin:.*" "${RECORDED_ENV}"
 }
 
 @test "run-dev-update reports a section that assigns any of its read-only names, runs the rest of that section and the later ones, and still starts its own dev-update" {
-    local _run _env="${BATS_TEST_TMPDIR}/dev-update.env" _name
-    _run="$(setup_run_dev_update_tree)"
+    local _name
+    setup_run_dev_update_tree
     # Every name the wrapper keeps read-only, then a statement of the
     # section's own, which only runs if none of the failed assignments above
     # it ended the section.
-    cat > "${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d/01_clobber.sh" <<'EOF'
+    cat > "${CLONE_SECTIONS_DIR}/01_clobber.sh" <<'EOF'
 RUN_DEV_UPDATE_BASEDIR=/nonexistent
 RUN_DEV_UPDATE_COMMAND=/nonexistent/dev-update
 RUN_DEV_UPDATE_SECTIONS_DIR=/nonexistent/bash.bashrc.d
 RUN_DEV_UPDATE_SECTIONS=(/nonexistent/section.sh)
 PATH="${PATH}:/units-test/after-clobber"
 EOF
-    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    run --separate-stderr run_with_clean_tool_env "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     # The stub dev-update's status, so the command was not replaced.
     [ "${status}" -eq 3 ]
     for _name in BASEDIR COMMAND SECTIONS_DIR SECTIONS; do
@@ -172,47 +184,46 @@ EOF
     recorded_path_has /units-test/after-clobber
     # Set by 60_dotnet.sh, which sorts after the stub, so the list of
     # sections was not replaced either.
-    grep -qx 'DOTNET_NOLOGO=true' "${_env}"
+    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
 }
 
 @test "run-dev-update fails without starting dev-update when bash.bashrc.d holds no sections or is missing" {
-    local _run _sections="${BATS_TEST_TMPDIR}/clone/settings/bash.bashrc.d" _state
-    _run="$(setup_run_dev_update_tree)"
-    rm "${_sections}"/*.sh
+    local _state
+    setup_run_dev_update_tree
+    rm "${CLONE_SECTIONS_DIR}"/*.sh
     for _state in empty missing; do
-        run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+        run --separate-stderr run_with_clean_tool_env "${CLONE_RUN_DEV_UPDATE}" < /dev/null
         [ "${status}" -eq 1 ]
         [ -z "${output}" ]
-        [[ "${stderr}" == *"No bash.bashrc.d sections found in ${_sections}"* ]]
-        [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
+        [[ "${stderr}" == *"No bash.bashrc.d sections found in ${CLONE_SECTIONS_DIR}"* ]]
+        [ ! -e "${RECORDED_ENV}" ]
         # The second pass runs with the directory gone.
-        [ "${_state}" = missing ] || rmdir "${_sections}"
+        [ "${_state}" = missing ] || rmdir "${CLONE_SECTIONS_DIR}"
     done
-    [ ! -e "${_sections}" ]
+    [ ! -e "${CLONE_SECTIONS_DIR}" ]
 }
 
 @test "run-dev-update fails without starting dev-update when lib/common is missing" {
-    local _run
-    _run="$(setup_run_dev_update_tree)"
-    rm "${BATS_TEST_TMPDIR}/clone/lib/common"
-    run --separate-stderr run_with_clean_tool_env "${_run}" < /dev/null
+    setup_run_dev_update_tree
+    rm "${CLONE_LIB_COMMON}"
+    run --separate-stderr run_with_clean_tool_env "${CLONE_RUN_DEV_UPDATE}" < /dev/null
     [ "${status}" -eq 1 ]
     [[ "${stderr}" == *"lib/common"* ]]
-    [ ! -e "${BATS_TEST_TMPDIR}/dev-update.env" ]
+    [ ! -e "${RECORDED_ENV}" ]
 }
 
-# Sources the section named by $2 from the bash.bashrc.d directory in $1, on
-# its own apart from the shared PATH helpers, which the PATH sections cannot
-# run without. Run through run_section_shell non-interactive, this is one
-# section as run-dev-update sources it: in a non-interactive bash with no
+# Sources the section at the path in $2, on its own apart from the shared
+# PATH helpers in the bash.bashrc.d directory in $1, which the PATH sections
+# cannot run without. Run through run_section_shell non-interactive, this is
+# one section as run-dev-update sources it: in a non-interactive bash with no
 # terminal and the caller's tool settings cleared.
 # shellcheck disable=SC2016
-SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$1/$2"'
+SOURCE_SECTION_SCRIPT='. "$1/45_path-helpers.sh"; . "$2"'
 
 @test "every bash.bashrc.d section writes nothing to stdout or stderr when sourced on its own by a non-interactive bash" {
     local _section _offenders=""
     for _section in "${SECTIONS_DIR}"/*.sh; do
-        run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section##*/}"
+        run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
         if [ -n "${output}" ] || [ -n "${stderr}" ]; then
             _offenders+="${_section##*/}: ${output}${stderr}"$'\n'
         fi
@@ -280,21 +291,24 @@ EOF
 }
 
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
+    local _package _section
+    _package="$(setup_fake_nvm_package)"
+    _section="$(nvm_section_reading "${_package}")"
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
     # Proves the first-use setup ran, so the silence above is not vacuous.
-    [ -L "${HOME}/.config/nvm/nvm.sh" ]
+    [ "$(readlink "${HOME}/.config/nvm/nvm.sh")" = "${_package}/nvm.sh" ]
 }
 
 @test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+    local _section
+    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
     # A regular file where NVM_DIR should be makes the symlinks fail.
     mkdir -p "${HOME}/.config"
     : > "${HOME}/.config/nvm"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" 70_nvm.sh
+    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
     [ -z "${output}" ]
     [[ "${stderr}" == *"${HOME}/.config/nvm/nvm.sh"* ]]
 }

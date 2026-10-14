@@ -16,14 +16,10 @@ setup() {
 
     # A real sudo is neither available nor wanted in tests; this fake execs
     # the wrapped command directly as the current (fixture-owning) user.
-    SUDO_BIN_DIR="${BATS_TEST_TMPDIR}/sudobin"
-    mkdir -p "${SUDO_BIN_DIR}"
-    cat > "${SUDO_BIN_DIR}/sudo" <<'EOF'
+    replace_fake sudo <<'EOF'
 #!/bin/sh
 exec "$@"
 EOF
-    chmod +x "${SUDO_BIN_DIR}/sudo"
-    export PATH="${SUDO_BIN_DIR}:${PATH}"
 }
 
 write_fixture() {

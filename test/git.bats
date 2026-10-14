@@ -8,8 +8,6 @@ GIT_DIR_SCRIPTS="${SCRIPTS_DIR}/git"
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
     export GIT_AUTHOR_NAME="Test" GIT_AUTHOR_EMAIL="test@example.com"
     export GIT_COMMITTER_NAME="Test" GIT_COMMITTER_EMAIL="test@example.com"
 }

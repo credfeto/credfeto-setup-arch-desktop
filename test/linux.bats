@@ -56,9 +56,9 @@ setup_fake_network() {
     local _active="$1"
     shift
     setup_fake_bin nm-online systemd-networkd-wait-online "$@"
-    cat > "${FAKE_BIN_DIR}/systemctl" <<EOF
+    replace_fake systemctl <<EOF
 #!/bin/sh
-printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1" = "is-active" ]; then
     [ "\$3" = "${_active}" ]
     exit
@@ -68,7 +68,6 @@ if [ "\$2" = "start" ] && [ -n "\${FAKE_EXIT_systemctl_start:-}" ]; then
 fi
 exit "\${FAKE_EXIT_systemctl:-0}"
 EOF
-    chmod +x "${FAKE_BIN_DIR}/systemctl"
     export SYSTEMD_NETWORKD_WAIT_ONLINE="${FAKE_BIN_DIR}/systemd-networkd-wait-online"
 }
 
@@ -78,12 +77,11 @@ EOF
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
-    cat > "${_path}" <<EOF
+    write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "$2" "\$*" >> "${FAKE_BIN_LOG}"
+printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
-    chmod +x "${_path}"
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<name> <cwd>" to
@@ -96,17 +94,15 @@ make_cwd_logging_stub() {
     local _path="$1/$2" _name
     _name="$(basename "$2")"
     mkdir -p "$(dirname "${_path}")"
-    cat > "${_path}" <<EOF
+    write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "${_name}" "\$(pwd)" >> "${FAKE_BIN_LOG}"
+printf '%s %s\n' "${_name}" "\$(pwd)" >> "\${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
-    chmod +x "${_path}"
-    cat > "${FAKE_BIN_DIR}/${_name}" <<EOF
+    replace_fake "${_name}" <<EOF
 #!/bin/sh
-printf 'PATH %s\n' "${_name}" >> "${FAKE_BIN_LOG}"
+printf 'PATH %s\n' "${_name}" >> "\${FAKE_BIN_LOG}"
 EOF
-    chmod +x "${FAKE_BIN_DIR}/${_name}"
 }
 
 # Lines of the fake log in order, minus the network and session probes.
@@ -254,9 +250,9 @@ run_clone_reference_repo() {
 setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
-    cat > "${FAKE_BIN_DIR}/git" <<EOF
+    replace_fake git <<EOF
 #!/bin/sh
-printf 'git %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 [ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
 if [ "\$1" = "clone" ]; then
     if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
@@ -286,7 +282,6 @@ if [ "\$1" = "-C" ]; then
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/git"
 }
 
 # Prints the fake log lines expected when a reference clone is brought up
@@ -399,10 +394,10 @@ setup_dev_update_fixture() {
 @test "dev-update holds the lock while its steps run" {
     setup_dev_update_fixture
     # A second dev-update started from inside a step must find the lock held.
-    cat > "${HOME}/work/reference/claude/install" <<EOF
+    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
 "${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
-printf 'nested dev-update exited %s\n' "\$?" >> "${FAKE_BIN_LOG}"
+printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
 
     run "${LINUX_DIR}/dev-update"
@@ -417,14 +412,14 @@ EOF
     setup_dev_update_fixture
     # A process a step leaves behind keeps every fd it inherited, so an
     # inherited lock fd would keep the lock held after dev-update ends.
-    cat > "${HOME}/work/reference/claude/install" <<EOF
+    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
-        *dev-update.lock) printf 'lock fd inherited\n' >> "${FAKE_BIN_LOG}" ;;
+        *dev-update.lock) printf 'lock fd inherited\n' >> "\${FAKE_BIN_LOG}" ;;
     esac
 done
-printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
+printf 'claude/install ran\n' >> "\${FAKE_BIN_LOG}"
 EOF
 
     run "${LINUX_DIR}/dev-update"
@@ -524,12 +519,12 @@ EOF
     # and have its service exit "already running".
     replace_fake systemctl <<EOF
 #!/bin/sh
-printf 'systemctl %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$2" = "start" ]; then
     if flock -n "${XDG_RUNTIME_DIR}/dev-update.lock" true; then
-        printf 'lock free at timer start\n' >> "${FAKE_BIN_LOG}"
+        printf 'lock free at timer start\n' >> "\${FAKE_BIN_LOG}"
     else
-        printf 'lock held at timer start\n' >> "${FAKE_BIN_LOG}"
+        printf 'lock held at timer start\n' >> "\${FAKE_BIN_LOG}"
     fi
 fi
 [ "\$1" = "is-active" ] && [ "\$3" != "NetworkManager.service" ] && exit 1
@@ -988,20 +983,16 @@ setup_dev_install_fixture() {
 
 setup_fake_flatpak_with_installed() {
     # $1: newline-separated list of installed app IDs `flatpak list` reports.
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/flatpak" <<EOF
+    # Any further arguments are more tools to fake via setup_fake_bin.
+    setup_fake_bin "${@:2}"
+    replace_fake flatpak <<EOF
 #!/bin/sh
-printf 'flatpak %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'flatpak %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1 \$2" = "list --app" ]; then
     printf '%s\n' "$1"
 fi
 exit 0
 EOF
-    chmod +x "${FAKE_BIN_DIR}/flatpak"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
 @test "login only launches candidate apps that are actually installed" {
@@ -1032,17 +1023,7 @@ EOF
 }
 
 @test "login starts the stream when streamlink is present" {
-    setup_fake_flatpak_with_installed ""
-    cat > "${FAKE_BIN_DIR}/streamlink" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-    cat > "${FAKE_BIN_DIR}/stream" <<EOF
-#!/bin/sh
-printf 'stream %s\n' "\$*" >> "${FAKE_BIN_LOG}"
-exit 0
-EOF
-    chmod +x "${FAKE_BIN_DIR}/streamlink" "${FAKE_BIN_DIR}/stream"
+    setup_fake_flatpak_with_installed "" streamlink stream
 
     run "${LINUX_DIR}/login"
     [ "${status}" -eq 0 ]
@@ -1055,12 +1036,11 @@ EOF
 # A fake tmux that logs every call and reports has-session as failing (no
 # session) unless the marker file $BATS_TEST_TMPDIR/session-exists is present.
 setup_fake_tmux() {
-    setup_fake_bin tmux
-    # FAKE_EXIT_tmux applies to every subcommand, so the stock fake is
-    # replaced with one that fails only has-session.
-    cat > "${FAKE_BIN_DIR}/tmux" <<EOF
+    # FAKE_EXIT_tmux would apply to every subcommand of the stock fake, so
+    # this one is written out to fail only has-session.
+    replace_fake tmux <<EOF
 #!/bin/sh
-printf 'tmux %s\n' "\$*" >> "${FAKE_BIN_LOG}"
+printf 'tmux %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; then
     exit 1
 fi

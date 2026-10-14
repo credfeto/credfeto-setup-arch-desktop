@@ -9,9 +9,9 @@ GENERAL_DIR="${SCRIPTS_DIR}/general"
 
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
+    # Where wallpaper keeps its clone of the wallpapers repo.
+    WALLPAPERS_DIR="${HOME}/work/thirdparty/wallpapers"
     mkdir -p "${HOME}"
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
 }
 
 # ── mkrelease ────────────────────────────────────────────────────────────────
@@ -73,8 +73,8 @@ setup() {
 # work tree's top level, so wallpaper treats it as a clone.
 # Usage: make_wallpapers_clone
 make_wallpapers_clone() {
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
-    readlink -f "${HOME}/work/thirdparty/wallpapers" | seed_fake_output git
+    mkdir -p "${WALLPAPERS_DIR}"
+    readlink -f "${WALLPAPERS_DIR}" | seed_fake_output git
 }
 
 @test "wallpaper clones the wallpapers repo when absent, exits cleanly if still absent after" {
@@ -92,8 +92,8 @@ make_wallpapers_clone() {
     # is part of the fixture, not something the script itself guarantees.
     mkdir -p "${HOME}/Pictures"
     make_wallpapers_clone
-    printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
-    printf 'fake-jpg-2' > "${HOME}/work/thirdparty/wallpapers/two.jpg"
+    printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
+    printf 'fake-jpg-2' > "${WALLPAPERS_DIR}/two.jpg"
 
     run "${GENERAL_DIR}/wallpaper"
     [ "${status}" -eq 0 ]
@@ -110,12 +110,12 @@ make_wallpapers_clone() {
 
 @test "wallpaper dies naming a wallpapers directory that is not a git clone, and never pulls" {
     setup_fake_bin git
-    mkdir -p "${HOME}/work/thirdparty/wallpapers"
+    mkdir -p "${WALLPAPERS_DIR}"
     # The fake git prints nothing for rev-parse, as for a directory that is
     # in no repo of its own.
     run "${GENERAL_DIR}/wallpaper"
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"${HOME}/work/thirdparty/wallpapers exists but is not a git clone"* ]]
+    [[ "${output}" == *"${WALLPAPERS_DIR} exists but is not a git clone"* ]]
     assert_fake_called '^git -C .*wallpapers rev-parse --show-toplevel$'
     refute_fake_called 'pull'
 }
@@ -124,7 +124,7 @@ make_wallpapers_clone() {
     setup_fake_bin git
     mkdir -p "${HOME}/Pictures"
     make_wallpapers_clone
-    printf 'fake-jpg-1' > "${HOME}/work/thirdparty/wallpapers/one.jpg"
+    printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
     # Present, but with no "{...}"-named subfolder yet - e.g. Zoom's virtual
     # background picker was opened but no custom background added.
     mkdir -p "${HOME}/.var/app/us.zoom.Zoom/.zoom/data/VirtualBkgnd_Custom"
@@ -165,13 +165,9 @@ make_wallpapers_clone() {
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/dotnet" <<'EOF'
+    replace_fake dotnet <<'EOF'
 #!/bin/sh
-printf 'dotnet %s\n' "$*" >> "__FAKE_BIN_LOG__"
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
 case "$1 $2" in
     "tool list")
         if [ "$3" = "--local" ]; then
@@ -183,9 +179,6 @@ case "$1 $2" in
 esac
 exit 0
 EOF
-    sed -i "s#__FAKE_BIN_LOG__#${FAKE_BIN_LOG}#" "${FAKE_BIN_DIR}/dotnet"
-    chmod +x "${FAKE_BIN_DIR}/dotnet"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
@@ -264,7 +257,7 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
-    setup_fake_sudo curl tar
+    setup_fake_sudo curl
     # Only the 8.0 channel exists, so a run that wrongly carried on would
     # stop at the next channel rather than go on to the tool steps.
     seed_fake_output curl <<'EOF'

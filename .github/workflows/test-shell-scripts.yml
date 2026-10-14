@@ -1,0 +1,83 @@
+--- # Test: run the bats shell test suite against the repo's shell scripts
+name: "Test: Shell Scripts"
+
+on:
+  pull_request:
+    branches:
+      - "main"
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # @@required: main
+  shell-tests:
+    runs-on: ubuntu-latest
+    # Backstop only: a job timeout cancels the run, which skips the report step.
+    timeout-minutes: 15
+
+    env:
+      BATS_RESULTS: "bats-results.tap"
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: "Install test tools"
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bats dash bash-completion util-linux
+
+      - name: "Install nvm"
+        shell: bash
+        run: |
+          nvm_source="${RUNNER_TEMP}/nvm"
+          git init --quiet "${nvm_source}"
+          git -C "${nvm_source}" fetch --quiet --depth 1 "${NVM_REPOSITORY}" "${NVM_COMMIT}"
+          git -C "${nvm_source}" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+
+          sudo install -d -m 0755 /usr/share/nvm
+          sudo install -m 0644 "${nvm_source}/nvm.sh" /usr/share/nvm/nvm.sh
+          sudo install -m 0755 "${nvm_source}/nvm-exec" /usr/share/nvm/nvm-exec
+          sudo install -m 0644 "${nvm_source}/bash_completion" /usr/share/nvm/bash_completion
+        env:
+          NVM_REPOSITORY: "https://github.com/nvm-sh/nvm"
+          # Fetched by commit, so the content is pinned.
+          NVM_COMMIT: "a885b885fef16fac4bc544188fb25e9e37ae83e8" # v0.40.8
+
+      - name: "Run shell tests"
+        id: run-tests
+        # A step timeout fails the step rather than cancelling the run, so a hung test still gets reported.
+        timeout-minutes: 10
+        shell: bash
+        run: bats --recursive --formatter tap test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}"
+
+      - name: "Report shell test results"
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/report-bats-results
+        with:
+          results-file: "${{runner.temp}}/${{env.BATS_RESULTS}}"
+          bats-outcome: "${{steps.run-tests.outcome}}"

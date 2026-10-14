@@ -262,19 +262,12 @@ printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
 # Writes a copy of 00_shell-options.sh that reads the given file wherever the
 # section names /etc/os-release, so the parsing can be given any content. The
 # section itself has no way to be pointed at another file, and must not have
-# one: LINUX_DISTRIBUTION is only ever this machine's own. Prints the copy's
-# path.
+# one: LINUX_DISTRIBUTION is only ever this machine's own. Fails unless the
+# existence test and the read both moved. Prints the copy's path.
 # Usage: shell_options_reading <os-release-file>
 shell_options_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/os-release-sections/00_shell-options.sh"
-    mkdir -p "${_copy%/*}"
-    sed "s|/etc/os-release|$1|g" "${SECTIONS_DIR}/00_shell-options.sh" > "${_copy}"
-    # The existence test and the read both moved, and nothing still reads
-    # the real file.
-    grep -q -F "[ -f $1 ]" "${_copy}" || return 1
-    grep -q -F "done < $1" "${_copy}" || return 1
-    ! grep -q -F /etc/os-release "${_copy}" || return 1
-    printf '%s\n' "${_copy}"
+    section_reading 00_shell-options.sh /etc/os-release "$1" \
+        "[ -f ${1@Q} ]" "done < ${1@Q}"
 }
 
 # Sources 00_shell-options.sh reading an os-release with the given content,
@@ -397,11 +390,13 @@ run_shell_options_with_os_release() {
     [ "${lines[2]}" = 'completion=none' ]
 }
 
-@test "70_nvm.sh registers no nvm completion from the installed package in a non-interactive shell" {
-    [ -f /usr/share/nvm/nvm.sh ] || skip "nvm package not installed"
+# The installed package, not a stand-in: only nvm's own bash_completion shows
+# whether it still registers __nvm for nvm when it is sourced in a shell that
+# has no terminal. The stand-ins above only show which file was sourced.
+@test "70_nvm.sh registers the installed nvm package's completion only in an interactive shell" {
+    [ -f /usr/share/nvm/bash_completion ]
     # shellcheck disable=SC2016
     local _script='. "$1/70_nvm.sh"; complete -p nvm'
-    # The control: the same script does find the completion once it is loaded.
     run_section_shell interactive "${_script}"
     [ "${status}" -eq 0 ]
     [[ "${output}" == *'-F __nvm nvm' ]]
@@ -423,19 +418,41 @@ run_shell_options_with_os_release() {
     [ "${status}" -ne 0 ]
 }
 
-@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
-    [ -f /usr/share/autojump/autojump.sh ] || skip "autojump not installed"
-    # shellcheck disable=SC2016
-    local _script='. "$1/77_autojump.sh"
-complete -p j > /dev/null 2>&1 && echo completion
+# Sources the copy of 77_autojump.sh in $2, then prints the status it
+# returned, the j completion when there is one, and "hook" when
+# PROMPT_COMMAND calls autojump.
+# shellcheck disable=SC2016
+AUTOJUMP_SECTION_SCRIPT='
+. "$2"
+printf "status=%s\n" "$?"
+complete -p j 2> /dev/null
 [[ "${PROMPT_COMMAND[*]}" == *autojump_add_to_database* ]] && echo hook
 true'
-    run_section_shell interactive "${_script}"
+
+@test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
+    local _autojump_dir="${BATS_TEST_TMPDIR}/autojump" _section
+    write_fake_autojump "${_autojump_dir}"
+    _section="$(autojump_section_reading "${_autojump_dir}")"
+    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
-    [ "${output}" = $'completion\nhook' ]
-    run_section_shell non-interactive "${_script}"
+    [ "${output}" = $'status=0\ncomplete -F _autojump j\nhook' ]
+    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
     [ "${status}" -eq 0 ]
-    [ -z "${output}" ]
+    [ "${output}" = 'status=0' ]
+    [ -z "${stderr}" ]
+}
+
+@test "77_autojump.sh registers nothing and reports nothing when autojump is not installed" {
+    local _section
+    _section="$(autojump_section_reading "${BATS_TEST_TMPDIR}/no-autojump")"
+    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'status=0' ]
+    [[ "${stderr}" != *autojump* ]]
+    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'status=0' ]
+    [ -z "${stderr}" ]
 }
 
 @test "14_cd-aliases.sh defines the .. to .......... and cd.. to cd.......... aliases and cleans up its variables" {
@@ -456,46 +473,6 @@ true'
 # shell must load exactly one copy of it: the package's when that is
 # installed, and otherwise the one NVM_DIR holds.
 
-# Writes a stand-in for nvm into the given directory: an nvm.sh that adds the
-# given label to ${BATS_TEST_TMPDIR}/nvm-loads each time it is sourced, and a
-# bash_completion that leaves the label in nvm_completion_loaded.
-# Usage: write_fake_nvm <dir> <label>
-write_fake_nvm() {
-    mkdir -p "$1"
-    printf 'echo %s >> "%s"\n' "$2" "${BATS_TEST_TMPDIR}/nvm-loads" > "$1/nvm.sh"
-    printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
-}
-
-# Creates a stand-in for the nvm package's directory, labelled "package", and
-# prints its path.
-setup_fake_nvm_package() {
-    local _package="${BATS_TEST_TMPDIR}/nvm-package"
-    write_fake_nvm "${_package}" package
-    : > "${_package}/nvm-exec"
-    printf '%s\n' "${_package}"
-}
-
-# Writes a copy of 70_nvm.sh that looks for the nvm package in the given
-# directory wherever the section names /usr/share/nvm, so a test decides
-# whether the package is there and what it holds. The section itself has no
-# way to be pointed at another directory, and needs none. Prints the copy's
-# path.
-# Usage: nvm_section_reading <package-dir>
-nvm_section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/nvm-sections/70_nvm.sh"
-    mkdir -p "${_copy%/*}"
-    sed "s|/usr/share/nvm|$1|g" "${SECTIONS_DIR}/70_nvm.sh" > "${_copy}"
-    # The existence test, both loads and both links moved, and nothing still
-    # names the real package.
-    grep -q -F "[ -f $1/nvm.sh ]" "${_copy}" || return 1
-    grep -q -F ". $1/nvm.sh" "${_copy}" || return 1
-    grep -q -F ". $1/bash_completion" "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm.sh " "${_copy}" || return 1
-    grep -q -F "ln -sf $1/nvm-exec " "${_copy}" || return 1
-    ! grep -q -F /usr/share/nvm "${_copy}" || return 1
-    printf '%s\n' "${_copy}"
-}
-
 # Sources the copy of 70_nvm.sh in $2, then prints the status it returned,
 # NVM_DIR, which completion was loaded and whether NVM_DIR is exported.
 # shellcheck disable=SC2016
@@ -510,18 +487,6 @@ printf "exported=%s\n" "$(export -p | grep -c "^declare -x NVM_DIR=")"
 # Usage: run_nvm_section [<VAR=value> ...] interactive|non-interactive <copy-of-70_nvm.sh>
 run_nvm_section() {
     run_section_shell "${@:1:$#-1}" "${NVM_SECTION_SCRIPT}" "${@: -1}"
-}
-
-# Succeeds when the stand-in nvm.sh files were sourced exactly as listed, one
-# label a line, and by nothing when no label is given.
-# Usage: assert_nvm_loads [<label> ...]
-assert_nvm_loads() {
-    local _loads="${BATS_TEST_TMPDIR}/nvm-loads"
-    if [ "$#" -eq 0 ]; then
-        [ ! -e "${_loads}" ]
-        return
-    fi
-    [ "$(cat "${_loads}")" = "$(printf '%s\n' "$@")" ]
 }
 
 @test "70_nvm.sh loads the package's nvm.sh once and sets up NVM_DIR silently on a home that has none" {
@@ -646,14 +611,23 @@ assert_nvm_loads() {
 # A nested interactive shell, or run-dev-update started from a terminal,
 # sources these sections in a shell whose PATH already has their entries.
 
-# Sources the named section twice, after the PATH helpers it calls, starting
-# from the given PATH, and leaves the resulting PATH in $output. Any VAR=value
-# arguments are set in the shell's environment first.
-# Usage: run_section_twice <section-file> <starting-path> [<VAR=value> ...]
+# Sources the section at the given path twice, after the PATH helpers it
+# calls, starting from the given PATH, and leaves the resulting PATH in
+# $output. Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_section_twice <section-path> <starting-path> [<VAR=value> ...]
 run_section_twice() {
     # shellcheck disable=SC2016
-    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$1/$2"; . "$1/$2"; printf "%s\n" "$PATH"' "$1" "$2"
+    run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$2"; . "$2"; printf "%s\n" "$PATH"' "$1" "$2"
 }
+
+# Sources the copy of 60_dotnet.sh in $2 twice, after the PATH helpers it
+# calls, and prints DOTNET_ROOT as the shell declares it, or "unset".
+# shellcheck disable=SC2016
+DOTNET_ROOT_AFTER_SECTION_SCRIPT='
+. "$1/45_path-helpers.sh"
+. "$2"
+. "$2"
+declare -p DOTNET_ROOT 2> /dev/null || echo unset'
 
 # Calls the named helper from 45_path-helpers.sh with a directory, starting
 # from the given PATH, and leaves the resulting PATH in $output.
@@ -737,20 +711,24 @@ run_path_helper() {
 @test "50_paths.sh adds each of its PATH entries once however often it is sourced" {
     local _toolbox="${HOME}/.local/share/JetBrains/Toolbox/scripts"
     mkdir -p "${_toolbox}"
-    run_section_twice 50_paths.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/50_paths.sh" /usr/bin:/bin
     [ "${output}" = "/usr/bin:/bin:${_toolbox}:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "50_paths.sh leaves the JetBrains Toolbox scripts directory off PATH when it does not exist" {
-    run_section_twice 50_paths.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/50_paths.sh" /usr/bin:/bin
     [ "${output}" = "/usr/bin:/bin:${HOME}/.local/bin:${HOME}/.cargo/bin" ]
 }
 
 @test "55_go.sh adds GOPATH/bin to PATH once however often it is sourced" {
-    [ -x /usr/bin/go ] || skip "go not installed"
     local _gopath="${BATS_TEST_TMPDIR}/gopath"
-    run_section_twice 55_go.sh /usr/bin:/bin GOPATH="${_gopath}"
-    [ "${output}" = "/usr/bin:/bin:${_gopath}/bin" ]
+    setup_fake_bin go
+    # run_section_twice starts the section from the PATH it is given, so the
+    # fake go is only found when its directory is in that PATH.
+    run_section_twice "${SECTIONS_DIR}/55_go.sh" "${FAKE_BIN_DIR}:/usr/bin:/bin" GOPATH="${_gopath}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${FAKE_BIN_DIR}:/usr/bin:/bin:${_gopath}/bin" ]
+    refute_fake_called '^go'
 }
 
 # Sources 55_go.sh once, after the PATH helpers it calls, with a fake go that
@@ -818,34 +796,48 @@ run_go_section_with_fake_go() {
 }
 
 @test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
-    run_section_twice 60_dotnet.sh /usr/bin:/bin
-    if [ -d /usr/share/dotnet ]; then
-        [ "${output}" = '/usr/bin:/bin:/usr/share/dotnet' ]
-    else
-        [ "${output}" = '/usr/bin:/bin' ]
-    fi
+    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _section
+    mkdir -p "${_dotnet}"
+    _section="$(dotnet_section_reading "${_dotnet}")"
+    run_section_twice "${_section}" /usr/bin:/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "/usr/bin:/bin:${_dotnet}" ]
+    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "declare -x DOTNET_ROOT=\"${_dotnet}\"" ]
+}
+
+@test "60_dotnet.sh leaves PATH alone and sets no DOTNET_ROOT when .NET is not installed" {
+    local _section
+    _section="$(dotnet_section_reading "${BATS_TEST_TMPDIR}/no-dotnet")"
+    run_section_twice "${_section}" /usr/bin:/bin
+    [ "${status}" -eq 0 ]
+    [ "${output}" = '/usr/bin:/bin' ]
+    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = unset ]
 }
 
 @test "75_bun.sh puts bun first on PATH once however often it is sourced" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" /usr/bin:/bin
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh moves bun to the front of a PATH that has it in the middle, leaving it there once" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh "/usr/bin:${HOME}/.bun/bin:/bin"
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" "/usr/bin:${HOME}/.bun/bin:/bin"
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh moves bun to the front of a PATH that has it at the end, leaving it there once" {
     mkdir -p "${HOME}/.bun/bin"
-    run_section_twice 75_bun.sh "/usr/bin:/bin:${HOME}/.bun/bin"
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" "/usr/bin:/bin:${HOME}/.bun/bin"
     [ "${output}" = "${HOME}/.bun/bin:/usr/bin:/bin" ]
 }
 
 @test "75_bun.sh leaves PATH alone when there is no ~/.bun" {
-    run_section_twice 75_bun.sh /usr/bin:/bin
+    run_section_twice "${SECTIONS_DIR}/75_bun.sh" /usr/bin:/bin
     [ "${output}" = '/usr/bin:/bin' ]
 }
 

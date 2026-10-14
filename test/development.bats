@@ -12,10 +12,6 @@ BUILDCHECK="${DEV_DIR}/buildcheck"
 BUILDTEST="${DEV_DIR}/buildtest"
 
 setup() {
-    # Isolate every test from the real machine's global/system git config -
-    # pre-commit-check and buildtest's require_dotnet_tool both consult it.
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_SYSTEM=/dev/null
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
 }
@@ -24,13 +20,9 @@ setup() {
 # require_dotnet_tool for buildcheck/FunFair.BuildCheck; every other
 # subcommand just logs and succeeds, like the plain setup_fake_bin fakes.
 setup_fake_dotnet_with_buildcheck_tool() {
-    FAKE_BIN_DIR="${BATS_TEST_TMPDIR}/fakebin"
-    FAKE_BIN_LOG="${BATS_TEST_TMPDIR}/fakebin.log"
-    mkdir -p "${FAKE_BIN_DIR}"
-    : > "${FAKE_BIN_LOG}"
-    cat > "${FAKE_BIN_DIR}/dotnet" <<'EOF'
+    replace_fake dotnet <<'EOF'
 #!/bin/sh
-printf 'dotnet %s\n' "$*" >> "__FAKE_BIN_LOG__"
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
 case "$1 $2" in
     "tool list")
         printf 'Package Id      Version      Commands\n----------------------------------------\nfunfair.buildcheck   1.0.0   buildcheck\n'
@@ -38,9 +30,6 @@ case "$1 $2" in
 esac
 exit 0
 EOF
-    sed -i "s#__FAKE_BIN_LOG__#${FAKE_BIN_LOG}#" "${FAKE_BIN_DIR}/dotnet"
-    chmod +x "${FAKE_BIN_DIR}/dotnet"
-    export PATH="${FAKE_BIN_DIR}:${PATH}"
 }
 
 # ── pre-commit-check ────────────────────────────────────────────────────────
@@ -325,7 +314,6 @@ stage_in_bench_solution() {
     # unresolved-references file read-only before the script writes to it.
     local _tmp="${BATS_TEST_TMPDIR}/tmp"
     mkdir -p "${_tmp}"
-    setup_fake_bin mktemp
     replace_fake mktemp <<'EOF'
 #!/bin/sh
 p="${1%.XXXXXXXXXX}"
