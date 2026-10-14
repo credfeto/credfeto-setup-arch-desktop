@@ -27,11 +27,16 @@ runs:
           const tap = resultsExist ? fs.readFileSync(resultsFile, 'utf8') : '';
 
           const lines = tap.split(/\r?\n/);
-          // bats writes the plan once, as the first line, before any test runs; a later "1..N" is test output.
-          const plan = lines[0].match(/^1\.\.(\d+)\s*$/);
+          const isResult = line => /^(not )?ok \d+ /.test(line);
+          // bats writes the plan once, before any test runs, so the plan is the first "1..N" line ahead of the first
+          // result; other lines ahead of it are ignored rather than hiding it. Taking the first match matters because
+          // a test (or setup_file/setup_suite) writing "1..N" to fd 3 prints after the plan but before its own result.
+          const firstResult = lines.findIndex(isResult);
+          const beforeResults = firstResult === -1 ? lines : lines.slice(0, firstResult);
+          const plan = beforeResults.map(line => line.match(/^1\.\.(\d+)\s*$/)).find(Boolean);
           const planned = plan ? Number(plan[1]) : null;
 
-          const results = lines.filter(line => /^(not )?ok \d+ /.test(line));
+          const results = lines.filter(isResult);
           const failed = results.filter(line => line.startsWith('not ok '));
           // bats writes test names and skip reasons unescaped, so a result line does not say where the name ends and the
           // skip directive begins: a passing test named "a # skip b" prints exactly as test "a" skipped with reason "b".
