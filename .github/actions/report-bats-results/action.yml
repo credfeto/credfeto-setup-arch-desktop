@@ -33,7 +33,9 @@ runs:
 
           const results = lines.filter(line => /^(not )?ok \d+ /.test(line));
           const failed = results.filter(line => line.startsWith('not ok '));
-          // bats writes test names unescaped, so only the last " # skip" on a result line can be its skip marker.
+          // bats writes test names and skip reasons unescaped, so a result line does not say where the name ends and the
+          // skip directive begins: a passing test named "a # skip b" prints exactly as test "a" skipped with reason "b".
+          // This is the pattern bats' own tap and junit parsers use, so the split and the skip count match what bats reports.
           const skipped = results
             .map(line => line.match(/^ok \d+ (.*) # skip( .*)?$/))
             .filter(Boolean)
