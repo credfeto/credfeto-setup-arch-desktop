@@ -340,40 +340,128 @@ setup_fake_nvm_package() {
     printf '%s\n' "${_package}"
 }
 
+# Prints, on stderr, why section_reading cannot copy a section, naming the
+# section and the line, and fails.
+# Usage: section_reading_fail <section-file> <line-number> <reason>
+section_reading_fail() {
+    printf 'section_reading: %s line %s: %s\n' "$1" "$2" "$3" >&2
+    return 1
+}
+
+# Prints one line of a section with every occurrence of the system directory
+# replaced by the shell-quoted package directory, or fails, saying why, for an
+# occurrence that cannot be replaced safely. Quotes are followed within the
+# line only; a backslash outside single quotes escapes the next character,
+# and a "#" outside quotes at the start of a word starts a comment, where
+# quote characters are only text. Every occurrence is counted first, and the
+# line fails unless each was replaced, so one the scan stepped over (after a
+# backslash) cannot reach the copy still naming the system directory.
+# Usage: section_line_reading <section-file> <line-number> <line> <system-dir> <quoted-package-dir>
+section_line_reading() {
+    local _line="$3" _system_dir="$4" _quoted="$5"
+    local _out="" _quote="" _quote_start=-1 _comment="" _i=0
+    local _char _before _after _rest="$3" _occurrences=0 _replaced=0
+    while [[ "${_rest}" == *"${_system_dir}"* ]]; do
+        _rest="${_rest#*"${_system_dir}"}"
+        _occurrences=$((_occurrences + 1))
+    done
+    while [ "${_i}" -lt "${#_line}" ]; do
+        _char="${_line:_i:1}"
+        # Compared as a string, so a "." or "*" in the system directory is
+        # taken as it is written.
+        if [ "${_line:_i:${#_system_dir}}" = "${_system_dir}" ]; then
+            _before=""
+            if [ "${_i}" -gt 0 ]; then
+                _before="${_line:_i-1:1}"
+            fi
+            _after="${_line:_i+${#_system_dir}:1}"
+            if [[ "${_before}" == [A-Za-z0-9._/\}-] || "${_after}" == [A-Za-z0-9._-] ]]; then
+                section_reading_fail "$1" "$2" "names ${_system_dir} as part of a longer name, not a whole path component" || return
+            fi
+            if [ -n "${_comment}" ] || [ -z "${_quote}" ]; then
+                _out+="${_quoted}"
+            elif [ "${_quote}" = '"' ] && [ "${_quote_start}" -eq "$((_i - 1))" ] && [ "${_after}" = '"' ]; then
+                # A whole double-quoted word: the shell-quoted directory takes
+                # the place of the word, quotes and all.
+                _out="${_out%\"}${_quoted}"
+                _quote=""
+                _i=$((_i + 1))
+            elif [ "${_quote}" = '"' ]; then
+                section_reading_fail "$1" "$2" "names ${_system_dir} inside a double-quoted string other than as the whole word" || return
+            else
+                section_reading_fail "$1" "$2" "names ${_system_dir} inside a single-quoted string" || return
+            fi
+            _replaced=$((_replaced + 1))
+            _i=$((_i + ${#_system_dir}))
+            continue
+        fi
+        if [ -z "${_comment}" ] && [ "${_quote}" != "'" ] && [ "${_char}" = "\\" ]; then
+            _out+="${_line:_i:2}"
+            _i=$((_i + 2))
+            continue
+        fi
+        if [ -n "${_comment}" ]; then
+            :
+        elif [ -n "${_quote}" ]; then
+            if [ "${_char}" = "${_quote}" ]; then
+                _quote=""
+            fi
+        elif [ "${_char}" = '"' ] || [ "${_char}" = "'" ]; then
+            _quote="${_char}"
+            _quote_start="${_i}"
+        elif [ "${_char}" = '#' ] && [[ "${_i}" -eq 0 || "${_line:_i-1:1}" == [[:space:]] ]]; then
+            _comment=yes
+        fi
+        _out+="${_char}"
+        _i=$((_i + 1))
+    done
+    if [ "${_replaced}" -lt "${_occurrences}" ]; then
+        section_reading_fail "$1" "$2" "names ${_system_dir} where it cannot be replaced, such as straight after a backslash" || return
+    fi
+    printf '%s\n' "${_out}"
+}
+
 # Writes a copy of a bash.bashrc.d section that reads a package from the
 # given directory wherever the section names the package's system directory,
 # so a test decides whether the package is there and what it holds. The
 # sections themselves have no way to be pointed at another directory, and
 # need none. The copy names the directory shell-quoted, so the directory may
-# hold any character, which is only right where the section names the system
-# directory as a bare word (alone or followed by more of a path) or as a whole
-# double-quoted word. Fails where the section names it inside quotes in any
-# other way, and unless the copy holds every expected line and no longer
-# names the system directory, so a section that changes shape cannot leave a
-# test reading the real package unnoticed. Expected lines name the directory
-# as ${dir@Q} does. Each call writes its copy, under the section's own file
-# name, into a directory of its own, so a second copy of the same section in
-# one test cannot overwrite the first. Prints the copy's path.
+# hold any character, including the system directory itself. Supported: the
+# system directory as a whole path component (not touching a letter, digit,
+# ".", "_" or "-", nor a "/" or "}" before it) that is either outside quotes,
+# alone or followed by more of a path, or a whole double-quoted word, such as
+# "/usr/share/dotnet"; in a comment it is replaced as plain text. Anything
+# else fails, with a message on stderr naming the section, the line and the
+# reason: the system directory inside a single- or double-quoted string in
+# any other way, as part of a longer name, or straight after a backslash.
+# Quotes are followed one line at a time, as the sections hold no string that
+# spans lines. Every quote character outside a comment and not escaped opens
+# or closes a string wherever it stands, including inside ${...}, $(...) and $'...', so quoting nested in
+# those, and a $'...' string's own escapes, are not understood. Also fails, saying so, unless the copy holds every
+# expected line, so a section that changes shape cannot leave a test reading
+# the real package unnoticed. Expected lines name the directory as ${dir@Q}
+# does. Each call writes its copy, under the section's own file name, into a
+# directory of its own, so a second copy of the same section in one test
+# cannot overwrite the first. Prints the copy's path.
 # Usage: section_reading <section-file> <system-dir> <package-dir> [<expected-line> ...]
 section_reading() {
-    local _copy _system_dir="$2" _quoted="${3@Q}" _content
-    local _expected
+    local _section="$1" _system_dir="$2" _quoted="${3@Q}"
+    local _copy _line _number=0 _content="" _expected
     mkdir -p "${BATS_TEST_TMPDIR}/sections" || return 1
-    _copy="$(mktemp -d "${BATS_TEST_TMPDIR}/sections/XXXXXX")/$1" || return 1
-    _content="$(< "${SECTIONS_DIR}/$1")" || return 1
-    # Every pattern and replacement is quoted so each is taken as it is
-    # written: unquoted, a pattern's "." or "*" would match other text and an
-    # "&" in a replacement would stand for what the pattern matched.
-    _content="${_content//"\"${_system_dir}\""/"${_quoted}"}"
-    case "${_content}" in
-        *"\"${_system_dir}"* | *"'${_system_dir}"*) return 1 ;;
-    esac
-    printf '%s\n' "${_content//"${_system_dir}"/"${_quoted}"}" > "${_copy}"
+    _copy="$(mktemp -d "${BATS_TEST_TMPDIR}/sections/XXXXXX")/${_section}" || return 1
+    while IFS= read -r _line || [ -n "${_line}" ]; do
+        _number=$((_number + 1))
+        if [[ "${_line}" == *"${_system_dir}"* ]]; then
+            _line="$(section_line_reading "${_section}" "${_number}" "${_line}" "${_system_dir}" "${_quoted}")" || return 1
+        fi
+        _content+="${_line}"$'\n'
+    done < "${SECTIONS_DIR}/${_section}" || return 1
+    printf '%s' "${_content}" > "${_copy}"
     shift 3
     for _expected in "$@"; do
-        grep -q -F "${_expected}" "${_copy}" || return 1
+        grep -q -F "${_expected}" "${_copy}" ||
+            section_reading_fail "${_section}" "(any)" "the copy holds no line with: ${_expected}" || return
     done
-    ! grep -q -F "${_system_dir}" "${_copy}" || return 1
     printf '%s\n' "${_copy}"
 }
 

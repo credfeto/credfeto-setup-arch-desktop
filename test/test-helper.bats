@@ -459,12 +459,91 @@ listed" ]
     printf '%s\n' '[ -f "/usr/share/pkg/load.sh" ]' > "${BATS_TEST_TMPDIR}/double.sh"
     printf '%s\n' "[ -f '/usr/share/pkg/load.sh' ]" > "${BATS_TEST_TMPDIR}/single.sh"
 
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading double.sh /usr/share/pkg /elsewhere
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading double.sh /usr/share/pkg /elsewhere
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading single.sh /usr/share/pkg /elsewhere
+    [ "${stderr}" = "section_reading: double.sh line 1: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading single.sh /usr/share/pkg /elsewhere
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: single.sh line 1: names /usr/share/pkg inside a single-quoted string" ]
+}
+
+@test "section_reading fails, naming the line, for a section that names the system directory inside double quotes after other text" {
+    # Rewritten, each would name a path holding literal single quotes.
+    printf '%s\n' 'unrelated' 'echo "loading /usr/share/pkg/load.sh"' > "${BATS_TEST_TMPDIR}/message.sh"
+    printf '%s\n' "PATH=\"\$X:/usr/share/pkg\"" > "${BATS_TEST_TMPDIR}/path.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading message.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: message.sh line 2: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading path.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: path.sh line 1: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
+}
+
+@test "section_reading fails, naming the line, for a section that names the system directory inside single quotes after other text" {
+    printf '%s\n' "echo 'loading /usr/share/pkg/load.sh'" > "${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: section.sh line 1: names /usr/share/pkg inside a single-quoted string" ]
+}
+
+@test "section_reading fails, naming the line, for a section that names the system directory as part of a longer name" {
+    printf '%s\n' '. /usr/share/pkg-extra/load.sh' > "${BATS_TEST_TMPDIR}/after.sh"
+    printf '%s\n' ". \${ROOT}/usr/share/pkg/load.sh" > "${BATS_TEST_TMPDIR}/before.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading after.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: after.sh line 1: names /usr/share/pkg as part of a longer name, not a whole path component" ]
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading before.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: before.sh line 1: names /usr/share/pkg as part of a longer name, not a whole path component" ]
+}
+
+@test "section_reading fails, naming the line, for a section that names the system directory straight after a backslash" {
+    # The backslash's escaped character is skipped by the scan, so without
+    # the count each would be copied still naming the real directory.
+    printf '%s\n' '. \/usr/share/pkg/load.sh' > "${BATS_TEST_TMPDIR}/bare.sh"
+    printf '%s\n' 'echo "\/usr/share/pkg"' > "${BATS_TEST_TMPDIR}/double.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading bare.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: bare.sh line 1: names /usr/share/pkg where it cannot be replaced, such as straight after a backslash" ]
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading double.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: double.sh line 1: names /usr/share/pkg where it cannot be replaced, such as straight after a backslash" ]
+}
+
+@test "section_reading fails, saying which, when the copy lacks an expected line" {
+    printf '%s\n' '. /usr/share/pkg/load.sh' > "${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere "[ -f '/elsewhere'/load.sh ]"
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: section.sh line (any): the copy holds no line with: [ -f '/elsewhere'/load.sh ]" ]
+}
+
+@test "section_reading copies a section for a package directory whose own path holds the system directory" {
+    local _package="${BATS_TEST_TMPDIR}/usr/share/pkg"
+    # The comment's apostrophe is only text, and the second line's quotes do
+    # not reach the third.
+    printf '%s\n' "# The package's loader" 'if [ -d "/usr/share/pkg" ]; then echo "found"; fi' '. /usr/share/pkg/load.sh # see /usr/share/pkg' > "${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg "${_package}" ". ${_package@Q}/load.sh"
+    [ "${status}" -eq 0 ]
+    [ -z "${stderr}" ]
+    [ "$(cat "${output}")" = "# The package's loader
+if [ -d ${_package@Q} ]; then echo \"found\"; fi
+. ${_package@Q}/load.sh # see ${_package@Q}" ]
 }
 
 # Prints how many times the directory the fakes live in is on PATH.
