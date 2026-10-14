@@ -42,6 +42,7 @@ jobs:
         with:
           clean: true
           fetch-depth: 1
+          persist-credentials: false
 
       - name: "Install test tools"
         shell: bash
