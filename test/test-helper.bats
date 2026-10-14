@@ -391,7 +391,7 @@ system=/dev/null" ]
 
     SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh /usr/share/pkg "${_package}" "[ -f ${_package@Q}/load.sh ]"
     [ "${status}" -eq 0 ]
-    [ "${output}" = "${BATS_TEST_TMPDIR}/sections/section.sh" ]
+    [[ "${output}" == "${BATS_TEST_TMPDIR}"/sections/*/section.sh ]]
     [ "$(cat "${output}")" = "[ -f ${_package@Q}/load.sh ] && . ${_package@Q}/load.sh
 unrelated" ]
 }
@@ -438,6 +438,19 @@ EOF
     [ "${output}" = "${_package}
 loaded
 listed" ]
+}
+
+@test "section_reading gives each copy of the same section its own path, each still naming its own directory" {
+    local _first _second
+    printf '%s\n' '[ -f /usr/share/pkg/load.sh ]' > "${BATS_TEST_TMPDIR}/section.sh"
+
+    _first="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg /first)"
+    _second="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg /second)"
+    [ "${_first}" != "${_second}" ]
+    [ "${_first##*/}" = section.sh ]
+    [ "${_second##*/}" = section.sh ]
+    [ "$(cat "${_first}")" = "[ -f '/first'/load.sh ]" ]
+    [ "$(cat "${_second}")" = "[ -f '/second'/load.sh ]" ]
 }
 
 @test "section_reading fails for a section that names the system directory inside quotes with more beside it" {

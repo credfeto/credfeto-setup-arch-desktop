@@ -351,12 +351,15 @@ setup_fake_nvm_package() {
 # other way, and unless the copy holds every expected line and no longer
 # names the system directory, so a section that changes shape cannot leave a
 # test reading the real package unnoticed. Expected lines name the directory
-# as ${dir@Q} does. Prints the copy's path.
+# as ${dir@Q} does. Each call writes its copy, under the section's own file
+# name, into a directory of its own, so a second copy of the same section in
+# one test cannot overwrite the first. Prints the copy's path.
 # Usage: section_reading <section-file> <system-dir> <package-dir> [<expected-line> ...]
 section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _quoted="${3@Q}" _content
+    local _copy _system_dir="$2" _quoted="${3@Q}" _content
     local _expected
-    mkdir -p "${_copy%/*}"
+    mkdir -p "${BATS_TEST_TMPDIR}/sections" || return 1
+    _copy="$(mktemp -d "${BATS_TEST_TMPDIR}/sections/XXXXXX")/$1" || return 1
     _content="$(< "${SECTIONS_DIR}/$1")" || return 1
     # Every pattern and replacement is quoted so each is taken as it is
     # written: unquoted, a pattern's "." or "*" would match other text and an
