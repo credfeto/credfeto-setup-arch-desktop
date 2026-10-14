@@ -11,13 +11,13 @@ inputs:
     required: true
 
 runs:
-  using: composite
+  using: "composite"
   steps:
     - name: "Report bats results"
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
       env:
-        RESULTS_FILE: ${{inputs.results-file}}
-        BATS_OUTCOME: ${{inputs.bats-outcome}}
+        RESULTS_FILE: "${{inputs.results-file}}"
+        BATS_OUTCOME: "${{inputs.bats-outcome}}"
       with:
         script: |
           const fs = require('fs');

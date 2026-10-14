@@ -4,10 +4,10 @@ name: "Test: Shell Scripts"
 on:
   pull_request:
     branches:
-      - main
+      - "main"
 
 concurrency:
-  group: ${{github.workflow}}-${{github.ref}}
+  group: "${{github.workflow}}-${{github.ref}}"
   cancel-in-progress: true
 
 permissions:
@@ -79,5 +79,5 @@ jobs:
         if: ${{ !cancelled() }}
         uses: ./.github/actions/report-bats-results
         with:
-          results-file: ${{runner.temp}}/${{env.BATS_RESULTS}}
-          bats-outcome: ${{steps.run-tests.outcome}}
+          results-file: "${{runner.temp}}/${{env.BATS_RESULTS}}"
+          bats-outcome: "${{steps.run-tests.outcome}}"
