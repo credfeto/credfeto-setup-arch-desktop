@@ -299,19 +299,28 @@ setup_fake_nvm_package() {
 # given directory wherever the section names the package's system directory,
 # so a test decides whether the package is there and what it holds. The
 # sections themselves have no way to be pointed at another directory, and
-# need none. Fails unless the copy holds every expected line and no longer
+# need none. The copy names the directory shell-quoted, so the directory may
+# hold any character, which is only right where the section names the system
+# directory as a bare word (alone or followed by more of a path) or as a whole
+# double-quoted word. Fails where the section names it inside quotes in any
+# other way, and unless the copy holds every expected line and no longer
 # names the system directory, so a section that changes shape cannot leave a
-# test reading the real package unnoticed. Prints the copy's path.
+# test reading the real package unnoticed. Expected lines name the directory
+# as ${dir@Q} does. Prints the copy's path.
 # Usage: section_reading <section-file> <system-dir> <package-dir> [<expected-line> ...]
 section_reading() {
-    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _content
+    local _copy="${BATS_TEST_TMPDIR}/sections/$1" _system_dir="$2" _quoted="${3@Q}" _content
     local _expected
     mkdir -p "${_copy%/*}"
     _content="$(< "${SECTIONS_DIR}/$1")" || return 1
-    # Both directories are quoted so each is taken as it is written: unquoted,
-    # the first would be a pattern and an "&" in the second would stand for
-    # what the first matched, and a test's directory can hold any character.
-    printf '%s\n' "${_content//"${_system_dir}"/"$3"}" > "${_copy}"
+    # Every pattern and replacement is quoted so each is taken as it is
+    # written: unquoted, a pattern's "." or "*" would match other text and an
+    # "&" in a replacement would stand for what the pattern matched.
+    _content="${_content//"\"${_system_dir}\""/"${_quoted}"}"
+    case "${_content}" in
+        *"\"${_system_dir}"* | *"'${_system_dir}"*) return 1 ;;
+    esac
+    printf '%s\n' "${_content//"${_system_dir}"/"${_quoted}"}" > "${_copy}"
     shift 3
     for _expected in "$@"; do
         grep -q -F "${_expected}" "${_copy}" || return 1
@@ -325,8 +334,8 @@ section_reading() {
 # Usage: nvm_section_reading <package-dir>
 nvm_section_reading() {
     section_reading 70_nvm.sh /usr/share/nvm "$1" \
-        "[ -f $1/nvm.sh ]" ". $1/nvm.sh" ". $1/bash_completion" \
-        "ln -sf $1/nvm.sh " "ln -sf $1/nvm-exec "
+        "[ -f ${1@Q}/nvm.sh ]" ". ${1@Q}/nvm.sh" ". ${1@Q}/bash_completion" \
+        "ln -sf ${1@Q}/nvm.sh " "ln -sf ${1@Q}/nvm-exec "
 }
 
 # Writes a stand-in for autojump into the given directory: an autojump.sh
@@ -349,7 +358,7 @@ EOF
 # Usage: autojump_section_reading <autojump-dir>
 autojump_section_reading() {
     section_reading 77_autojump.sh /usr/share/autojump "$1" \
-        "[ -f $1/autojump.sh ]" ". $1/autojump.sh"
+        "[ -f ${1@Q}/autojump.sh ]" ". ${1@Q}/autojump.sh"
 }
 
 # Writes the copy of 60_dotnet.sh that looks for .NET in the given directory:
@@ -357,5 +366,5 @@ autojump_section_reading() {
 # Usage: dotnet_section_reading <dotnet-dir>
 dotnet_section_reading() {
     section_reading 60_dotnet.sh /usr/share/dotnet "$1" \
-        "[ -d \"$1\" ]" "export DOTNET_ROOT=$1"
+        "[ -d ${1@Q} ]" "export DOTNET_ROOT=${1@Q}"
 }

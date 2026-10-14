@@ -267,7 +267,7 @@ printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
 # Usage: shell_options_reading <os-release-file>
 shell_options_reading() {
     section_reading 00_shell-options.sh /etc/os-release "$1" \
-        "[ -f $1 ]" "done < $1"
+        "[ -f ${1@Q} ]" "done < ${1@Q}"
 }
 
 # Sources 00_shell-options.sh reading an os-release with the given content,

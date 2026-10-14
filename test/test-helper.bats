@@ -389,10 +389,10 @@ system=/dev/null" ]
     local _package="${BATS_TEST_TMPDIR}/R&D a|b\\1 c"
     printf '%s\n' '[ -f /usr/share/pkg/load.sh ] && . /usr/share/pkg/load.sh' 'unrelated' > "${BATS_TEST_TMPDIR}/section.sh"
 
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh /usr/share/pkg "${_package}" "[ -f ${_package}/load.sh ]"
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh /usr/share/pkg "${_package}" "[ -f ${_package@Q}/load.sh ]"
     [ "${status}" -eq 0 ]
     [ "${output}" = "${BATS_TEST_TMPDIR}/sections/section.sh" ]
-    [ "$(cat "${output}")" = "[ -f ${_package}/load.sh ] && . ${_package}/load.sh
+    [ "$(cat "${output}")" = "[ -f ${_package@Q}/load.sh ] && . ${_package@Q}/load.sh
 unrelated" ]
 }
 
@@ -403,9 +403,55 @@ unrelated" ]
 
     SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh '/opt/pkg.d*' /elsewhere
     [ "${status}" -eq 0 ]
-    [ "$(cat "${output}")" = ". /elsewhere/load.sh
+    [ "$(cat "${output}")" = ". '/elsewhere'/load.sh
 . /opt/pkgXd/load.sh
 . /opt/pkg.dir/load.sh" ]
+}
+
+@test "section_reading copies a section that reads a directory whose name holds a space, a glob, a quote and a dollar from that directory" {
+    # Each would change the copy's meaning if the directory went into it
+    # unquoted: split into two words, matched as a pattern, opened a quote,
+    # or expanded a variable.
+    local _package="${BATS_TEST_TMPDIR}/sp ace*glob'quote\"\$dollar" _copy _script
+    mkdir -p "${_package}"
+    printf '%s\n' 'MARKER=loaded' > "${_package}/load.sh"
+    printf '%s\n' listed > "${_package}/list"
+    # The section names the directory in every way the bash.bashrc.d sections
+    # do: a whole double-quoted word, a bare word, a bare word followed by
+    # more of a path, and a redirection's target.
+    cat > "${BATS_TEST_TMPDIR}/section.sh" <<'EOF'
+if [ -d "/usr/share/pkg" ]; then
+    export PKG_ROOT=/usr/share/pkg
+fi
+[ -f /usr/share/pkg/load.sh ] && . /usr/share/pkg/load.sh
+while IFS= read -r _line; do LISTED="${_line}"; done < /usr/share/pkg/list
+EOF
+    _copy="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg "${_package}")"
+    _script="$(cat <<'EOF'
+. "$2"
+printf '%s\n' "${PKG_ROOT-unset}" "${MARKER-unset}" "${LISTED-unset}"
+EOF
+)"
+
+    run_section_shell non-interactive "${_script}" "${_copy}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "${_package}
+loaded
+listed" ]
+}
+
+@test "section_reading fails for a section that names the system directory inside quotes with more beside it" {
+    # Neither the shell-quoted directory nor the directory as it is can go
+    # inside those quotes and still be read as one path.
+    printf '%s\n' '[ -f "/usr/share/pkg/load.sh" ]' > "${BATS_TEST_TMPDIR}/double.sh"
+    printf '%s\n' "[ -f '/usr/share/pkg/load.sh' ]" > "${BATS_TEST_TMPDIR}/single.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading double.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading single.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
 }
 
 # Prints how many times the directory the fakes live in is on PATH.
