@@ -404,15 +404,10 @@ log_line_of() {
     assert_fake_called '^sudo aa-enforce firejail-default$'
     assert_fake_called '^sudo systemctl enable --now logrotate\.timer$'
     assert_fake_called '^sudo systemctl enable --now paccache\.timer$'
-    assert_fake_called '^sudo systemctl enable --now pacman-sync\.timer$'
-}
-
-# checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
-# is only an optional dependency of pacman-contrib.
-@test "enable-services installs fakeroot alongside pacman-contrib for checkupdates" {
-    run_step enable-services
-    [ "${status}" -eq 0 ]
+    # checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
+    # is only an optional dependency of pacman-contrib.
     assert_fake_called '^sudo pacman -S --needed --noconfirm pacman-contrib fakeroot$'
+    assert_fake_called '^sudo systemctl enable --now pacman-sync\.timer$'
 }
 
 @test "enable-services stops when installing pacman-contrib and fakeroot fails and never enables pacman-sync" {
