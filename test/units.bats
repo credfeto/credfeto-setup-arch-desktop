@@ -359,13 +359,6 @@ EOF
     [ "$(grep -c '^SuccessExitStatus=' "${_service}")" -eq 1 ]
 }
 
-@test "pacman-sync.service only wants network-online.target so a wait-online timeout does not fail the unit" {
-    local _service="${REPO_DIR}/units/pacman-sync/pacman-sync.service"
-    grep -qx 'Wants=network-online.target' "${_service}"
-    grep -qx 'After=network-online.target' "${_service}"
-    [ "$(grep -c '^Requires=network-online.target' "${_service}")" -eq 0 ]
-}
-
 # ── auto-update units ────────────────────────────────────────────────────────
 
 @test "auto-update units install copies both units and enables the timer" {

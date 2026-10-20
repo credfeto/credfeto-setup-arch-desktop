@@ -1,6 +1,6 @@
 [Unit]
 Description=Sync but do not install Pacman Files
-Wants=network-online.target
+Requires=network-online.target
 After=network-online.target
 
 
