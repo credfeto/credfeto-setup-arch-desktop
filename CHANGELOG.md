@@ -63,7 +63,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - 70_nvm.sh loads nvm once and registers its completion only in an interactive shell; it now replaces dangling nvm.sh or nvm-exec links in NVM_DIR instead of failing with 'File exists' on every shell start and dev-update timer run
 - The bats test suite no longer corrupts the developer's repository when run from a git commit hook in a linked worktree
 - The bats test suite no longer reads the developer's global or system git configuration files
-- TBD - to be finalized after review
+- pacman-sync no longer reports failed when checkupdates finds no updates (exit code 2), while genuine errors (exit code 1) still mark the unit failed
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
