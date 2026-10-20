@@ -405,14 +405,14 @@ log_line_of() {
     assert_fake_called '^sudo systemctl enable --now logrotate\.timer$'
     assert_fake_called '^sudo systemctl enable --now paccache\.timer$'
     # checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
-    # is only an optional dependency of pacman-contrib.
-    assert_fake_called '^sudo pacman -S --needed --noconfirm pacman-contrib fakeroot$'
+    # pacman-contrib only lists as an optional dependency.
+    assert_fake_called '^sudo pacman -S --needed --noconfirm fakeroot$'
     assert_fake_called '^sudo systemctl enable --now pacman-sync\.timer$'
 }
 
-@test "enable-services stops when installing pacman-contrib and fakeroot fails and never enables pacman-sync" {
-    run_step enable-services FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm pacman-contrib fakeroot$'
-    assert_step_died "Failed to install pacman-contrib and fakeroot" "Services enabled"
+@test "enable-services stops when installing fakeroot fails and never installs or enables pacman-sync" {
+    run_step enable-services FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm fakeroot$'
+    assert_step_died "Failed to install fakeroot" "Services enabled"
     refute_fake_called 'pacman-sync'
 }
 
