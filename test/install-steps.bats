@@ -407,6 +407,20 @@ log_line_of() {
     assert_fake_called '^sudo systemctl enable --now pacman-sync\.timer$'
 }
 
+# checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
+# is only an optional dependency of pacman-contrib.
+@test "enable-services installs fakeroot alongside pacman-contrib for checkupdates" {
+    run_step enable-services
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^sudo pacman -S --needed --noconfirm pacman-contrib fakeroot$'
+}
+
+@test "enable-services stops when installing pacman-contrib and fakeroot fails and never enables pacman-sync" {
+    run_step enable-services FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm pacman-contrib fakeroot$'
+    assert_step_died "Failed to install pacman-contrib and fakeroot" "Services enabled"
+    refute_fake_called 'pacman-sync'
+}
+
 @test "enable-services stops when enabling the ssh-agent user service fails" {
     run_step enable-services FAKE_EXIT_systemctl=1
     assert_step_died "Failed to enable the ssh-agent user service" "Services enabled"
