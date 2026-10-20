@@ -348,6 +348,17 @@ EOF
     [[ "${output}" == *"Failed to reload the user systemd manager"* ]]
 }
 
+# ── pacman-sync units ────────────────────────────────────────────────────────
+
+@test "pacman-sync.service downloads updates with checkupdates and treats its no-updates exit status 2 as success" {
+    local _service="${REPO_DIR}/units/pacman-sync/pacman-sync.service"
+    grep -qx 'Type=oneshot' "${_service}"
+    grep -qx 'ExecStart=/usr/bin/checkupdates --download' "${_service}"
+    grep -qx 'SuccessExitStatus=2' "${_service}"
+    [ "$(grep -c '^ExecStart=' "${_service}")" -eq 1 ]
+    [ "$(grep -c '^SuccessExitStatus=' "${_service}")" -eq 1 ]
+}
+
 # ── auto-update units ────────────────────────────────────────────────────────
 
 @test "auto-update units install copies both units and enables the timer" {
