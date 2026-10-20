@@ -11,3 +11,6 @@ IOSchedulingClass=idle
 CPUSchedulingPolicy=idle
 
 ExecStart=/usr/bin/checkupdates --download
+# checkupdates exits 2 when there are no updates, which is not a failure.
+# Exit 1 still is, so real errors continue to mark the unit failed.
+SuccessExitStatus=2
