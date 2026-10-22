@@ -233,6 +233,23 @@ EOF
     assert_fake_called '^sudo flatpak remote-modify .* flathub-whitelist$'
 }
 
+@test "configure-flatpak keeps going without deleting anything when flathub is not a remote" {
+    mark_installed flatpak
+    seed_fake_output flatpak <<< "flathub-verified"
+    run_step configure-flatpak
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Flatpak configured"* ]]
+    refute_fake_called 'remote-delete'
+    assert_fake_called '^sudo flatpak remote-add .* flathub-verified '
+}
+
+@test "configure-flatpak stops when listing the flatpak remotes fails" {
+    mark_installed flatpak
+    run_step configure-flatpak FAKE_EXIT_flatpak=1
+    assert_step_died "Failed to list flatpak remotes" "Flatpak configured"
+    refute_fake_called '^sudo flatpak'
+}
+
 @test "configure-flatpak stops when adding the flathub-verified remote fails" {
     mark_installed flatpak
     run_step configure-flatpak FAKE_SUDO_FAIL='^flatpak remote-add .* flathub-verified '

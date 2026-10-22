@@ -10,7 +10,8 @@ configure_flatpak() {
     [ "$FLATPAK_INSTALLED" = 1 ] || return 0
 
     info "Configuring flatpak"
-    HUBS=$(flatpak remotes | cut -f 1 | grep ^flathub$)
+    REMOTES=$(flatpak remotes) || die "Failed to list flatpak remotes"
+    HUBS=$(printf '%s\n' "$REMOTES" | cut -f 1 | grep '^flathub$')
     if [ -n "$HUBS" ]; then
         sudo flatpak remote-delete flathub || die "Failed to delete the flathub flatpak remote"
     fi
