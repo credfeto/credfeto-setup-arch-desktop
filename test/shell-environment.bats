@@ -394,7 +394,7 @@ run_shell_options_with_os_release() {
 # whether it still registers __nvm for nvm when it is sourced in a shell that
 # has no terminal. The stand-ins above only show which file was sourced.
 @test "70_nvm.sh registers the installed nvm package's completion only in an interactive shell" {
-    [ -f /usr/share/nvm/bash_completion ]
+    [ -f /usr/share/nvm/bash_completion ] || skip "nvm package not installed"
     # shellcheck disable=SC2016
     local _script='. "$1/70_nvm.sh"; complete -p nvm'
     run_section_shell interactive "${_script}"
