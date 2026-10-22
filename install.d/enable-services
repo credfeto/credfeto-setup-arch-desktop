@@ -25,6 +25,9 @@ enable_services() {
     sudo systemctl enable --now paccache.timer || die "Failed to enable paccache.timer"
 
     info "Installing pacman sync"
+    # checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
+    # pacman-contrib only lists as an optional dependency.
+    sudo pacman -S --needed --noconfirm fakeroot || die "Failed to install fakeroot"
     sudo install -m 0644 "$BASEDIR/units/pacman-sync/pacman-sync.service" /etc/systemd/system/pacman-sync.service || die "Failed to copy pacman-sync.service to /etc/systemd/system"
     sudo install -m 0644 "$BASEDIR/units/pacman-sync/pacman-sync.timer" /etc/systemd/system/pacman-sync.timer || die "Failed to copy pacman-sync.timer to /etc/systemd/system"
     sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
