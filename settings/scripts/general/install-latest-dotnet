@@ -16,7 +16,7 @@ extract_dotnet_package() {
     local folders_with_version_regex='^.*/[0-9]+\.[0-9]+[^/]+/'
     local override_non_versioned_files=false
 
-    temp_out_path="$(mktemp -d "$temporary_file_template")"
+    temp_out_path="$(mktemp -d "$WORK_DIR/extract.XXXXXXXX")" || say_err "Could not create a folder to extract $zip_path into"
 
     local failed=false
     tar -xzf "$zip_path" -C "$temp_out_path" > /dev/null || failed=true
@@ -99,7 +99,7 @@ get_cp_options() {
         override_switch="-n"
 
         # create temporary files to check if 'cp -u' is supported
-        tmp_dir="$(sudo mktemp -d)" || say_err "Could not create a temporary directory to test cp -u in"
+        tmp_dir="$(mktemp -d "$WORK_DIR/cp-probe.XXXXXXXX")" || say_err "Could not create a temporary directory to test cp -u in"
         tmp_file="$tmp_dir/testfile"
         tmp_file2="$tmp_dir/testfile2"
 
@@ -176,11 +176,108 @@ get_latest_dotnet_sdk_version() {
 }
 
 
-temporary_file_template="${TMPDIR:-/tmp}/dotnet.XXXXXXXXX"
+# args:
+# path - $1
+available_mb() {
+    local available_kb
 
-DOTNET_INSTALL_DIR=/usr/share/dotnet
+    available_kb="$(df -Pk "$1" | awk 'NR==2 {print $4}')"
+    case "$available_kb" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    echo $((available_kb / 1024))
+}
+
+# args:
+# path - $1
+filesystem_of() {
+    df -Pk "$1" | awk 'NR==2 {print $1}'
+}
+
+# The work folder only ever holds one SDK archive and its extraction, as each
+# is deleted before the next version is downloaded, while the new install
+# grows to hold every SDK. When both are on one filesystem it must hold both.
+require_free_space() {
+    local install_needed_mb="$INSTALL_SPACE_NEEDED_MB"
+    local work_available_mb
+    local install_available_mb
+
+    work_available_mb="$(available_mb "$DOTNET_WORK_ROOT")" || die "Could not read the free space on $DOTNET_WORK_ROOT"
+    install_available_mb="$(available_mb "$DOTNET_INSTALL_ROOT")" || die "Could not read the free space on $DOTNET_INSTALL_ROOT"
+
+    if [ "$(filesystem_of "$DOTNET_WORK_ROOT")" = "$(filesystem_of "$DOTNET_INSTALL_ROOT")" ]; then
+        install_needed_mb=$((install_needed_mb + WORK_SPACE_NEEDED_MB))
+    fi
+
+    [ "$work_available_mb" -ge "$WORK_SPACE_NEEDED_MB" ] || die "Only ${work_available_mb} MB free on $DOTNET_WORK_ROOT; downloading the SDKs needs ${WORK_SPACE_NEEDED_MB} MB"
+    [ "$install_available_mb" -ge "$install_needed_mb" ] || die "Only ${install_available_mb} MB free on $DOTNET_INSTALL_ROOT; installing the SDKs needs ${install_needed_mb} MB"
+}
+
+cleanup() {
+    if [ -n "$WORK_DIR" ]; then
+        rm -rf "$WORK_DIR" || warn "Could not remove $WORK_DIR"
+    fi
+
+    # The link is read as well as the flag: a signal during the rename is only
+    # handled once it has finished, so the flag can still be false with the
+    # live link already pointing at the new install.
+    if [ "$SWITCHED" = false ] && [ "$(readlink "$DOTNET_INSTALL_DIR" 2>/dev/null)" != "$NEW_INSTALL_NAME" ]; then
+        if [ "$NEW_INSTALL_CREATED" = true ]; then
+            sudo rm -rf "$NEW_INSTALL_DIR" || warn "Could not remove $NEW_INSTALL_DIR"
+        fi
+        if [ "$SWITCH_LINK_CREATED" = true ]; then
+            sudo rm -f "$DOTNET_SWITCH_LINK" || warn "Could not remove $DOTNET_SWITCH_LINK"
+        fi
+    fi
+}
+
+# Keeps the new install and the one the link pointed at before the switch:
+# running builds, MSBuild nodes and language servers still use the previous
+# one, and re-pointing the link at it is the rollback. Only names this script
+# creates are matched, so nothing else under the install root is touched.
+# args:
+# previous_install_name - $1
+prune_old_installs() {
+    local previous_install_name="$1"
+
+    find "$DOTNET_INSTALL_ROOT" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/dotnet-(legacy-)?[0-9]{8}T[0-9]{6}Z' |
+        while read -r install_dir; do
+            case "$(basename "$install_dir")" in
+                "$NEW_INSTALL_NAME" | "$previous_install_name") ;;
+                *)
+                    info "Removing old dotnet install $install_dir"
+                    sudo rm -rf "$install_dir" || warn "Could not remove $install_dir"
+                    ;;
+            esac
+        done
+}
+
+# Overridable so the tests can run the whole flow against folders of their
+# own; the defaults are the real locations.
+DOTNET_INSTALL_ROOT="${DOTNET_INSTALL_ROOT:-/usr/share}"
+DOTNET_WORK_ROOT="${DOTNET_WORK_ROOT:-/var/tmp}"
+
+# The live path is only ever a link to a complete, verified install folder,
+# replaced by a single rename, so nothing that runs dotnet meanwhile sees a
+# half-built SDK, and a failed run leaves the previous install in place.
+DOTNET_INSTALL_DIR="$DOTNET_INSTALL_ROOT/dotnet"
+DOTNET_SWITCH_LINK="$DOTNET_INSTALL_ROOT/dotnet.tmp-link"
 DOTNET="$DOTNET_INSTALL_DIR/dotnet"
 DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"
+LOCK_FILE="$DOTNET_WORK_ROOT/install-latest-dotnet.lock"
+
+INSTALL_STAMP="$(date -u +%Y%m%dT%H%M%SZ)" || die "Could not read the current time"
+NEW_INSTALL_NAME="dotnet-$INSTALL_STAMP"
+NEW_INSTALL_DIR="$DOTNET_INSTALL_ROOT/$NEW_INSTALL_NAME"
+
+# Measured on the four-SDK install this replaces: the 10.0 and 11.0 SDK
+# folders are 400 MB and 316 MB, their runtimes 214 MB together, and the
+# packs, templates and host of all four versions 408 MB, so a 10.0 + 11.0
+# install is at most about 1.35 GB. The work folder peaks at the largest
+# version's extraction (at most about 0.9 GB) plus its archive (about
+# 0.25 GB). Both thresholds leave well over half as much again as headroom.
+WORK_SPACE_NEEDED_MB=2048
+INSTALL_SPACE_NEEDED_MB=3072
 
 # Both halves of the install take their modes from whatever umask this runs
 # under: as an ordinary user tar applies the umask unless given -p, and cp
@@ -201,12 +298,30 @@ DOWNLOAD_SOURCE=$PROXY_HOST
 VERSIONS_TO_INSTALL="10.0 11.0"
 verbose=false
 
-if [ -d "$DOTNET_INSTALL_DIR" ]; then
-    sudo rm -fr "$DOTNET_INSTALL_DIR" || die "Could not remove the old dotnet folder"
-fi
+WORK_DIR=""
+NEW_INSTALL_CREATED=false
+SWITCH_LINK_CREATED=false
+SWITCHED=false
 
-sudo mkdir "$DOTNET_INSTALL_DIR" || die "Could not create dotnet folder"
-sudo chmod 755 "$DOTNET_INSTALL_DIR" || die "Could not set permissions for dotnet folder"
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+
+# Non-blocking, so a second run stops at once rather than queueing behind the
+# first and then replacing the install it has just made.
+exec 9>"$LOCK_FILE" || die "Could not open $LOCK_FILE"
+flock -n 9 || die "Another install-latest-dotnet run holds $LOCK_FILE"
+
+require_free_space
+
+# Under /var/tmp rather than $TMPDIR or /tmp, which are often tmpfs and so
+# would hold a whole SDK archive and its extraction in memory.
+WORK_DIR="$(mktemp -d "$DOTNET_WORK_ROOT/dotnet-install.XXXXXXXX")" || die "Could not create a work folder in $DOTNET_WORK_ROOT"
+
+sudo mkdir "$NEW_INSTALL_DIR" || die "Could not create $NEW_INSTALL_DIR"
+NEW_INSTALL_CREATED=true
+sudo chmod 755 "$NEW_INSTALL_DIR" || die "Could not set permissions for $NEW_INSTALL_DIR"
+
+EXPECTED_SDK_VERSIONS=""
 
 # update to latest dotnet core
 for VERSION in $VERSIONS_TO_INSTALL; do
@@ -215,8 +330,7 @@ for VERSION in $VERSIONS_TO_INSTALL; do
 
   [ -z "$SDK_VERSION" ] && die "Could not determine latest SDK version for $VERSION"
 
-  TEMPORARY_FILE="$(mktemp "$temporary_file_template")"
-
+  TEMPORARY_FILE="$(mktemp "$WORK_DIR/sdk.XXXXXXXX")" || die "Could not create a file to download into in $WORK_DIR"
 
   info "Installing dotnet $VERSION (SDK: $SDK_VERSION)"
 
@@ -233,14 +347,49 @@ for VERSION in $VERSIONS_TO_INSTALL; do
     "$DOWNLOAD_URL" \
     -o "$TEMPORARY_FILE" || die "Could not download: $DOWNLOAD_URL"
 
-  extract_dotnet_package "$TEMPORARY_FILE" "$DOTNET_INSTALL_DIR" || die "Could not install"
-
-  # Deliberately unprivileged: the point of the install is a dotnet an
-  # ordinary user can run, and running this under sudo would only prove root
-  # can run it.
-  "$DOTNET" --list-sdks || die "Could not run $DOTNET - check the installed permissions"
+  extract_dotnet_package "$TEMPORARY_FILE" "$NEW_INSTALL_DIR" || die "Could not install"
+  EXPECTED_SDK_VERSIONS="$EXPECTED_SDK_VERSIONS $SDK_VERSION"
 
 done
+
+# Deliberately unprivileged: the point of the install is a dotnet an ordinary
+# user can run, and running this under sudo would only prove root can run it.
+# DOTNET_ROOT is cleared so the new dotnet cannot lean on the live install the
+# caller's shell points it at, and the lock is not passed on, so nothing this
+# starts can keep holding it.
+LISTED_SDKS="$(env -u DOTNET_ROOT "$NEW_INSTALL_DIR/dotnet" --list-sdks 9>&-)" || die "Could not run $NEW_INSTALL_DIR/dotnet - check the installed permissions"
+for SDK_VERSION in $EXPECTED_SDK_VERSIONS; do
+  printf '%s\n' "$LISTED_SDKS" | cut -d' ' -f1 | grep -qxF "$SDK_VERSION" || die "$NEW_INSTALL_DIR/dotnet does not list the $SDK_VERSION SDK"
+done
+
+PREVIOUS_INSTALL_NAME=""
+if [ -L "$DOTNET_INSTALL_DIR" ]; then
+  PREVIOUS_INSTALL_NAME="$(basename "$(readlink "$DOTNET_INSTALL_DIR")")"
+elif [ -d "$DOTNET_INSTALL_DIR" ]; then
+  # Only before the first switch, when the live path is still the folder
+  # earlier versions of this script installed into.
+  PREVIOUS_INSTALL_NAME="dotnet-legacy-$INSTALL_STAMP"
+  sudo mv "$DOTNET_INSTALL_DIR" "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME" || die "Could not move $DOTNET_INSTALL_DIR aside"
+elif [ -e "$DOTNET_INSTALL_DIR" ]; then
+  die "$DOTNET_INSTALL_DIR is neither a folder nor a link; move it aside, then re-run"
+fi
+
+# Relative, so the link stays valid however the install root is reached. -n
+# and -f replace a link left behind by a run killed before its rename. mv -T
+# renames the link over the live path in one rename(), rather than moving it
+# into the folder the live link points at.
+sudo ln -sfn "$NEW_INSTALL_NAME" "$DOTNET_SWITCH_LINK" || die "Could not create $DOTNET_SWITCH_LINK"
+SWITCH_LINK_CREATED=true
+sudo mv -T "$DOTNET_SWITCH_LINK" "$DOTNET_INSTALL_DIR" || die "Could not point $DOTNET_INSTALL_DIR at $NEW_INSTALL_DIR"
+SWITCHED=true
+
+info "Switched $DOTNET_INSTALL_DIR to $NEW_INSTALL_NAME"
+
+prune_old_installs "$PREVIOUS_INSTALL_NAME"
+
+# Released before the tool steps, so a dotnet build server they start cannot
+# keep holding it once this run has ended.
+exec 9>&-
 
 info "Install/update powershell"
 
