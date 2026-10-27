@@ -256,6 +256,16 @@ first_line_matching() {
     [ "${manifest_line}" -lt "${local_line}" ]
 }
 
+@test "install-latest-dotnet checks for the tool manifest where dotnet new tool-manifest writes it" {
+    # Run from $HOME, `dotnet new tool-manifest` writes $HOME/dotnet-tools.json,
+    # the same file install-dotnet-tools uses. Checking anywhere else misses an
+    # existing manifest, and the create step then refuses to overwrite it.
+    # shellcheck disable=SC2016 # literal $HOME in the script source, not a shell expansion
+    grep -qxF 'DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"' "${INSTALL_LATEST_DOTNET}"
+    # shellcheck disable=SC2016 # literal $HOME in the script source, not a shell expansion
+    grep -qF '[ -f "$HOME/dotnet-tools.json" ]' "${GENERAL_DIR}/install-dotnet-tools"
+}
+
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
     setup_fake_sudo curl
     # Only the 8.0 channel exists, so a run that wrongly carried on would

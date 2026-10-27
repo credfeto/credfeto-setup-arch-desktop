@@ -180,7 +180,7 @@ temporary_file_template="${TMPDIR:-/tmp}/dotnet.XXXXXXXXX"
 
 DOTNET_INSTALL_DIR=/usr/share/dotnet
 DOTNET="$DOTNET_INSTALL_DIR/dotnet"
-DOTNET_TOOL_MANIFEST="$HOME/.config/dotnet-tools.json"
+DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"
 
 # Both halves of the install take their modes from whatever umask this runs
 # under: as an ordinary user tar applies the umask unless given -p, and cp
