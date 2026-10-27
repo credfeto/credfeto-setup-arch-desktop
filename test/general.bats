@@ -333,11 +333,6 @@ dotnet_install_root_listing() {
     find "${DOTNET_TEST_INSTALL_ROOT}" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
 }
 
-# Line number of the first fake log line matching the given grep -E pattern.
-first_log_line_matching() {
-    grep -nE -e "$1" "${FAKE_BIN_LOG}" | head -1 | cut -d: -f1
-}
-
 # Succeeds when the work root holds no work folder.
 work_root_has_no_work_dir() {
     [ -z "$(find "${DOTNET_TEST_WORK_ROOT}" -mindepth 1 -maxdepth 1 -name 'dotnet-install.*')" ]
@@ -502,8 +497,8 @@ first_line_matching() {
     [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link" ]
     work_root_has_no_work_dir
 
-    verify_line="$(first_log_line_matching '^dotnet --list-sdks DOTNET_ROOT=unset$')"
-    switch_line="$(first_log_line_matching '^sudo mv -T ')"
+    verify_line="$(log_line_of '^dotnet --list-sdks DOTNET_ROOT=unset$')"
+    switch_line="$(log_line_of '^sudo mv -T ')"
     [ -n "${verify_line}" ]
     [ -n "${switch_line}" ]
     [ "${verify_line}" -lt "${switch_line}" ]

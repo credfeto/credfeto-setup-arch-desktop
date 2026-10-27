@@ -241,6 +241,13 @@ refute_fake_called() {
     ! grep -qE "$1" "${FAKE_BIN_LOG}"
 }
 
+# Prints the line number of the first fake log line matching the given
+# grep -E pattern.
+# Usage: log_line_of <pattern>
+log_line_of() {
+    grep -n -m 1 -E "$1" "${FAKE_BIN_LOG}" | cut -d: -f1
+}
+
 # Asserts each dev-update unit in the user unit directory is a symlink that
 # resolves to the same unit under the given directory.
 # Usage: assert_dev_update_units_linked_to <units-dir>
