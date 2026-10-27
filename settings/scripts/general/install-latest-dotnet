@@ -198,10 +198,7 @@ DOWNLOAD_SOURCE=$PROXY_HOST
 
 #[ -z "$DOTNET_BUILDS_CDN" ] || PROXY_HOST=$DOTNET_BUILDS_CDN
 
-VERSIONS_TO_INSTALL="8.0 \
-                     9.0 \
-                     10.0 \
-                     11.0"
+VERSIONS_TO_INSTALL="10.0 11.0"
 verbose=false
 
 if [ -d "$DOTNET_INSTALL_DIR" ]; then
