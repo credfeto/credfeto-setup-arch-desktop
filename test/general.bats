@@ -266,12 +266,17 @@ first_line_matching() {
     grep -qF '[ -f "$HOME/dotnet-tools.json" ]' "${GENERAL_DIR}/install-dotnet-tools"
 }
 
+@test "install-latest-dotnet installs only the 10.0 and 11.0 SDKs" {
+    [ "$(grep -c '^VERSIONS_TO_INSTALL=' "${INSTALL_LATEST_DOTNET}")" -eq 1 ]
+    grep -qxF 'VERSIONS_TO_INSTALL="10.0 11.0"' "${INSTALL_LATEST_DOTNET}"
+}
+
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
     setup_fake_sudo curl
-    # Only the 8.0 channel exists, so a run that wrongly carried on would
+    # Only the 10.0 channel exists, so a run that wrongly carried on would
     # stop at the next channel rather than go on to the tool steps.
     seed_fake_output curl <<'EOF'
-{"releases-index":[{"channel-version":"8.0","latest-sdk":"0.0.0-bats"}]}
+{"releases-index":[{"channel-version":"10.0","latest-sdk":"0.0.0-bats"}]}
 EOF
     # Extracts one versioned SDK folder into the -C directory, so the copy
     # loop has something to copy. The version is one no real install has.
