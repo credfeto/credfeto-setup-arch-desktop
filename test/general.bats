@@ -339,6 +339,15 @@ work_root_has_no_work_dir() {
     [ -z "$(find "${DOTNET_TEST_WORK_ROOT}" -mindepth 1 -maxdepth 1 -name 'dotnet-install.*')" ]
 }
 
+# Succeeds when a failed run left the install seed_previous_dotnet_install made
+# live and untouched, with nothing of its own new install or work folder left.
+assert_failed_run_left_previous_install() {
+    assert_previous_dotnet_install_live
+    [ -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker" ]
+    [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}" ]
+    work_root_has_no_work_dir
+}
+
 # Line number of the first line matching the given grep -E pattern, so a test
 # can assert ordering rather than mere presence.
 first_line_matching() {
@@ -424,9 +433,7 @@ first_line_matching() {
     [[ "${output}" == *"Could not copy ${new_install}/sdk/10.0.100-bats/"* ]]
     [[ "${output}" == *"Could not copy the versioned SDK folders into ${new_install}"* ]]
     [[ "${output}" != *"Restoring tools"* ]]
-    assert_previous_dotnet_install_live
-    [ ! -e "${new_install}" ]
-    work_root_has_no_work_dir
+    assert_failed_run_left_previous_install
 }
 
 @test "install-latest-dotnet never removes the live dotnet path" {
@@ -580,10 +587,7 @@ assert_legacy_dotnet_install_restored() {
     run_install_latest_dotnet FAKE_CURL_FAIL_DOWNLOAD=1
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Could not download: "* ]]
-    assert_previous_dotnet_install_live
-    [ -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker" ]
-    [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}" ]
-    work_root_has_no_work_dir
+    assert_failed_run_left_previous_install
 }
 
 @test "install-latest-dotnet does not switch to an install that does not list every SDK" {
@@ -592,10 +596,8 @@ assert_legacy_dotnet_install_restored() {
     run_install_latest_dotnet FAKE_DOTNET_LIST_NOTHING=1
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"does not list the 10.0.100-bats SDK"* ]]
-    assert_previous_dotnet_install_live
-    [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}" ]
+    assert_failed_run_left_previous_install
     refute_fake_called '^sudo mv -T '
-    work_root_has_no_work_dir
 }
 
 @test "install-latest-dotnet stops before downloading when there is not enough free space" {
