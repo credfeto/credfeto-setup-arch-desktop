@@ -200,6 +200,9 @@ INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
 # The time the fake date reports, and so the name of the new install folder.
 DOTNET_TEST_STAMP="20261027T120000Z"
 
+# The install folder seed_previous_dotnet_install points the live link at.
+DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
+
 # Makes the fakes an end-to-end run needs, and the install and work roots it
 # runs against:
 # - sudo runs what it is given as the test user, after logging it, unless the
@@ -310,13 +313,19 @@ run_install_latest_dotnet() {
         DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
 }
 
-# Seeds an install folder holding a marker file, and points the live link at
-# it, as a previous run would have left them.
-# Usage: seed_previous_dotnet_install <folder-name>
+# Seeds the previous install folder holding a marker file, and points the live
+# link at it, as a previous run would have left them.
 seed_previous_dotnet_install() {
-    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/$1"
-    echo previous > "${DOTNET_TEST_INSTALL_ROOT}/$1/marker"
-    ln -sfn "$1" "${DOTNET_TEST_INSTALL_ROOT}/dotnet"
+    setup_dotnet_install_fakes
+    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}"
+    echo previous > "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker"
+    ln -sfn "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_INSTALL_ROOT}/dotnet"
+}
+
+# Succeeds when the live link still points at the install
+# seed_previous_dotnet_install made.
+assert_previous_dotnet_install_live() {
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_PREVIOUS_INSTALL}" ]
 }
 
 # The names under the install root, one a line, sorted.
@@ -411,8 +420,7 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
     new_install="${DOTNET_TEST_INSTALL_ROOT}/dotnet-${DOTNET_TEST_STAMP}"
 
     run_install_latest_dotnet FAKE_SUDO_FAIL='^cp -R '
@@ -420,7 +428,7 @@ first_line_matching() {
     [[ "${output}" == *"Could not copy ${new_install}/sdk/10.0.100-bats/"* ]]
     [[ "${output}" == *"Could not copy the versioned SDK folders into ${new_install}"* ]]
     [[ "${output}" != *"Restoring tools"* ]]
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-20260101T000000Z" ]
+    assert_previous_dotnet_install_live
     [ ! -e "${new_install}" ]
     work_root_has_no_work_dir
 }
@@ -482,8 +490,7 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet installs into a new folder, verifies it, then links the live path to it" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
     new_install="${DOTNET_TEST_INSTALL_ROOT}/dotnet-${DOTNET_TEST_STAMP}"
 
     run_install_latest_dotnet
@@ -491,7 +498,7 @@ first_line_matching() {
     [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-${DOTNET_TEST_STAMP}" ]
     [ -f "${new_install}/sdk/10.0.100-bats/file" ]
     [ -f "${new_install}/sdk/11.0.100-bats/file" ]
-    [ -f "${DOTNET_TEST_INSTALL_ROOT}/dotnet-20260101T000000Z/marker" ]
+    [ -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker" ]
     [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link" ]
     work_root_has_no_work_dir
 
@@ -561,62 +568,57 @@ assert_legacy_dotnet_install_restored() {
 }
 
 @test "install-latest-dotnet keeps only the new install and the one it replaced" {
-    setup_dotnet_install_fakes
+    seed_previous_dotnet_install
     mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/dotnet-20250101T000000Z" \
         "${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-20240101T000000Z" \
         "${DOTNET_TEST_INSTALL_ROOT}/dotnet-unrelated"
-    seed_previous_dotnet_install dotnet-20260101T000000Z
 
     run_install_latest_dotnet
     [ "${status}" -eq 0 ]
-    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet dotnet-20260101T000000Z "dotnet-${DOTNET_TEST_STAMP}" dotnet-unrelated | sort)" ]
+    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet "${DOTNET_TEST_PREVIOUS_INSTALL}" "dotnet-${DOTNET_TEST_STAMP}" dotnet-unrelated | sort)" ]
 }
 
 @test "install-latest-dotnet leaves the previous install live and cleans up when a download fails" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
 
     run_install_latest_dotnet FAKE_CURL_FAIL_DOWNLOAD=1
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Could not download: "* ]]
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-20260101T000000Z" ]
-    [ -f "${DOTNET_TEST_INSTALL_ROOT}/dotnet-20260101T000000Z/marker" ]
+    assert_previous_dotnet_install_live
+    [ -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker" ]
     [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/dotnet-${DOTNET_TEST_STAMP}" ]
     work_root_has_no_work_dir
 }
 
 @test "install-latest-dotnet does not switch to an install that does not list every SDK" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
 
     run_install_latest_dotnet FAKE_DOTNET_LIST_NOTHING=1
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"does not list the 10.0.100-bats SDK"* ]]
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-20260101T000000Z" ]
+    assert_previous_dotnet_install_live
     [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/dotnet-${DOTNET_TEST_STAMP}" ]
     refute_fake_called '^sudo mv -T '
     work_root_has_no_work_dir
 }
 
 @test "install-latest-dotnet stops before downloading when there is not enough free space" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
 
     run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=1024
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Only 1 MB free on ${DOTNET_TEST_WORK_ROOT}"* ]]
     refute_fake_called '^curl '
     refute_fake_called '^sudo mkdir '
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-20260101T000000Z" ]
+    assert_previous_dotnet_install_live
     work_root_has_no_work_dir
 }
 
 @test "install-latest-dotnet stops without touching anything while another run holds the lock" {
-    setup_dotnet_install_fakes
-    seed_previous_dotnet_install dotnet-20260101T000000Z
+    seed_previous_dotnet_install
     # A switch link a running install has just made, which this run must not
     # take for one of its own.
-    ln -s dotnet-20260101T000000Z "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link"
+    ln -s "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link"
 
     exec 8> "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
     flock -n 8
@@ -628,5 +630,5 @@ assert_legacy_dotnet_install_restored() {
     refute_fake_called '^curl '
     refute_fake_called '^sudo '
     [ -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link" ]
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-20260101T000000Z" ]
+    assert_previous_dotnet_install_live
 }
