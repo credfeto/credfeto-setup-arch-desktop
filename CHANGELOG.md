@@ -65,6 +65,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The bats test suite no longer reads the developer's global or system git configuration files
 - pacman-sync no longer reports failed when checkupdates finds no updates (exit code 2), and enable-services installs fakeroot, which checkupdates needs to run
 - configure-flatpak: fail when flatpak remotes fails instead of treating it as no flathub remote (#59)
+- TBD - to be finalized after review
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
