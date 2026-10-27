@@ -505,24 +505,22 @@ first_line_matching() {
     assert_fake_called '^dotnet tool restore '
 }
 
-@test "install-latest-dotnet moves an install that is still a real folder aside rather than deleting it" {
-    setup_dotnet_install_fakes
-    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/dotnet"
-    echo legacy > "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker"
-
-    run_install_latest_dotnet
-    [ "${status}" -eq 0 ]
-    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-${DOTNET_TEST_STAMP}" ]
-    [ "$(cat "${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}/marker")" = legacy ]
-    refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
-}
-
 # Seeds the live path as the real folder earlier versions of the script
 # installed into, holding a marker file.
 seed_legacy_dotnet_install() {
     setup_dotnet_install_fakes
     mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/dotnet"
     echo legacy > "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker"
+}
+
+@test "install-latest-dotnet moves an install that is still a real folder aside rather than deleting it" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "dotnet-${DOTNET_TEST_STAMP}" ]
+    [ "$(cat "${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}/marker")" = legacy ]
+    refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
 }
 
 # Succeeds when the folder seed_legacy_dotnet_install made is back at the live
