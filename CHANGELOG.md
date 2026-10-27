@@ -65,7 +65,10 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The bats test suite no longer reads the developer's global or system git configuration files
 - pacman-sync no longer reports failed when checkupdates finds no updates (exit code 2), and enable-services installs fakeroot, which checkupdates needs to run
 - configure-flatpak: fail when flatpak remotes fails instead of treating it as no flathub remote (#59)
-- TBD - to be finalized after review
+- install-latest-dotnet builds the new SDK install beside the live one and switches to it in a single rename, so a failed or interrupted run leaves the existing dotnet working, and a first-run install that cannot be switched is put back in place
+- install-latest-dotnet keeps its temporary files under /var/tmp and removes them on failure, checks free disk space before downloading and refuses to run while another run holds its lock
+- install-latest-dotnet finds the .NET tool manifest at ~/dotnet-tools.json, so re-runs no longer fail when a manifest already exists
+- The login tests no longer launch the host's real stream script, which could hang the test suite
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -77,6 +80,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The cd aliases, Go section and distro lookup in the shell sections no longer start extra processes, so shell start and timer runs are faster
 - Shell script tests now use fake versions of nvm, autojump, Go and .NET instead of skipping when these tools are not installed
 - dev-update now publishes the reference repos (credfeto-global-pre-commit, claude, credfeto-ai-skills and credfeto-orchestrator) as root-owned, timestamped snapshots under /usr/local/share/development, switches a symlink to each new snapshot atomically, and runs their installers with --system from that snapshot, so system-wide installs never point into a reference clone that can change or be removed
+- install-latest-dotnet installs only the .NET 10 and 11 SDKs, no longer 8.0 and 9.0
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
