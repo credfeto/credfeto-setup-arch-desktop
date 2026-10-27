@@ -228,6 +228,12 @@ cleanup() {
         if [ "$SWITCH_LINK_CREATED" = true ]; then
             sudo rm -f "$DOTNET_SWITCH_LINK" || warn "Could not remove $DOTNET_SWITCH_LINK"
         fi
+        # Put the folder earlier versions installed into back at the live
+        # path, so a failed switch leaves it working rather than leaving no
+        # dotnet at all, and the next run does not prune it as an old install.
+        if [ -n "$LEGACY_INSTALL_DIR" ]; then
+            sudo mv -T "$LEGACY_INSTALL_DIR" "$DOTNET_INSTALL_DIR" || warn "Could not move $LEGACY_INSTALL_DIR back to $DOTNET_INSTALL_DIR"
+        fi
     fi
 }
 
@@ -302,6 +308,7 @@ WORK_DIR=""
 NEW_INSTALL_CREATED=false
 SWITCH_LINK_CREATED=false
 SWITCHED=false
+LEGACY_INSTALL_DIR=""
 
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
@@ -370,6 +377,7 @@ elif [ -d "$DOTNET_INSTALL_DIR" ]; then
   # earlier versions of this script installed into.
   PREVIOUS_INSTALL_NAME="dotnet-legacy-$INSTALL_STAMP"
   sudo mv "$DOTNET_INSTALL_DIR" "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME" || die "Could not move $DOTNET_INSTALL_DIR aside"
+  LEGACY_INSTALL_DIR="$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME"
 elif [ -e "$DOTNET_INSTALL_DIR" ]; then
   die "$DOTNET_INSTALL_DIR is neither a folder nor a link; move it aside, then re-run"
 fi

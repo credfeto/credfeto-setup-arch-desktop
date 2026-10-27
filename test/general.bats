@@ -517,6 +517,51 @@ first_line_matching() {
     refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
 }
 
+# Seeds the live path as the real folder earlier versions of the script
+# installed into, holding a marker file.
+seed_legacy_dotnet_install() {
+    setup_dotnet_install_fakes
+    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/dotnet"
+    echo legacy > "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker"
+}
+
+# Succeeds when the folder seed_legacy_dotnet_install made is back at the live
+# path, untouched, with nothing of the failed run left beside it.
+assert_legacy_dotnet_install_restored() {
+    [ -d "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
+    [ ! -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
+    [ "$(cat "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker")" = legacy ]
+    [ "$(dotnet_install_root_listing)" = dotnet ]
+    work_root_has_no_work_dir
+}
+
+@test "install-latest-dotnet puts a moved-aside install back when the switch link cannot be made" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_FAIL='^ln -sfn '
+    [ "${status}" -eq 1 ]
+    assert_legacy_dotnet_install_restored
+}
+
+@test "install-latest-dotnet puts a moved-aside install back when the switch rename fails" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_FAIL='^mv -T .*/dotnet\.tmp-link '
+    [ "${status}" -eq 1 ]
+    assert_legacy_dotnet_install_restored
+}
+
+@test "install-latest-dotnet names the moved-aside install when it cannot put it back" {
+    seed_legacy_dotnet_install
+    legacy_install="${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}"
+
+    # Fails both the switch rename and the move back.
+    run_install_latest_dotnet FAKE_SUDO_FAIL='^mv -T '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not move ${legacy_install} back to ${DOTNET_TEST_INSTALL_ROOT}/dotnet"* ]]
+    [ "$(cat "${legacy_install}/marker")" = legacy ]
+}
+
 @test "install-latest-dotnet keeps only the new install and the one it replaced" {
     setup_dotnet_install_fakes
     mkdir -p "${DOTNET_TEST_INSTALL_ROOT}/dotnet-20250101T000000Z" \
