@@ -995,9 +995,22 @@ exit 0
 EOF
 }
 
+# Runs login with a PATH of the fakes plus links to only the host tools login
+# itself uses, so whether streamlink and stream are installed on the host
+# cannot change what it does: a real stream never exits and would hold bats'
+# output open.
+run_login() {
+    local _host_tools="${BATS_TEST_TMPDIR}/login-host-tools" _tool
+    mkdir -p "${_host_tools}"
+    for _tool in dirname readlink grep; do
+        ln -sf "$(type -P "${_tool}")" "${_host_tools}/${_tool}"
+    done
+    run env PATH="${FAKE_BIN_DIR}:${_host_tools}" "${LINUX_DIR}/login"
+}
+
 @test "login only launches candidate apps that are actually installed" {
     setup_fake_flatpak_with_installed "$(printf 'com.discordapp.Discord\norg.mozilla.firefox\ncom.some.UnrelatedApp')"
-    run "${LINUX_DIR}/login"
+    run_login
     [ "${status}" -eq 0 ]
     assert_fake_called '^flatpak run com\.discordapp\.Discord$'
     assert_fake_called '^flatpak run org\.mozilla\.firefox$'
@@ -1008,15 +1021,15 @@ EOF
 
 @test "login gives Brave its Ozone/Wayland flags, no other app gets them" {
     setup_fake_flatpak_with_installed "$(printf 'com.brave.Browser\ncom.discordapp.Discord')"
-    run "${LINUX_DIR}/login"
+    run_login
     [ "${status}" -eq 0 ]
     assert_fake_called '^flatpak run com\.brave\.Browser --enable-feature=UseOzonePlatform --ozone-platform=wayland'
     assert_fake_called '^flatpak run com\.discordapp\.Discord$'
 }
 
 @test "login starts the paults_aquaescape stream only when streamlink is installed" {
-    setup_fake_flatpak_with_installed ""
-    run "${LINUX_DIR}/login"
+    setup_fake_flatpak_with_installed "" stream
+    run_login
     [ "${status}" -eq 0 ]
     [[ "${output}" != *"streamlink found"* ]]
     refute_fake_called '^stream '
@@ -1025,7 +1038,7 @@ EOF
 @test "login starts the stream when streamlink is present" {
     setup_fake_flatpak_with_installed "" streamlink stream
 
-    run "${LINUX_DIR}/login"
+    run_login
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"streamlink found, starting stream"* ]]
     assert_fake_called '^stream paults_aquaescape$'
