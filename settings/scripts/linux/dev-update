@@ -88,10 +88,12 @@ dev_update() {
     reload_user_units
 
     run_reference_step credfeto-setup-arch-desktop/install.d/dev-scripts
-    run_reference_step credfeto-global-pre-commit/install --system
-    run_reference_step claude/install
-    run_reference_step credfeto-ai-skills/install
-    run_reference_step credfeto-orchestrator/install-claude-hooks
+    # System-wide installs run from a root-owned published snapshot, so what
+    # they install never points into a reference clone.
+    run_published_installer credfeto-global-pre-commit install
+    run_published_installer claude install
+    run_published_installer credfeto-ai-skills install
+    run_published_installer credfeto-orchestrator install-claude-hooks
 
     # From the reference clone just brought to main, not through PATH, whose
     # /usr/local/bin link may still point into a working checkout; and from

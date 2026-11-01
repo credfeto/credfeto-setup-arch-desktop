@@ -41,13 +41,21 @@ Both `dev-install` and `dev-update` switch each reference clone to `main` and fa
 
 `dev-update` refuses to run inside a Claude Code session and dies at once when offline, or when neither NetworkManager nor systemd-networkd is running, with a message saying which. Otherwise it clones any missing reference repository into `~/work/reference/` over SSH only, from the same owners as `dev-install` (`credfeto` for all but `claude`, which comes from `dnyw4l3n13`), so a deleted or newly added reference repository is restored without re-running `dev-install`; a failed clone is fatal. The exception is `credfeto-setup-arch-desktop` itself: the timer's units are symlinks into that clone, so deleting it stops the timer (see [dev-update timer](#dev-update-timer)) until `dev-install` is re-run. It then switches every reference clone to `main` and fast-forwards it, as described under [Reference clones](#reference-clones), and runs, stopping on the first failure:
 
-- `credfeto-setup-arch-desktop/install.d/dev-scripts`
+- `credfeto-setup-arch-desktop/install.d/dev-scripts`, from the reference clone
 - `credfeto-global-pre-commit/install --system`
-- `claude/install`
-- `credfeto-ai-skills/install`
-- `credfeto-orchestrator/install-claude-hooks`
+- `claude/install --system`
+- `credfeto-ai-skills/install --system`
+- `credfeto-orchestrator/install-claude-hooks --system`
 
-It then runs `update-dotnet-tools` from the `credfeto-setup-arch-desktop` reference clone, with `$HOME` as the working directory, and, once the whole run has succeeded and released its lock, starts `dev-update.timer` (a no-op when it is already running). A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully. `dev-install` runs `dev-update --fail-if-running`, which makes that case an error instead.
+Each `--system` installer runs from a published snapshot of its repository rather than from the reference clone, as described under [Published snapshots](#published-snapshots). It then runs `update-dotnet-tools` from the `credfeto-setup-arch-desktop` reference clone, with `$HOME` as the working directory, and, once the whole run has succeeded and released its lock, starts `dev-update.timer` (a no-op when it is already running). A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully. `dev-install` runs `dev-update --fail-if-running`, which makes that case an error instead.
+
+### Published snapshots
+
+Before running a repository's `--system` installer, `dev-update` publishes that repository to `/usr/local/share/development`, so that what the installer sets up system-wide never points into a reference clone. Set `DEV_PUBLISH_DIR` to publish somewhere else.
+
+Each publish exports the reference clone's committed `HEAD` with `git archive` into a new directory named `<repo>-<UTC timestamp>Z`, so untracked and uncommitted files are never published. The snapshot is owned by `root:root`, with directories at mode 755 and files writable only by root. The `<repo>` symlink is then switched to the new snapshot in one atomic rename, so an installer never sees a half-written tree. The previous snapshot is kept, so anything still using it keeps working, and any older ones are removed.
+
+An installer that does not support `--system` stops the run with an error naming it.
 
 ### dev-update timer
 
@@ -59,7 +67,7 @@ The service runs `dev-update` through a login shell (`/bin/sh -lc`), because the
 
 Timer runs clone and fast-forward the reference clones over SSH. `SSH_AUTH_SOCK` points at the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
 
-Timer runs have no terminal, so the `sudo` calls in `dev-scripts`, the `cfwf` copy and `install --system` need passwordless `sudo`. Without it the timer run fails at `dev-scripts`.
+Timer runs have no terminal, so the `sudo` calls in `dev-scripts`, the `cfwf` copy, publishing the snapshots and the `--system` installers need passwordless `sudo`. Without it the timer run fails at `dev-scripts`.
 
 ```sh
 systemctl --user list-timers dev-update.timer

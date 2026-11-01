@@ -147,6 +147,98 @@ DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${DEV_REFERENCE_DEFAULT_DIR}}"
 # shellcheck disable=SC2034
 DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
 
+# Published snapshot layout: ${DEV_PUBLISH_DIR}/<repo> is a symlink to the
+# current <repo>-<UTC timestamp> snapshot, so system-wide installs never point
+# into a reference clone that can be switched or edited. DEV_PUBLISH_DIR is a
+# test seam only, so a test can point it at a temp dir of its own.
+DEV_PUBLISH_DIR="${DEV_PUBLISH_DIR:-/usr/local/share/development}"
+
+# Runs a command directly when DEV_PUBLISH_DIR is writable (or can be created),
+# otherwise through sudo.
+dev_publish_sudo() {
+    if [ -w "${DEV_PUBLISH_DIR}" ] || { [ ! -e "${DEV_PUBLISH_DIR}" ] && [ -w "$(dirname "${DEV_PUBLISH_DIR}")" ]; }; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+# Publishes the committed HEAD of a reference clone as a new root-owned
+# snapshot and switches ${DEV_PUBLISH_DIR}/<repo> to it. git archive takes
+# HEAD only, so untracked or ignored files in the clone are never published.
+# The snapshot the link pointed at before is kept, so anything still running
+# from it is not pulled out from under it; any older one is removed.
+# Usage: publish_reference_repo <repo>
+publish_reference_repo() {
+    PUBLISH_REPO="$1"
+    PUBLISH_CLONE="${DEV_REFERENCE_DIR}/${PUBLISH_REPO}"
+    PUBLISH_LINK="${DEV_PUBLISH_DIR}/${PUBLISH_REPO}"
+    # Nanoseconds so two publishes within the same second never collide.
+    PUBLISH_NAME="${PUBLISH_REPO}-$(date -u +%Y%m%dT%H%M%S.%NZ)" || die "Failed to name a snapshot of ${PUBLISH_REPO}"
+    PUBLISH_SNAPSHOT="${DEV_PUBLISH_DIR}/${PUBLISH_NAME}"
+
+    info "Publishing ${PUBLISH_CLONE} to ${PUBLISH_SNAPSHOT}..."
+    dev_publish_sudo mkdir -p "${DEV_PUBLISH_DIR}" || die "Failed to create ${DEV_PUBLISH_DIR}"
+    # Explicit rather than umask-dependent, so a user with a strict umask
+    # still gets a publish directory every account can read.
+    dev_publish_sudo chmod 755 "${DEV_PUBLISH_DIR}" || die "Failed to set permissions on ${DEV_PUBLISH_DIR}"
+    dev_publish_sudo mkdir "${PUBLISH_SNAPSHOT}" || die "Failed to create ${PUBLISH_SNAPSHOT}"
+
+    PUBLISH_ARCHIVE="$(mktemp)" || die "Failed to create a temporary file for ${PUBLISH_REPO}"
+    if ! git -C "${PUBLISH_CLONE}" archive --format=tar -o "${PUBLISH_ARCHIVE}" HEAD; then
+        rm -f "${PUBLISH_ARCHIVE}"
+        die "Failed to archive ${PUBLISH_CLONE}"
+    fi
+    if ! dev_publish_sudo tar -x -f "${PUBLISH_ARCHIVE}" -C "${PUBLISH_SNAPSHOT}"; then
+        rm -f "${PUBLISH_ARCHIVE}"
+        die "Failed to extract ${PUBLISH_REPO} into ${PUBLISH_SNAPSHOT}"
+    fi
+    rm -f "${PUBLISH_ARCHIVE}"
+
+    dev_publish_sudo chmod -R u=rwX,go=rX "${PUBLISH_SNAPSHOT}" || die "Failed to set permissions on ${PUBLISH_SNAPSHOT}"
+    # Always sudo: only root can give files to root, even in a writable directory.
+    sudo chown -R root:root "${PUBLISH_SNAPSHOT}" || die "Failed to make ${PUBLISH_SNAPSHOT} owned by root"
+
+    PUBLISH_PREVIOUS="$(readlink "${PUBLISH_LINK}" 2>/dev/null)" || PUBLISH_PREVIOUS=""
+    # A new link renamed over the old one, so the path is never missing or
+    # half-switched for an installer or user reading it.
+    dev_publish_sudo ln -sfn "${PUBLISH_NAME}" "${DEV_PUBLISH_DIR}/.${PUBLISH_REPO}.tmp" || die "Failed to create a link to ${PUBLISH_SNAPSHOT}"
+    dev_publish_sudo mv -T "${DEV_PUBLISH_DIR}/.${PUBLISH_REPO}.tmp" "${PUBLISH_LINK}" || die "Failed to switch ${PUBLISH_LINK} to ${PUBLISH_SNAPSHOT}"
+
+    # Also clears any partial snapshot a failed run left behind.
+    for PUBLISH_OLD in "${DEV_PUBLISH_DIR}/${PUBLISH_REPO}"-[0-9]*Z; do
+        [ -e "${PUBLISH_OLD}" ] || continue
+        case "${PUBLISH_OLD##*/}" in
+            "${PUBLISH_NAME}" | "${PUBLISH_PREVIOUS}") continue ;;
+        esac
+        dev_publish_sudo rm -rf "${PUBLISH_OLD}" || die "Failed to remove the old snapshot ${PUBLISH_OLD}"
+    done
+
+    success "Published ${PUBLISH_REPO} to ${PUBLISH_LINK}"
+}
+
+# Runs a system-wide installer from its published snapshot with --system. An
+# installer that does not mention --system would install per user instead, so
+# it fails the run rather than being run without it.
+# Usage: run_published_step <repo>/<path-in-repo>
+run_published_step() {
+    STEP="${DEV_PUBLISH_DIR}/$1"
+
+    [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
+    grep -q -e '--system' "${STEP}" || die "${STEP} does not support --system"
+
+    info "Running ${STEP} --system..."
+    "${STEP}" --system || die "Failed to run ${STEP}"
+}
+
+# Publishes a reference clone, then runs one of its installers from the
+# snapshot just published.
+# Usage: run_published_installer <repo> <path-in-repo>
+run_published_installer() {
+    publish_reference_repo "$1"
+    run_published_step "$1/$2"
+}
+
 # Directory the flag probes below look in. Overridable so a test can point it
 # at a temp dir of its own and control each flag; defaults to the real
 # location of the binaries.

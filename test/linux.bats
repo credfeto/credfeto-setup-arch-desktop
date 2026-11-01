@@ -72,13 +72,15 @@ EOF
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
-# to the fake log and exits with the given code.
+# to the fake log and exits with the given code. It names --system, as a
+# published installer must for dev-update to run it.
 # Usage: make_logging_stub <root> <relpath> [<exit-code>]
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
+# accepts --system
 printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
@@ -246,7 +248,9 @@ run_clone_reference_repo() {
 # - `git -C <path> rev-parse --show-toplevel` prints <path> resolved, so
 #   every existing directory reads as a clone, or its parent when <path>'s
 #   basename is FAKE_GIT_NOT_TOPLEVEL, as for a plain directory inside an
-#   enclosing repo.
+#   enclosing repo;
+# - `git -C <path> archive --format=tar -o <file> HEAD` writes a tar of
+#   everything in <path> to <file>.
 setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
@@ -271,6 +275,7 @@ if [ "\$1" = "-C" ]; then
             ;;
         switch) exit "\${FAKE_EXIT_git_switch:-0}" ;;
         pull) exit "\${FAKE_EXIT_git_pull:-0}" ;;
+        archive) tar -C "\$2" -cf "\$6" . ;;
         rev-parse)
             if [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
                 dirname "\$(readlink -f "\$2")"
@@ -300,15 +305,42 @@ refute_destructive_git() {
     refute_fake_called '^git .*( reset| stash| --force| -f( |$)| -C [^ ]+ clean)'
 }
 
+# Prints, with mask_publish_names applied, the fake log lines expected when a
+# reference repo is published and one of its installers is run from the
+# snapshot: the archive of HEAD, the chown to root and the installer itself.
+# Usage: expected_published_step <repo> <installer>
+expected_published_step() {
+    printf '%s\n' \
+        "git -C ${HOME}/work/reference/$1 archive --format=tar -o ARCHIVE HEAD" \
+        "sudo chown -R root:root ${DEV_PUBLISH_DIR}/$1-SNAPSHOT" \
+        "$1/$2 --system"
+}
+
+# Replaces the temporary archive path and the snapshot timestamps in the
+# lines read from stdin, which differ from run to run.
+mask_publish_names() {
+    sed -E -e 's/ -o [^ ]+ HEAD$/ -o ARCHIVE HEAD/' -e 's/-[0-9]{8}T[0-9]{6}\.[0-9]+Z$/-SNAPSHOT/'
+}
+
+# Lists the snapshot directories published for the given repo, oldest first.
+# Usage: published_snapshots <repo>
+published_snapshots() {
+    find "${DEV_PUBLISH_DIR}" -mindepth 1 -maxdepth 1 -type d -name "$1-*Z" -printf '%f\n' | sort
+}
+
 # Online under NetworkManager (or the given active unit, as for
 # setup_fake_network), every reference clone present, every install step a
 # logging stub; git and the reference clone's update-dotnet-tools are faked
 # so nothing reaches a real remote or the real dotnet tool restore.
-# update-dotnet-tools logs the directory it was run from.
+# update-dotnet-tools logs the directory it was run from. Snapshots are
+# published into a writable directory in the test tree, so only the chown to
+# root goes through the fake sudo, which logs it without running it.
 # Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
     setup_fake_network "${1:-NetworkManager.service}"
+    setup_fake_sudo
     setup_fake_git
+    export DEV_PUBLISH_DIR="${BATS_TEST_TMPDIR}/published"
     local _repo _step
     for _repo in "${REFERENCE_REPOS[@]}"; do
         mkdir -p "${HOME}/work/reference/${_repo}"
@@ -396,6 +428,7 @@ setup_dev_update_fixture() {
     # A second dev-update started from inside a step must find the lock held.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
+# accepts --system
 "${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
 printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
@@ -414,6 +447,7 @@ EOF
     # inherited lock fd would keep the lock held after dev-update ends.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
+# accepts --system
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
         *dev-update.lock) printf 'lock fd inherited\n' >> "\${FAKE_BIN_LOG}" ;;
@@ -452,15 +486,16 @@ EOF
         done
         printf '%s\n' \
             "systemctl --user daemon-reload" \
-            "credfeto-setup-arch-desktop/install.d/dev-scripts " \
-            "credfeto-global-pre-commit/install --system" \
-            "claude/install " \
-            "credfeto-ai-skills/install " \
-            "credfeto-orchestrator/install-claude-hooks " \
+            "credfeto-setup-arch-desktop/install.d/dev-scripts "
+        expected_published_step credfeto-global-pre-commit install
+        expected_published_step claude install
+        expected_published_step credfeto-ai-skills install
+        expected_published_step credfeto-orchestrator install-claude-hooks
+        printf '%s\n' \
             "update-dotnet-tools ${HOME}" \
             "systemctl --user start dev-update.timer"
     )"
-    [ "$(logged_steps)" = "${expected}" ]
+    [ "$(logged_steps | mask_publish_names)" = "${expected}" ]
     refute_destructive_git
 }
 
@@ -594,7 +629,8 @@ EOF
 
     run env DEV_REFERENCE_DIR="${_ref}" "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"Running ${_ref}/claude/install..."* ]]
+    [[ "${output}" == *"Publishing ${_ref}/claude to "* ]]
+    [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/claude/install --system..."* ]]
     local _repo
     for _repo in "${REFERENCE_REPOS[@]}"; do
         grep -qxF "git -C ${_ref}/${_repo} pull --ff-only" "${FAKE_BIN_LOG}"
@@ -640,11 +676,15 @@ EOF
 
         run "${LINUX_DIR}/dev-update"
         [ "${status}" -eq 1 ]
-        [[ "${output}" == *"Failed to run ${HOME}/work/reference/${_failing}"* ]]
+        if [ "${_failing}" = "${DEV_UPDATE_STEPS[0]}" ]; then
+            [[ "${output}" == *"Failed to run ${HOME}/work/reference/${_failing}"* ]]
+        else
+            [[ "${output}" == *"Failed to run ${DEV_PUBLISH_DIR}/${_failing}"* ]]
+        fi
         refute_fake_called '^update-dotnet-tools'
         refute_fake_called '^systemctl --user start '
 
-        rm -rf "${HOME}/work/reference"
+        rm -rf "${HOME}/work/reference" "${DEV_PUBLISH_DIR}"
     done
 }
 
@@ -656,11 +696,100 @@ EOF
 
         run "${LINUX_DIR}/dev-update"
         [ "${status}" -eq 1 ]
-        [[ "${output}" == *"Not found or not executable"*"claude/install"* ]]
+        [[ "${output}" == *"Not found or not executable: ${DEV_PUBLISH_DIR}/claude/install"* ]]
         refute_fake_called '^credfeto-ai-skills/install'
 
-        rm -rf "${HOME}/work/reference"
+        rm -rf "${HOME}/work/reference" "${DEV_PUBLISH_DIR}"
     done
+}
+
+@test "dev-update dies if a published installer does not support --system, and runs nothing after it" {
+    setup_dev_update_fixture
+    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<'EOF'
+#!/bin/sh
+printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
+EOF
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${DEV_PUBLISH_DIR}/claude/install does not support --system"* ]]
+    refute_fake_called '^claude/install'
+    refute_fake_called '^credfeto-ai-skills/install'
+    refute_fake_called '^update-dotnet-tools'
+    refute_fake_called '^systemctl --user start '
+}
+
+@test "dev-update runs each system installer from its published snapshot, not the reference clone" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/claude/install --system..."* ]]
+    [[ "${output}" != *"Running ${HOME}/work/reference/claude/install"* ]]
+    local _repo
+    for _repo in credfeto-global-pre-commit claude credfeto-ai-skills credfeto-orchestrator; do
+        [ -L "${DEV_PUBLISH_DIR}/${_repo}" ]
+        [[ "$(readlink "${DEV_PUBLISH_DIR}/${_repo}")" =~ ^${_repo}-[0-9]{8}T[0-9]{6}\.[0-9]+Z$ ]]
+        assert_fake_called "^git -C ${HOME}/work/reference/${_repo} archive --format=tar -o [^ ]+ HEAD\$"
+        assert_fake_called "^sudo chown -R root:root ${DEV_PUBLISH_DIR}/${_repo}-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
+    done
+    [ ! -e "${DEV_PUBLISH_DIR}/credfeto-setup-arch-desktop" ]
+    [ -x "${DEV_PUBLISH_DIR}/claude/install" ]
+    [ ! -e "${DEV_PUBLISH_DIR}/.claude.tmp" ]
+}
+
+@test "dev-update publishes snapshots with directories readable by all but writable only by their owner" {
+    setup_dev_update_fixture
+    mkdir -p "${HOME}/work/reference/claude/nested"
+    chmod 777 "${HOME}/work/reference/claude/nested"
+    printf 'data\n' > "${HOME}/work/reference/claude/nested/file"
+    chmod 666 "${HOME}/work/reference/claude/nested/file"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    local _snapshot
+    _snapshot="${DEV_PUBLISH_DIR}/$(readlink "${DEV_PUBLISH_DIR}/claude")"
+    [ "$(stat -c '%a' "${_snapshot}")" = "755" ]
+    [ "$(stat -c '%a' "${_snapshot}/nested")" = "755" ]
+    [ "$(stat -c '%a' "${_snapshot}/nested/file")" = "644" ]
+    [ "$(stat -c '%a' "${_snapshot}/install")" = "755" ]
+}
+
+@test "dev-update creates a publish directory every account can read even under a strict umask" {
+    setup_dev_update_fixture
+
+    run sh -c 'umask 077 && exec "$1"' sh "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(stat -c '%a' "${DEV_PUBLISH_DIR}")" = "755" ]
+    [ "$(stat -c '%a' "${DEV_PUBLISH_DIR}/$(readlink "${DEV_PUBLISH_DIR}/claude")")" = "755" ]
+}
+
+@test "dev-update keeps the previous snapshot of a published repo and removes any older one" {
+    setup_dev_update_fixture
+    local _run _first _second _third
+    for _run in 1 2 3; do
+        run "${LINUX_DIR}/dev-update"
+        [ "${status}" -eq 0 ]
+        case "${_run}" in
+            1) _first="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
+            2) _second="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
+            3) _third="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
+        esac
+    done
+
+    [ "${_first}" != "${_second}" ]
+    [ "${_second}" != "${_third}" ]
+    [ "$(published_snapshots claude)" = "$(printf '%s\n' "${_second}" "${_third}")" ]
+    [ ! -e "${DEV_PUBLISH_DIR}/${_first}" ]
+}
+
+@test "dev-update dies if publishing a reference repo fails, and runs nothing after it" {
+    setup_dev_update_fixture
+    run env FAKE_SUDO_FAIL='^chown -R root:root .*/claude-' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"owned by root"* ]]
+    refute_fake_called '^claude/install'
+    refute_fake_called '^update-dotnet-tools'
+    refute_fake_called '^systemctl --user start '
 }
 
 # ── dev-install ──────────────────────────────────────────────────────────────
