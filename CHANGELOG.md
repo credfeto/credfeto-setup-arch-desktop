@@ -75,6 +75,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - dev-update now clones any missing ~/work/reference repo over SSH, switches each reference clone to main and fast-forwards it (stopping on a dirty or diverged clone), runs every tooling installer with any failure being fatal, refuses inside a Claude Code session, stops at once when offline, and exits quietly when another run is in progress
 - The cd aliases, Go section and distro lookup in the shell sections no longer start extra processes, so shell start and timer runs are faster
 - Shell script tests now use fake versions of nvm, autojump, Go and .NET instead of skipping when these tools are not installed
+- TBD - to be finalized after review
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
