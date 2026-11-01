@@ -231,6 +231,14 @@ run_published_step() {
     "${STEP}" --system || die "Failed to run ${STEP}"
 }
 
+# Publishes a reference clone, then runs one of its installers from the
+# snapshot just published.
+# Usage: run_published_installer <repo> <path-in-repo>
+run_published_installer() {
+    publish_reference_repo "$1"
+    run_published_step "$1/$2"
+}
+
 # Directory the flag probes below look in. Overridable so a test can point it
 # at a temp dir of its own and control each flag; defaults to the real
 # location of the binaries.
