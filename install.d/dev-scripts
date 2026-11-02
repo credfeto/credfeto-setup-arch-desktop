@@ -203,11 +203,25 @@ is_dev_script_link() {
     return 1
 }
 
+# Succeeds when the path, relative to settings/scripts/, is one of the
+# scripts this run links (DEV_SCRIPT_PATHS).
+is_linked_script() {
+    case "
+$DEV_SCRIPT_PATHS
+" in
+        *"
+$1
+"*) return 0 ;;
+    esac
+    return 1
+}
+
 # Removes every symlink in DEV_SCRIPTS_BIN_DIR that is_dev_script_link
 # recognises but is no longer right: one into a checkout, live or not, as an
 # earlier version made them and a live one would keep pointing into that
 # account's home (such as a script that is only on a branch); and one into
-# the lib folder that dangles, as its script was renamed or removed since.
+# the lib folder that dangles or no longer names a script this run links,
+# as its script was renamed, removed or made non-executable since.
 # link_dev_scripts then links every current script into the lib folder.
 # Leaves every symlink or file pointing anywhere else untouched.
 prune_stale_symlinks() {
@@ -216,9 +230,15 @@ prune_stale_symlinks() {
     for LINK in "$DEV_SCRIPTS_BIN_DIR"/*; do
         [ -L "$LINK" ] || continue
         is_dev_script_link "$LINK" || continue
-        case "$(readlink "$LINK")" in
+        LINK_TARGET="$(readlink "$LINK")"
+        case "$LINK_TARGET" in
             "$DEV_SCRIPTS_LIB_DIR"/settings/scripts/*)
-                [ ! -e "$LINK" ] || continue
+                # Kept only while it works and names a script this run links:
+                # one whose script stays tracked but is no longer executable
+                # still resolves, to a file nobody can run.
+                if [ -e "$LINK" ] && is_linked_script "${LINK_TARGET#"$DEV_SCRIPTS_LIB_DIR"/settings/scripts/}"; then
+                    continue
+                fi
                 ;;
         esac
 
