@@ -1006,6 +1006,24 @@ lock_down_publish_dir_with_lock() {
     refute_fake_called '^systemctl --user start '
 }
 
+@test "dev-update dies, publishing nothing, when a folder stands where the publish link goes" {
+    setup_dev_update_fixture
+    local _link="${DEV_PUBLISH_DIR}/credfeto-global-pre-commit"
+    mkdir -p "${_link}"
+    : > "${_link}/hand-made"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_link} exists but is not a symlink; move it aside, then re-run"* ]]
+    [ ! -L "${_link}" ]
+    [ -f "${_link}/hand-made" ]
+    [ -z "$(published_snapshots credfeto-global-pre-commit)" ]
+    refute_fake_called '^git -C .* archive '
+    refute_fake_called '^sudo rm -rf '
+    refute_fake_called '^credfeto-global-pre-commit/install'
+    refute_fake_called '^systemctl --user start '
+}
+
 @test "dev-update refuses a snapshot name that already exists, leaving that folder alone" {
     setup_dev_update_fixture
     local _taken="${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-20000101T000000.000000000Z"
