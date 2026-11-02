@@ -760,6 +760,19 @@ setup_harden_ssh_tree() {
     refute_fake_called '^sudo install '
 }
 
+@test "harden-ssh skips a tracked symlink, warning, and never deploys what it points at" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    printf 'PermitRootLogin yes\n' > "${BATS_TEST_TMPDIR}/private.conf"
+    ln -s "${BATS_TEST_TMPDIR}/private.conf" "${_root}/settings/sshd/99_link.conf"
+    git -C "${_root}" add settings/sshd/99_link.conf
+    run "${_root}/install.d/harden-ssh"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Not deploying ${_root}/settings/sshd/99_link.conf: it is a symlink"* ]]
+    refute_fake_called '99_link\.conf'
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/sshd/13_TCPKeepAlive\\.conf "
+}
+
 @test "harden-ssh fails when the sshd drop-ins cannot be listed" {
     local _root
     _root="$(setup_harden_ssh_tree)"

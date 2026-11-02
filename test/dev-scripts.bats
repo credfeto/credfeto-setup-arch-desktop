@@ -103,6 +103,20 @@ run_dev_scripts_against_fake_repo() {
     [ ! -e "${DEV_SCRIPTS_BIN_DIR}/untracked-tool" ]
 }
 
+@test "dev-scripts skips a tracked symlink, warning, and never copies what it points at" {
+    add_fake_dev_script
+    printf 'TOP-SECRET-KEY\n' > "${BATS_TEST_TMPDIR}/id_ed25519"
+    ln -s "${BATS_TEST_TMPDIR}/id_ed25519" "${FAKE_SCRIPTS_REPO}/settings/scripts/db/key-link"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Not deploying ${FAKE_SCRIPTS_REPO}/settings/scripts/db/key-link: it is a symlink"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/key-link" ]
+    [ ! -L "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/key-link" ]
+    run ! grep -rq 'TOP-SECRET-KEY' "${DEV_SCRIPTS_LIB_DIR}/"
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
 @test "dev-scripts copies the working-tree content of a tracked file, including an uncommitted edit" {
     add_fake_dev_script
     prepare_fake_repo
