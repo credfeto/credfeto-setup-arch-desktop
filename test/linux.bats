@@ -249,6 +249,9 @@ run_clone_reference_repo() {
 #   every existing directory reads as a clone, or its parent when <path>'s
 #   basename is FAKE_GIT_NOT_TOPLEVEL, as for a plain directory inside an
 #   enclosing repo;
+# - `git -C <path> rev-parse HEAD^{tree}` exits with
+#   FAKE_EXIT_git_rev_parse_tree when that is set and non-zero, and
+#   otherwise prints FAKE_GIT_TREE (default tree-0) as every clone's tree;
 # - `git -C <path> archive --format=tar -o <file> HEAD` exits with
 #   FAKE_EXIT_git_archive when that is set and non-zero, and otherwise
 #   writes a tar of everything in <path> to <file>.
@@ -281,7 +284,10 @@ if [ "\$1" = "-C" ]; then
             tar -C "\$2" -cf "\$6" .
             ;;
         rev-parse)
-            if [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
+            if [ "\$4" = "HEAD^{tree}" ]; then
+                [ "\${FAKE_EXIT_git_rev_parse_tree:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git_rev_parse_tree}"
+                printf '%s\n' "\${FAKE_GIT_TREE:-tree-0}"
+            elif [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
                 dirname "\$(readlink -f "\$2")"
             else
                 readlink -f "\$2"
@@ -311,10 +317,12 @@ refute_destructive_git() {
 
 # Prints, with mask_publish_names applied, the fake log lines expected when a
 # reference repo is published and one of its installers is run from the
-# snapshot: the archive of HEAD, the chown to root and the installer itself.
+# snapshot: the read of HEAD's tree, the archive of HEAD, the chown to root
+# and the installer itself.
 # Usage: expected_published_step <repo> <installer>
 expected_published_step() {
     printf '%s\n' \
+        "git -C ${HOME}/work/reference/$1 rev-parse HEAD^{tree}" \
         "git -C ${HOME}/work/reference/$1 archive --format=tar -o ARCHIVE HEAD" \
         "sudo chown -R root:root ${DEV_PUBLISH_DIR}/$1-SNAPSHOT" \
         "$1/$2 --system"
@@ -771,11 +779,13 @@ EOF
 
 # The fake sudo logs the removal of a snapshot without running it, so the
 # test asserts on the logged command rather than on the snapshot being gone.
+# Each run publishes a different committed tree, as a run with nothing new
+# keeps the snapshot it has.
 @test "dev-update keeps the previous snapshot of a published repo and removes any older one" {
     setup_dev_update_fixture
     local _run _first _second _third
     for _run in 1 2 3; do
-        run "${LINUX_DIR}/dev-update"
+        run env FAKE_GIT_TREE="tree-${_run}" "${LINUX_DIR}/dev-update"
         [ "${status}" -eq 0 ]
         case "${_run}" in
             1) _first="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
@@ -1022,6 +1032,110 @@ lock_down_publish_dir_with_lock() {
     refute_fake_called '^sudo rm -rf '
     refute_fake_called '^credfeto-global-pre-commit/install'
     refute_fake_called '^systemctl --user start '
+}
+
+@test "dev-update records the committed tree in a hidden file at the root of each snapshot" {
+    setup_dev_update_fixture
+    run env FAKE_GIT_TREE=tree-a "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${DEV_PUBLISH_DIR}/claude/.published-tree")" = "tree-a" ]
+}
+
+@test "dev-update keeps a snapshot that already holds the clone's committed tree, and still runs its installer" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+    : > "${FAKE_BIN_LOG}"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"${DEV_PUBLISH_DIR}/claude already holds the committed tree of ${HOME}/work/reference/claude; keeping it"* ]]
+    [[ "${output}" != *"Publishing ${HOME}/work/reference/claude to "* ]]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude")" = "${_first}" ]
+    [ "$(published_snapshots claude)" = "${_first}" ]
+    refute_fake_called '^git -C .* archive '
+    refute_fake_called '^sudo chown '
+    refute_fake_called '^sudo rm -rf '
+    assert_fake_called '^claude/install --system$'
+    assert_fake_called '^systemctl --user start '
+}
+
+@test "dev-update publishes a new snapshot once the clone's committed tree changes" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+
+    run env FAKE_GIT_TREE=tree-1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude")" != "${_first}" ]
+    [ "$(cat "${DEV_PUBLISH_DIR}/claude/.published-tree")" = "tree-1" ]
+}
+
+@test "dev-update replaces a snapshot that has no record of its tree" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+    # As a snapshot published before the record existed.
+    rm "${DEV_PUBLISH_DIR}/${_first}/.published-tree"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude")" != "${_first}" ]
+    [ -f "${DEV_PUBLISH_DIR}/claude/.published-tree" ]
+}
+
+@test "dev-update replaces a snapshot whose record of its tree is empty" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+    : > "${DEV_PUBLISH_DIR}/${_first}/.published-tree"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude")" != "${_first}" ]
+    [ "$(cat "${DEV_PUBLISH_DIR}/claude/.published-tree")" = "tree-0" ]
+}
+
+@test "dev-update publishes a new snapshot when the publish link dangles" {
+    setup_dev_update_fixture
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    ln -s claude-20000101T000000.000000000Z "${DEV_PUBLISH_DIR}/claude"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Publishing ${HOME}/work/reference/claude to "* ]]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude")" != "claude-20000101T000000.000000000Z" ]
+    [ -f "${DEV_PUBLISH_DIR}/claude/.published-tree" ]
+    assert_fake_called '^claude/install --system$'
+}
+
+@test "dev-update dies, publishing nothing, when the clone's committed tree cannot be read" {
+    setup_dev_update_fixture
+
+    run env FAKE_EXIT_git_rev_parse_tree=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to read the committed tree of ${HOME}/work/reference/credfeto-global-pre-commit"* ]]
+    refute_any_publish
+}
+
+@test "dev-update removes the snapshot it was making when recording its tree fails, and runs nothing after it" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir_with_lock
+
+    run env FAKE_SUDO_FAIL='^tee .*/\.published-tree$' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to record the published tree in ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
+    refute_any_publish
 }
 
 @test "dev-update refuses a snapshot name that already exists, leaving that folder alone" {

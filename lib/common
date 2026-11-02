@@ -293,6 +293,10 @@ wait_for_run_lock() {
 DEV_PUBLISH_DIR="${DEV_PUBLISH_DIR:-/usr/local/share/development}"
 # Hidden, so it never matches a <repo>-<timestamp> snapshot or a <repo> link.
 DEV_PUBLISH_LOCK_FILE="${DEV_PUBLISH_DIR}/.publish.lock"
+# Written at the root of each snapshot: the git tree id it was made from, so
+# a publish of an unchanged clone keeps the snapshot it has. Hidden, so an
+# installer listing the snapshot's files with a glob never sees it.
+PUBLISHED_TREE_RECORD=".published-tree"
 
 # Runs a command directly when DEV_PUBLISH_DIR is writable (or can be created),
 # otherwise through sudo.
@@ -328,7 +332,8 @@ remove_unswitched_snapshot() {
 # snapshot and switches ${DEV_PUBLISH_DIR}/<repo> to it. git archive takes
 # HEAD only, so untracked or ignored files in the clone are never published.
 # The snapshot the link pointed at before is kept, so anything still running
-# from it is not pulled out from under it; any older one is removed.
+# from it is not pulled out from under it; any older one is removed. When
+# the link already holds the clone's committed tree, nothing is published.
 # Usage: publish_reference_repo <repo>
 publish_reference_repo() {
     PUBLISH_REPO="$1"
@@ -336,8 +341,11 @@ publish_reference_repo() {
     PUBLISH_LINK="${DEV_PUBLISH_DIR}/${PUBLISH_REPO}"
     PUBLISH_NAME="$(versioned_folder_name "${PUBLISH_REPO}")" || die "Failed to name a snapshot of ${PUBLISH_REPO}"
     PUBLISH_SNAPSHOT="${DEV_PUBLISH_DIR}/${PUBLISH_NAME}"
+    # The tree of the commit being published, recorded in each snapshot. A
+    # clone git cannot read a tree from has no commit to publish, which
+    # git archive would fail on anyway, so it stops here with a clearer message.
+    PUBLISH_TREE="$(git -C "${PUBLISH_CLONE}" rev-parse 'HEAD^{tree}')" || die "Failed to read the committed tree of ${PUBLISH_CLONE}"
 
-    info "Publishing ${PUBLISH_CLONE} to ${PUBLISH_SNAPSHOT}..."
     dev_publish_sudo mkdir -p "${DEV_PUBLISH_DIR}" || die "Failed to create ${DEV_PUBLISH_DIR}"
     # Explicit rather than umask-dependent, so a user with a strict umask
     # still gets a publish directory every account can read.
@@ -351,6 +359,23 @@ publish_reference_repo() {
     if [ -e "${PUBLISH_LINK}" ] && [ ! -L "${PUBLISH_LINK}" ]; then
         die "${PUBLISH_LINK} exists but is not a symlink; move it aside, then re-run"
     fi
+
+    # Kept when it already holds this tree, so a run with nothing new to
+    # publish makes no snapshot and prunes none: a new one every run would
+    # remove the snapshot a long-running process or an installer started
+    # from within two runs. A snapshot without a record (an older layout) or
+    # a dangling link counts as changed.
+    if [ -L "${PUBLISH_LINK}" ] && [ -r "${PUBLISH_LINK}/${PUBLISHED_TREE_RECORD}" ]; then
+        PUBLISHED_TREE=""
+        read -r PUBLISHED_TREE < "${PUBLISH_LINK}/${PUBLISHED_TREE_RECORD}" || PUBLISHED_TREE=""
+        if [ "${PUBLISHED_TREE}" = "${PUBLISH_TREE}" ]; then
+            exec 8<&-
+            info "${PUBLISH_LINK} already holds the committed tree of ${PUBLISH_CLONE}; keeping it"
+            return 0
+        fi
+    fi
+
+    info "Publishing ${PUBLISH_CLONE} to ${PUBLISH_SNAPSHOT}..."
 
     # Refused before the clean-up is armed, so it never removes a snapshot
     # this run did not make: the clock stepping back can name one an earlier
@@ -375,6 +400,10 @@ publish_reference_repo() {
         die "Failed to extract ${PUBLISH_REPO} into ${PUBLISH_SNAPSHOT}"
     fi
     rm -f "${PUBLISH_ARCHIVE}"
+
+    # Written before the chmod and chown below, so it is root-owned and
+    # world-readable like the rest of the snapshot.
+    printf '%s\n' "${PUBLISH_TREE}" | dev_publish_sudo tee "${PUBLISH_SNAPSHOT}/${PUBLISHED_TREE_RECORD}" > /dev/null || die "Failed to record the published tree in ${PUBLISH_SNAPSHOT}"
 
     dev_publish_sudo chmod -R u=rwX,go=rX "${PUBLISH_SNAPSHOT}" || die "Failed to set permissions on ${PUBLISH_SNAPSHOT}"
     # Always sudo: only root can give files to root, even in a writable directory.
