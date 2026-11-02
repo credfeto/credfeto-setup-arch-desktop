@@ -113,7 +113,8 @@ setup_shell_environment_tree() {
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"${_root} is not a git checkout; run install from a git clone of this repository"* ]]
     [[ "${output}" != *"Failed to list"* ]]
-    refute_fake_called '^sudo install -m '
+    # Checked before anything at all is installed, not just the files.
+    refute_fake_called '^sudo '
 }
 
 @test "shell-environment skips a tracked symlink, warning, and never deploys what it points at" {
