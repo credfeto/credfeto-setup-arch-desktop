@@ -231,7 +231,9 @@ cleanup() {
         # Put the folder earlier versions installed into back at the live
         # path, so a failed switch leaves it working rather than leaving no
         # dotnet at all, and the next run does not prune it as an old install.
-        if [ -n "$LEGACY_INSTALL_DIR" ]; then
+        # The flag is set before the move, so only restore once the move has
+        # happened and nothing has taken the live path since.
+        if [ -d "$LEGACY_INSTALL_DIR" ] && [ ! -e "$DOTNET_INSTALL_DIR" ] && [ ! -L "$DOTNET_INSTALL_DIR" ]; then
             sudo mv -T "$LEGACY_INSTALL_DIR" "$DOTNET_INSTALL_DIR" || warn "Could not move $LEGACY_INSTALL_DIR back to $DOTNET_INSTALL_DIR"
         fi
     fi
@@ -324,8 +326,12 @@ require_free_space
 # would hold a whole SDK archive and its extraction in memory.
 WORK_DIR="$(mktemp -d "$DOTNET_WORK_ROOT/dotnet-install.XXXXXXXX")" || die "Could not create a work folder in $DOTNET_WORK_ROOT"
 
-sudo mkdir "$NEW_INSTALL_DIR" || die "Could not create $NEW_INSTALL_DIR"
+# Each flag below is set before the step it guards rather than after: a
+# signal is only handled once the step's command has finished, so setting it
+# afterwards leaves a window where cleanup does not know the step happened.
+# cleanup tolerates a step that never ran.
 NEW_INSTALL_CREATED=true
+sudo mkdir "$NEW_INSTALL_DIR" || die "Could not create $NEW_INSTALL_DIR"
 sudo chmod 755 "$NEW_INSTALL_DIR" || die "Could not set permissions for $NEW_INSTALL_DIR"
 
 EXPECTED_SDK_VERSIONS=""
@@ -376,8 +382,8 @@ elif [ -d "$DOTNET_INSTALL_DIR" ]; then
   # Only before the first switch, when the live path is still the folder
   # earlier versions of this script installed into.
   PREVIOUS_INSTALL_NAME="dotnet-legacy-$INSTALL_STAMP"
-  sudo mv "$DOTNET_INSTALL_DIR" "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME" || die "Could not move $DOTNET_INSTALL_DIR aside"
   LEGACY_INSTALL_DIR="$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME"
+  sudo mv "$DOTNET_INSTALL_DIR" "$LEGACY_INSTALL_DIR" || die "Could not move $DOTNET_INSTALL_DIR aside"
 elif [ -e "$DOTNET_INSTALL_DIR" ]; then
   die "$DOTNET_INSTALL_DIR is neither a folder nor a link; move it aside, then re-run"
 fi
@@ -386,8 +392,8 @@ fi
 # and -f replace a link left behind by a run killed before its rename. mv -T
 # renames the link over the live path in one rename(), rather than moving it
 # into the folder the live link points at.
-sudo ln -sfn "$NEW_INSTALL_NAME" "$DOTNET_SWITCH_LINK" || die "Could not create $DOTNET_SWITCH_LINK"
 SWITCH_LINK_CREATED=true
+sudo ln -sfn "$NEW_INSTALL_NAME" "$DOTNET_SWITCH_LINK" || die "Could not create $DOTNET_SWITCH_LINK"
 sudo mv -T "$DOTNET_SWITCH_LINK" "$DOTNET_INSTALL_DIR" || die "Could not point $DOTNET_INSTALL_DIR at $NEW_INSTALL_DIR"
 SWITCHED=true
 

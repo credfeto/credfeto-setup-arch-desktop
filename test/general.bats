@@ -207,7 +207,9 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 # Makes the fakes an end-to-end run needs, and the install and work roots it
 # runs against:
 # - sudo runs what it is given as the test user, after logging it, unless the
-#   command line matches the grep -E pattern in $FAKE_SUDO_FAIL;
+#   command line matches the grep -E pattern in $FAKE_SUDO_FAIL; when it
+#   matches the pattern in $FAKE_SUDO_SIGNAL it runs the command, then sends
+#   the script SIGTERM, as a Ctrl-C landing just as that command ends would;
 # - df reports $FAKE_DF_AVAILABLE_KB (default 100 GiB) free on one filesystem;
 # - date prints DOTNET_TEST_STAMP;
 # - curl serves a releases index with a 10.0 and an 11.0 SDK, and "downloads"
@@ -236,6 +238,12 @@ for arg in "$@"; do
 done
 if [ -n "${FAKE_SUDO_FAIL:-}" ] && printf '%s\n' "$*" | grep -qE "${FAKE_SUDO_FAIL}"; then
     exit 1
+fi
+if [ -n "${FAKE_SUDO_SIGNAL:-}" ] && printf '%s\n' "$*" | grep -qE "${FAKE_SUDO_SIGNAL}"; then
+    "$@"
+    status=$?
+    kill -TERM "${PPID}"
+    exit "${status}"
 fi
 exec "$@"
 EOF
@@ -568,6 +576,52 @@ assert_legacy_dotnet_install_restored() {
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Could not move ${legacy_install} back to ${DOTNET_TEST_INSTALL_ROOT}/dotnet"* ]]
     [ "$(cat "${legacy_install}/marker")" = legacy ]
+}
+
+# The sudo mv that moves the legacy folder aside, as opposed to the mv -T
+# that renames the switch link or puts the legacy folder back.
+DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
+
+@test "install-latest-dotnet puts a moved-aside install back when signalled just after moving it" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_SIGNAL="${DOTNET_TEST_LEGACY_MOVE}"
+    [ "${status}" -eq 1 ]
+    assert_fake_called "^sudo mv .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
+    assert_legacy_dotnet_install_restored
+}
+
+@test "install-latest-dotnet leaves the live folder alone when it cannot move it aside" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_FAIL="${DOTNET_TEST_LEGACY_MOVE}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not move ${DOTNET_TEST_INSTALL_ROOT}/dotnet aside"* ]]
+    [[ "${output}" != *"back to"* ]]
+    refute_fake_called '^sudo mv -T '
+    assert_legacy_dotnet_install_restored
+}
+
+@test "install-latest-dotnet removes the new install folder when signalled just after making it" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_SIGNAL='^mkdir '
+    [ "${status}" -eq 1 ]
+    assert_fake_called "^sudo mkdir .*/${DOTNET_TEST_NEW_INSTALL}$"
+    refute_fake_called '^curl .*/dotnet-sdk-'
+    assert_failed_run_left_previous_install
+}
+
+@test "install-latest-dotnet removes the switch link when signalled just after making it" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_SIGNAL='^ln -sfn '
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^sudo ln -sfn '
+    refute_fake_called '^sudo mv -T '
+    [ ! -e "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link" ]
+    [ ! -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link" ]
+    assert_failed_run_left_previous_install
 }
 
 @test "install-latest-dotnet keeps only the new install and the one it replaced" {
