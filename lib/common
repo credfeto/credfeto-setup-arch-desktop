@@ -161,6 +161,18 @@ DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${DEV_REFERENCE_DEFAULT_DIR}}"
 # shellcheck disable=SC2034
 DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
 
+# Dies unless the folder a step deploys from is the top of its own git work
+# tree, before the step lists anything with list_tracked_files: outside one (a
+# downloaded archive) git would fail with nothing to say why, and inside
+# another repository it would list what that repository tracks instead.
+# Called on its own rather than from list_tracked_files, whose callers run
+# it in $(...), where a die only ends that subshell and the caller's own
+# message would follow this one.
+# Usage: require_deploy_checkout <checkout>
+require_deploy_checkout() {
+    require_clone_toplevel "$1" "$1 is not a git checkout; run install from a git clone of this repository, as only the files git tracks are deployed"
+}
+
 # Prints, relative to the checkout, every file git tracks there that matches
 # one of the pathspecs and is still a regular file in the working tree, one
 # per line. A step that deploys a folder's files lists them with this rather
@@ -169,15 +181,12 @@ DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-glob
 # uncommitted edit to a tracked file is included. Pass ":(glob)<dir>/*.<ext>"
 # to match only a folder's own files, as * then does not cross a /. Without
 # -z: no deployed file name holds a newline, and quotePath is off so other
-# names print as they are. Dies unless the checkout is the top of its own
-# git work tree: outside one (a downloaded archive), git would fail with
-# nothing to say why, and inside another repository it would list what that
-# repository tracks instead. Fails when git cannot list them.
+# names print as they are. Call require_deploy_checkout on the checkout
+# first. Fails when git cannot list them.
 # Usage: list_tracked_files <checkout> <pathspec> [<pathspec> ...]
 list_tracked_files() {
     TRACKED_CHECKOUT="$1"
     shift
-    require_clone_toplevel "$TRACKED_CHECKOUT" "$TRACKED_CHECKOUT is not a git checkout; run install from a git clone of this repository, as only the files git tracks are deployed"
     TRACKED_LIST=$(git -C "$TRACKED_CHECKOUT" -c core.quotePath=false ls-files -- "$@") || return 1
     printf '%s\n' "$TRACKED_LIST" | while IFS= read -r TRACKED_PATH; do
         if [ -f "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then

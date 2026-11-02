@@ -229,6 +229,21 @@ seed_fake_output() {
     cat > "${FAKE_BIN_OUTPUT_DIR}/$1"
 }
 
+# Replaces git with one that fails when its arguments contain the given
+# text and runs the real git otherwise.
+# Usage: fail_git_for <text>
+fail_git_for() {
+    local _real_git
+    _real_git="$(command -v git)"
+    replace_fake git <<EOF
+#!/bin/sh
+case "\$*" in
+    *"$1"*) exit 1 ;;
+esac
+exec "${_real_git}" "\$@"
+EOF
+}
+
 # Holds a flock on the given file from a background process for the given
 # number of seconds, as another run would, and returns once it is held. The
 # holder's pid is left in LOCK_HOLDER_PID for the test to wait on. Its output

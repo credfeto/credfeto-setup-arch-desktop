@@ -10,6 +10,7 @@ harden_ssh() {
     info "Hardening SSH"
     # Only tracked drop-ins, so an untracked or private file left beside them
     # never reaches /etc/ssh/sshd_config.d.
+    require_deploy_checkout "$BASEDIR"
     SSHD_CONFS=$(list_tracked_files "$BASEDIR" ":(glob)settings/sshd/*.conf") || die "Failed to list the sshd drop-ins in $BASEDIR/settings/sshd"
     [ -n "$SSHD_CONFS" ] || die "No sshd drop-ins found in $BASEDIR/settings/sshd"
     while IFS= read -r SSHD_CONF; do

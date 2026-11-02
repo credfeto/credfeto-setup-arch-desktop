@@ -270,6 +270,7 @@ install_dev_scripts() {
     # the signals into an exit to get an unfinished copy removed.
     trap 'exit 1' INT TERM HUP
 
+    require_deploy_checkout "$BASEDIR"
     COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
     # An empty copy would leave every installed link dangling once switched to.
     [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"

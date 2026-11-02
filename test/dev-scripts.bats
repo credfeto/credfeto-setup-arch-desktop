@@ -177,6 +177,7 @@ run_dev_scripts_against_fake_repo() {
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"${FAKE_SCRIPTS_REPO} is not a git checkout"* ]]
+    [[ "${output}" != *"Failed to list"* ]]
     [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
     [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
 }
@@ -882,21 +883,6 @@ EOF
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to name a new copy of the dev scripts"* ]]
     [[ "${output}" != *"Dev scripts installed"* ]]
-}
-
-# Replaces git with one that fails when its arguments contain the given
-# text and runs the real git otherwise.
-# Usage: fail_git_for <text>
-fail_git_for() {
-    local _real_git
-    _real_git="$(command -v git)"
-    replace_fake git <<EOF
-#!/bin/sh
-case "\$*" in
-    *"$1"*) exit 1 ;;
-esac
-exec "${_real_git}" "\$@"
-EOF
 }
 
 @test "dev-scripts fails when the files to copy cannot be listed" {
