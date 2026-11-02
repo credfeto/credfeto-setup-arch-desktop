@@ -23,6 +23,7 @@ install_shell_file() {
 install_shell_files() {
     SHELL_FILES_DIR="$1"
     shift
+    require_deploy_checkout "$BASEDIR"
     SHELL_FILES=$(list_tracked_files "$BASEDIR" ":(glob)$SHELL_FILES_DIR/*.sh") || die "Failed to list the shell config files in $BASEDIR/$SHELL_FILES_DIR"
     [ -n "$SHELL_FILES" ] || die "No shell config files found in $BASEDIR/$SHELL_FILES_DIR"
     while IFS= read -r SOURCE; do

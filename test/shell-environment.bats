@@ -112,14 +112,15 @@ setup_shell_environment_tree() {
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"${_root} is not a git checkout; run install from a git clone of this repository"* ]]
+    [[ "${output}" != *"Failed to list"* ]]
     refute_fake_called '^sudo install -m '
 }
 
 @test "shell-environment fails when the shell config files cannot be listed" {
     local _root
     _root="$(setup_shell_environment_tree)"
-    rm -rf "${_root}/.git"
     setup_fake_sudo pacman
+    fail_git_for ' ls-files '
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to list the shell config files in ${_root}/settings/shell-env"* ]]

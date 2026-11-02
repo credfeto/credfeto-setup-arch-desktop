@@ -756,13 +756,14 @@ setup_harden_ssh_tree() {
     git -C "${BATS_TEST_TMPDIR}" add "${_root}"
     run "${_root}/install.d/harden-ssh"
     assert_step_died "${_root} is not a git checkout; run install from a git clone of this repository" "SSH hardened"
+    [[ "${output}" != *"Failed to list"* ]]
     refute_fake_called '^sudo install '
 }
 
 @test "harden-ssh fails when the sshd drop-ins cannot be listed" {
     local _root
     _root="$(setup_harden_ssh_tree)"
-    rm -rf "${_root}/.git"
+    fail_git_for ' ls-files '
     run "${_root}/install.d/harden-ssh"
     assert_step_died "Failed to list the sshd drop-ins in ${_root}/settings/sshd" "SSH hardened"
     refute_fake_called '^sudo install '
