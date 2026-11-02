@@ -763,6 +763,8 @@ EOF
     [ "$(stat -c '%a' "${DEV_PUBLISH_DIR}/$(readlink "${DEV_PUBLISH_DIR}/claude")")" = "755" ]
 }
 
+# The fake sudo logs the removal of a snapshot without running it, so the
+# test asserts on the logged command rather than on the snapshot being gone.
 @test "dev-update keeps the previous snapshot of a published repo and removes any older one" {
     setup_dev_update_fixture
     local _run _first _second _third
@@ -771,15 +773,33 @@ EOF
         [ "${status}" -eq 0 ]
         case "${_run}" in
             1) _first="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
-            2) _second="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
+            2)
+                _second="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+                refute_fake_called "^sudo rm -rf ${DEV_PUBLISH_DIR}/claude-"
+                ;;
             3) _third="$(readlink "${DEV_PUBLISH_DIR}/claude")" ;;
         esac
     done
 
     [ "${_first}" != "${_second}" ]
     [ "${_second}" != "${_third}" ]
-    [ "$(published_snapshots claude)" = "$(printf '%s\n' "${_second}" "${_third}")" ]
-    [ ! -e "${DEV_PUBLISH_DIR}/${_first}" ]
+    # Through sudo although DEV_PUBLISH_DIR is writable, as each snapshot
+    # belongs to root.
+    [ -w "${DEV_PUBLISH_DIR}" ]
+    assert_fake_called "^sudo rm -rf ${DEV_PUBLISH_DIR}/${_first}\$"
+    refute_fake_called "^sudo rm -rf ${DEV_PUBLISH_DIR}/(${_second}|${_third})\$"
+}
+
+@test "dev-update dies, naming the snapshot, when removing an old snapshot fails, and runs nothing after it" {
+    setup_dev_update_fixture
+    local _old="${DEV_PUBLISH_DIR}/claude-20000101T000000.000000000Z"
+    mkdir -p "${_old}"
+
+    run env FAKE_SUDO_FAIL='^rm -rf .*/claude-' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to remove the old snapshot ${_old}"* ]]
+    refute_fake_called '^claude/install'
+    refute_fake_called '^systemctl --user start '
 }
 
 @test "dev-update dies if publishing a reference repo fails, and runs nothing after it" {
