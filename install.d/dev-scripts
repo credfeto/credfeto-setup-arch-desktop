@@ -11,7 +11,7 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 DEV_SCRIPTS_BIN_DIR="${DEV_SCRIPTS_BIN_DIR:-/usr/local/bin}"
 DEV_SCRIPTS_LIB_DIR="${DEV_SCRIPTS_LIB_DIR:-/usr/local/lib/credfeto-setup-arch-desktop}"
 DEV_SCRIPTS_LIB_PARENT="$(dirname "$DEV_SCRIPTS_LIB_DIR")"
-# Hidden, so it never matches the copies remove_old_copies deletes.
+# Hidden, so it never matches the copies prune_versioned_folders deletes.
 DEV_SCRIPTS_LOCK_FILE="$DEV_SCRIPTS_LIB_PARENT/.$(basename "$DEV_SCRIPTS_LIB_DIR").lock"
 DEV_SCRIPTS_SOURCE_DIRS="db development general git linux"
 
@@ -19,27 +19,12 @@ DEV_SCRIPTS_SOURCE_DIRS="db development general git linux"
 # may take a mode from the caller's umask.
 umask 022
 
-# Runs the command directly when the given directory is already writable by
-# the invoking user (or can be created by them), otherwise through sudo -
-# keeps this runnable without real root under test, while still using sudo
-# for the real system locations.
-# Usage: dev_scripts_sudo_in <dir> <command> [<arg> ...]
-dev_scripts_sudo_in() {
-    SUDO_DIR="$1"
-    shift
-    if [ -w "$SUDO_DIR" ] || { [ ! -e "$SUDO_DIR" ] && [ -w "$(dirname "$SUDO_DIR")" ]; }; then
-        "$@"
-    else
-        sudo "$@"
-    fi
-}
-
 dev_scripts_sudo() {
-    dev_scripts_sudo_in "$DEV_SCRIPTS_BIN_DIR" "$@"
+    sudo_unless_writable "$DEV_SCRIPTS_BIN_DIR" "$@"
 }
 
 dev_scripts_lib_sudo() {
-    dev_scripts_sudo_in "$DEV_SCRIPTS_LIB_PARENT" "$@"
+    sudo_unless_writable "$DEV_SCRIPTS_LIB_PARENT" "$@"
 }
 
 # The copy is world-readable, so it takes only what git tracks: an untracked,
@@ -124,13 +109,7 @@ EOF
 lock_dev_scripts_install() {
     dev_scripts_lib_sudo mkdir -p "$DEV_SCRIPTS_LIB_PARENT" || die "Failed to create $DEV_SCRIPTS_LIB_PARENT"
 
-    # touch and chmod keep an existing file's inode, so a run already holding
-    # the lock still excludes this one; chmod, rather than the umask, makes
-    # the file readable by every account. Only ever opened for reading, which
-    # flock allows, so whoever owns it never stops anyone else taking the lock.
-    # Never removed: a run that recreated it would lock a different file from
-    # a run already holding the old one.
-    [ -r "$DEV_SCRIPTS_LOCK_FILE" ] || { dev_scripts_lib_sudo touch "$DEV_SCRIPTS_LOCK_FILE" && dev_scripts_lib_sudo chmod 0644 "$DEV_SCRIPTS_LOCK_FILE"; } || die "Failed to create $DEV_SCRIPTS_LOCK_FILE"
+    create_lock_file dev_scripts_lib_sudo "$DEV_SCRIPTS_LOCK_FILE"
 
     # command, as a failed redirection on a bare exec ends a POSIX shell
     # before the die can name the lock.
@@ -172,43 +151,19 @@ EOF
 # DEV_SCRIPTS_BIN_DIR go through the stable DEV_SCRIPTS_LIB_DIR path, so they
 # never need re-pointing, and a script already running from the previous
 # copy keeps working until a second change is installed after the one that
-# replaced it; runs with nothing changed make no copy. Leaves the new and previous copies' names in COPY_NAME
-# and PREVIOUS_NAME for the caller to keep.
+# replaced it; runs with nothing changed make no copy. Leaves the new and
+# previous copies' names in COPY_NAME and PREVIOUS_NAME for the caller to
+# keep.
 install_dev_scripts_copy() {
-    LIB_PARENT="$DEV_SCRIPTS_LIB_PARENT"
-    LIB_NAME="$(basename "$DEV_SCRIPTS_LIB_DIR")"
-    # Nanoseconds so two installs within the same second never collide.
-    COPY_NAME="$LIB_NAME-$(date -u +%Y%m%dT%H%M%S.%NZ)" || die "Failed to name a new copy of the dev scripts"
-    COPY_DIR="$LIB_PARENT/$COPY_NAME"
+    COPY_NAME="$(versioned_folder_name "$(basename "$DEV_SCRIPTS_LIB_DIR")")" || die "Failed to name a new copy of the dev scripts"
+    COPY_DIR="$DEV_SCRIPTS_LIB_PARENT/$COPY_NAME"
 
     info "Copying dev scripts to $COPY_DIR"
     dev_scripts_lib_sudo mkdir -m 755 "$COPY_DIR" || die "Failed to create $COPY_DIR"
     copy_dev_scripts "$COPY_DIR"
 
-    PREVIOUS_NAME="$(readlink "$DEV_SCRIPTS_LIB_DIR" 2>/dev/null)" || PREVIOUS_NAME=""
-    # A new link renamed over the old one, so the path is never missing or
-    # half-switched for a script being run through it.
-    dev_scripts_lib_sudo ln -sfn "$COPY_NAME" "$LIB_PARENT/.$LIB_NAME.tmp" || die "Failed to create a link to $COPY_DIR"
-    dev_scripts_lib_sudo mv -T "$LIB_PARENT/.$LIB_NAME.tmp" "$DEV_SCRIPTS_LIB_DIR" || die "Failed to switch $DEV_SCRIPTS_LIB_DIR to $COPY_DIR"
-}
-
-# Deletes every copy but the two named ones; also clears any partial copy a
-# failed run left behind. Only called once the current copy exists, so the
-# glob always matches at least that and never comes through unexpanded.
-# Usage: remove_old_copies <current-copy-name> <previous-copy-name>
-remove_old_copies() {
-    KEEP_CURRENT="$1"
-    KEEP_PREVIOUS="$2"
-    for OLD_COPY in "$DEV_SCRIPTS_LIB_DIR"-[0-9]*Z; do
-        case "${OLD_COPY##*/}" in
-            "$KEEP_CURRENT" | "$KEEP_PREVIOUS") continue ;;
-        esac
-
-        info "Removing old copy $OLD_COPY"
-        # Always sudo: copy_dev_scripts gave the copy to root, so only root can
-        # empty its folders, even when the folder holding it is writable.
-        sudo rm -rf "$OLD_COPY" || die "Failed to remove the old copy $OLD_COPY"
-    done
+    switch_versioned_link dev_scripts_lib_sudo "$DEV_SCRIPTS_LIB_DIR" "$COPY_NAME"
+    PREVIOUS_NAME="$SWITCHED_FROM"
 }
 
 # Succeeds when the given symlink points into the installed copy or into a
@@ -290,7 +245,7 @@ install_dev_scripts() {
     link_dev_scripts
 
     if [ "$COPY_SWITCHED" -eq 1 ]; then
-        remove_old_copies "$COPY_NAME" "$PREVIOUS_NAME"
+        prune_versioned_folders "$DEV_SCRIPTS_LIB_DIR" copy "$COPY_NAME" "$PREVIOUS_NAME"
     fi
 
     success "Dev scripts installed"
