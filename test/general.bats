@@ -190,10 +190,16 @@ EOF
 # ── install-latest-dotnet ────────────────────────────────────────────────────
 # Static assertions over the script's constructs, plus end-to-end runs with
 # DOTNET_INSTALL_ROOT and DOTNET_WORK_ROOT pointed at folders of the test's
-# own, against the fakes setup_dotnet_install_fakes makes. The runs never use
-# the real /usr/share or /var/tmp: the fake sudo refuses any argument naming
-# the real install or work folders, so an override the script stops honouring
-# fails the test rather than touching the host.
+# own, against the fakes setup_dotnet_install_fakes makes. Should the script
+# stop honouring an override, the run fails rather than touching the host:
+# - DOTNET_INSTALL_ROOT: every change to the install root runs under sudo,
+#   and the fake sudo refuses any argument naming the real /usr/share/dotnet*;
+# - DOTNET_WORK_ROOT: every work folder and file comes from mktemp, and the
+#   fake mktemp refuses any template outside the test's work root. The work
+#   folder variable is then left empty, so the clean-up removes nothing;
+# - XDG_RUNTIME_DIR: no fake can stop the shell creating the lock file, so
+#   the "keeps its run lock in the caller's runtime folder" test pins where
+#   the script opens it instead.
 
 INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
 
@@ -205,11 +211,13 @@ DOTNET_TEST_NEW_INSTALL="dotnet-${DOTNET_TEST_STAMP}"
 DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 
 # Makes the fakes an end-to-end run needs, and the install and work roots it
-# runs against:
+# runs against (DOTNET_TEST_WORK_ROOT is exported for the fake mktemp):
 # - sudo runs what it is given as the test user, after logging it, unless the
 #   command line matches the grep -E pattern in $FAKE_SUDO_FAIL; when it
 #   matches the pattern in $FAKE_SUDO_SIGNAL it runs the command, then sends
 #   the script SIGTERM, as a Ctrl-C landing just as that command ends would;
+# - mktemp runs the real mktemp, unless its template is outside
+#   $DOTNET_TEST_WORK_ROOT, when it fails without creating anything;
 # - df reports $FAKE_DF_AVAILABLE_KB (default 100 GiB) free on one filesystem;
 # - date prints DOTNET_TEST_STAMP;
 # - curl serves a releases index with a 10.0 and an 11.0 SDK, and "downloads"
@@ -221,7 +229,7 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 #   $FAKE_DOTNET_LIST_NOTHING is set.
 setup_dotnet_install_fakes() {
     DOTNET_TEST_INSTALL_ROOT="${BATS_TEST_TMPDIR}/share"
-    DOTNET_TEST_WORK_ROOT="${BATS_TEST_TMPDIR}/vartmp"
+    export DOTNET_TEST_WORK_ROOT="${BATS_TEST_TMPDIR}/vartmp"
     DOTNET_TEST_RUNTIME_DIR="${BATS_TEST_TMPDIR}/run"
     mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}" "${DOTNET_TEST_RUNTIME_DIR}"
     setup_fake_bin
@@ -231,7 +239,7 @@ setup_dotnet_install_fakes() {
 printf 'sudo %s\n' "$*" >> "${FAKE_BIN_LOG}"
 for arg in "$@"; do
     case "${arg}" in
-        /usr/share/dotnet* | /var/tmp/dotnet-install.* | /var/tmp/install-latest-dotnet.*)
+        /usr/share/dotnet*)
             echo "fake sudo: refusing to touch the real ${arg}" >&2
             exit 1
             ;;
@@ -247,6 +255,23 @@ if [ -n "${FAKE_SUDO_SIGNAL:-}" ] && printf '%s\n' "$*" | grep -qE "${FAKE_SUDO_
     exit "${status}"
 fi
 exec "$@"
+EOF
+
+    # Looked up with the fakes taken off PATH, so the fake cannot find
+    # itself when a test sets the fakes up a second time.
+    local real_mktemp
+    real_mktemp="$(PATH="${PATH#"${FAKE_BIN_DIR}:"}" type -P mktemp)"
+    write_fake_script "${FAKE_BIN_DIR}/mktemp" mktemp DOTNET_TEST_WORK_ROOT <<EOF
+#!/bin/sh
+for template in "\$@"; do :; done
+case "\${template}" in
+    "\${DOTNET_TEST_WORK_ROOT}"/*) ;;
+    *)
+        echo "fake mktemp: refusing \${template}, outside the test's work root" >&2
+        exit 1
+        ;;
+esac
+exec "${real_mktemp}" "\$@"
 EOF
 
     replace_fake df <<'EOF'
@@ -665,6 +690,22 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     refute_fake_called '^sudo mkdir '
     assert_previous_dotnet_install_live
     work_root_has_no_work_dir
+}
+
+@test "the install-latest-dotnet fake mktemp creates nothing outside the test's work root" {
+    setup_dotnet_install_fakes
+    mkdir "${BATS_TEST_TMPDIR}/elsewhere"
+
+    run mktemp -d "${BATS_TEST_TMPDIR}/elsewhere/dotnet-install.XXXXXXXX"
+
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"fake mktemp: refusing"* ]]
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/elsewhere")" ]
+
+    run mktemp -d "${DOTNET_TEST_WORK_ROOT}/dotnet-install.XXXXXXXX"
+
+    [ "${status}" -eq 0 ]
+    [ -d "${output}" ]
 }
 
 @test "install-latest-dotnet keeps its run lock in the caller's runtime folder" {
