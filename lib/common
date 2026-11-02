@@ -222,8 +222,9 @@ switch_versioned_link() {
     "$SWITCH_RUNNER" mv -T "$SWITCH_TEMP" "$SWITCH_LINK" || die "Failed to switch $SWITCH_LINK to $SWITCH_TARGET"
 }
 
-# Removes every versioned folder beside the link but the two named ones,
-# which also clears any partial folder a failed run left behind. Always
+# Removes every versioned folder beside the link but the two named ones. It
+# runs only after a switch, so a partial folder a failed run could not clean
+# up itself (one killed outright, say) stays until the next switch. Always
 # through sudo: the folders are given to root, so only root can empty them,
 # even when the folder holding them is writable. The noun names a folder in
 # the messages.

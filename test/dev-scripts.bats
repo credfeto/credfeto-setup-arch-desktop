@@ -56,6 +56,8 @@ lib_copies() {
     [ -x "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbenv" ]
     [ "$(lib_copies | wc -l)" -eq 1 ]
     assert_fake_called "^sudo chown -R root:root ${DEV_SCRIPTS_LIB_DIR}-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
+    # The copy it switched to is kept, not cleaned up as unfinished.
+    refute_fake_called '^sudo rm -rf '
 }
 
 # Copies install.d/dev-scripts and lib/common into a throwaway fake repo
@@ -570,6 +572,12 @@ add_fake_dev_script() {
     [[ "${output}" != *"Dev scripts installed"* ]]
 }
 
+# Asserts the run removed the copy it made but never switched to, through
+# sudo; the fake sudo logs the removal without running it.
+assert_unswitched_copy_removed() {
+    assert_fake_called "^sudo rm -rf ${DEV_SCRIPTS_LIB_DIR}-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
+}
+
 # Makes the folder holding DEV_SCRIPTS_LIB_DIR read-only, so dev-scripts
 # routes every change it makes there through the fake sudo, which runs
 # nothing and fails the command line matching FAKE_SUDO_FAIL, then runs
@@ -678,6 +686,7 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails, naming the folder, when creating a folder in the copy fails" {
@@ -686,6 +695,15 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_LIB_DIR}-"*"/lib"* ]]
+    assert_unswitched_copy_removed
+}
+
+@test "dev-scripts warns, still failing, when removing an unfinished copy fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^(install -d |rm -rf )'
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_LIB_DIR}-"*"/lib"* ]]
+    [[ "${output}" == *"Failed to remove the unfinished copy ${DEV_SCRIPTS_LIB_DIR}-"* ]]
 }
 
 @test "dev-scripts fails, naming the file, when copying a file fails" {
@@ -694,6 +712,7 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to copy lib/common to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails, naming the copy, when giving it to root fails" {
@@ -705,6 +724,7 @@ run_with_lock_step_failing() {
     [[ "${output}" == *"Failed to make ${DEV_SCRIPTS_LIB_DIR}-"*" owned by root"* ]]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails, naming the copy, when creating the switch link fails" {
@@ -713,6 +733,7 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to create a link to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails, naming the lib folder, when switching it to the new copy fails" {
@@ -721,6 +742,7 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to switch ${DEV_SCRIPTS_LIB_DIR} to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails, naming the copy, when removing an old copy fails" {
@@ -731,6 +753,46 @@ run_with_lock_step_failing() {
     [ "${status}" -eq 1 ]
     [[ "${output}" != *"Dev scripts installed"* ]]
     [[ "${output}" == *"Failed to remove the old copy ${_old}"* ]]
+}
+
+@test "dev-scripts refuses a new copy name that already exists, leaving that folder alone" {
+    add_fake_dev_script
+    local _taken="${DEV_SCRIPTS_LIB_DIR}-20000101T000000.000000000Z"
+    mkdir -p "${_taken}"
+    : > "${_taken}/kept"
+    setup_fake_bin date
+    seed_fake_output date <<< "20000101T000000.000000000Z"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_taken} already exists; move it aside, then re-run"* ]]
+    [ -f "${_taken}/kept" ]
+    refute_fake_called '^sudo rm -rf '
+}
+
+@test "dev-scripts removes its unfinished copy when it is sent SIGTERM while copying" {
+    add_fake_dev_script
+    local _real_install
+    _real_install="$(command -v install)"
+    # The first file copy into the new copy sends dev-scripts a SIGTERM, as a
+    # Ctrl-C mid-copy would; every other install runs for real.
+    replace_fake install <<EOF
+#!/bin/sh
+case "\$*" in
+    -d*) ;;
+    *"${DEV_SCRIPTS_LIB_DIR}-"*)
+        kill -TERM "\${PPID}"
+        exit 0
+        ;;
+esac
+exec "${_real_install}" "\$@"
+EOF
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    assert_unswitched_copy_removed
 }
 
 @test "dev-scripts fails when the new copy cannot be named" {
