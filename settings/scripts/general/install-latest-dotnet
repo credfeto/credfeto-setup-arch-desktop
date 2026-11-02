@@ -26,12 +26,19 @@ extract_dotnet_package() {
         say_err "Extraction failed"
     fi
 
+    # Listed on its own rather than as the first stage of the pipelines below,
+    # whose status is their last stage's, so a find that fails part-way stops
+    # the install instead of copying a partial SDK. Listed once for both.
+    local extracted_files
+    extracted_files="$(find "$temp_out_path" -type f)" || say_err "Could not list the files extracted into $temp_out_path"
+
     # copy_files_or_dirs_from_list is the last stage of each pipeline, so it
     # runs in a subshell: a die inside it only ends that subshell. Its exit
     # status becomes the pipeline's, and the "||" here is what stops the
-    # install.
-    find "$temp_out_path" -type f | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false || say_err "Could not copy the versioned SDK folders into $out_path"
-    find "$temp_out_path" -type f | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files" || say_err "Could not copy the SDK files into $out_path"
+    # install. The list goes in with no trailing newline, so an empty one
+    # reaches grep as no lines at all; grep ends every line it prints.
+    printf '%s' "$extracted_files" | grep -Eo "$folders_with_version_regex" | sort | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" false || say_err "Could not copy the versioned SDK folders into $out_path"
+    printf '%s' "$extracted_files" | grep -Ev "$folders_with_version_regex" | copy_files_or_dirs_from_list "$temp_out_path" "$out_path" "$override_non_versioned_files" || say_err "Could not copy the SDK files into $out_path"
 
     # Stated here rather than left to the umask set at the top of the script,
     # so the guarantee lives with the code that creates the files, and holds
