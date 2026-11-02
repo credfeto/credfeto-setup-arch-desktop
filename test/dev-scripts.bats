@@ -34,6 +34,11 @@ setup() {
     [[ "$(readlink -f "${DEV_SCRIPTS_BIN_DIR}/dbenv")" != "${REPO_DIR}/"* ]]
 }
 
+# The run lock dev-scripts takes beside DEV_SCRIPTS_LIB_DIR.
+dev_scripts_lock_file() {
+    printf '%s/.%s.lock' "$(dirname "${DEV_SCRIPTS_LIB_DIR}")" "$(basename "${DEV_SCRIPTS_LIB_DIR}")"
+}
+
 # The versioned copies made beside DEV_SCRIPTS_LIB_DIR, oldest first.
 lib_copies() {
     find "$(dirname "${DEV_SCRIPTS_LIB_DIR}")" -mindepth 1 -maxdepth 1 -type d -name "$(basename "${DEV_SCRIPTS_LIB_DIR}")-*Z" -printf '%f\n' | sort
@@ -319,7 +324,8 @@ add_fake_dev_script() {
 # Makes the folder holding DEV_SCRIPTS_LIB_DIR read-only, so dev-scripts
 # routes every change it makes there through the fake sudo, which runs
 # nothing and fails the command line matching FAKE_SUDO_FAIL, then runs
-# dev-scripts against the fake repo with one fixture script. The caller
+# dev-scripts against the fake repo with one fixture script. The run lock is
+# made first, as the fake sudo would not create it. The caller
 # asserts on the run in its own @test body: shellcheck treats each body as
 # a subshell, so reading status or output in a helper defined after other
 # tests' runs is flagged (SC2030/SC2031).
@@ -328,10 +334,71 @@ run_with_lib_step_failing() {
     add_fake_dev_script
     LIB_PARENT="$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
     mkdir -p "${LIB_PARENT}"
+    : > "$(dev_scripts_lock_file)"
     chmod 555 "${LIB_PARENT}"
     export FAKE_SUDO_FAIL="$1"
 
     run_dev_scripts_against_fake_repo
+}
+
+# As run_with_lib_step_failing, but with no run lock made first, so a test
+# can fail a step of making it; with no pattern, no sudo call fails.
+# Usage: run_with_lock_step_failing [<grep -E pattern>]
+run_with_lock_step_failing() {
+    add_fake_dev_script
+    mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    chmod 555 "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    export FAKE_SUDO_FAIL="${1:-}"
+
+    run_dev_scripts_against_fake_repo
+}
+
+@test "dev-scripts fails, naming the lock, when creating the run lock fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lock_step_failing '^touch '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts fails, naming the lock, when making the run lock readable fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lock_step_failing '^chmod 0644 '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts fails, naming the lock and changing nothing, when the run lock cannot be opened" {
+    [ "$(id -u)" -ne 0 ] || skip "root can read a file with no permissions"
+    mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    : > "$(dev_scripts_lock_file)"
+    chmod 000 "$(dev_scripts_lock_file)"
+
+    run_with_lock_step_failing
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to open $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [ -z "$(lib_copies)" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+}
+
+@test "dev-scripts stops, naming the lock and changing nothing, when another run holds the lock" {
+    mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    : > "$(dev_scripts_lock_file)"
+    exec 8<"$(dev_scripts_lock_file)"
+    flock -n 8
+
+    run "${DEV_SCRIPTS}"
+    exec 8<&-
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Another dev-scripts install holds $(dev_scripts_lock_file)"* ]]
+    [ -z "$(lib_copies)" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
 }
 
 @test "dev-scripts fails, naming the folder, when creating the lib folder's parent fails" {

@@ -11,6 +11,8 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 DEV_SCRIPTS_BIN_DIR="${DEV_SCRIPTS_BIN_DIR:-/usr/local/bin}"
 DEV_SCRIPTS_LIB_DIR="${DEV_SCRIPTS_LIB_DIR:-/usr/local/lib/credfeto-setup-arch-desktop}"
 DEV_SCRIPTS_LIB_PARENT="$(dirname "$DEV_SCRIPTS_LIB_DIR")"
+# Hidden, so it never matches the copies remove_old_copies deletes.
+DEV_SCRIPTS_LOCK_FILE="$DEV_SCRIPTS_LIB_PARENT/.$(basename "$DEV_SCRIPTS_LIB_DIR").lock"
 DEV_SCRIPTS_SOURCE_DIRS="db development general git linux"
 
 # The installed scripts are read by every account, so nothing created here
@@ -107,6 +109,28 @@ EOF
     sudo chown -R root:root "$TARGET_DIR" || die "Failed to make $TARGET_DIR owned by root"
 }
 
+# Takes the run lock beside DEV_SCRIPTS_LIB_DIR and holds it until this
+# script exits. A manual install and the dev-update timer's run each remove
+# the copies they do not keep, so two runs at once could delete the copy the
+# other is about to switch to. Non-blocking, so a second run stops at once
+# rather than queueing behind the first and then replacing what it made.
+lock_dev_scripts_install() {
+    dev_scripts_lib_sudo mkdir -p "$DEV_SCRIPTS_LIB_PARENT" || die "Failed to create $DEV_SCRIPTS_LIB_PARENT"
+
+    # touch and chmod keep an existing file's inode, so a run already holding
+    # the lock still excludes this one; chmod, rather than the umask, makes
+    # the file readable by every account. Only ever opened for reading, which
+    # flock allows, so whoever owns it never stops anyone else taking the lock.
+    # Never removed: a run that recreated it would lock a different file from
+    # a run already holding the old one.
+    [ -r "$DEV_SCRIPTS_LOCK_FILE" ] || { dev_scripts_lib_sudo touch "$DEV_SCRIPTS_LOCK_FILE" && dev_scripts_lib_sudo chmod 0644 "$DEV_SCRIPTS_LOCK_FILE"; } || die "Failed to create $DEV_SCRIPTS_LOCK_FILE"
+
+    # command, as a failed redirection on a bare exec ends a POSIX shell
+    # before the die can name the lock.
+    command exec 9<"$DEV_SCRIPTS_LOCK_FILE" || die "Failed to open $DEV_SCRIPTS_LOCK_FILE"
+    flock -n 9 || die "Another dev-scripts install holds $DEV_SCRIPTS_LOCK_FILE"
+}
+
 # Builds a fresh copy in a new versioned folder beside DEV_SCRIPTS_LIB_DIR,
 # then switches DEV_SCRIPTS_LIB_DIR (a symlink) to it. The links in
 # DEV_SCRIPTS_BIN_DIR go through the stable DEV_SCRIPTS_LIB_DIR path, so they
@@ -121,7 +145,6 @@ install_dev_scripts_copy() {
     COPY_DIR="$LIB_PARENT/$COPY_NAME"
 
     info "Copying dev scripts to $COPY_DIR"
-    dev_scripts_lib_sudo mkdir -p "$LIB_PARENT" || die "Failed to create $LIB_PARENT"
     dev_scripts_lib_sudo mkdir -m 755 "$COPY_DIR" || die "Failed to create $COPY_DIR"
     copy_dev_scripts "$COPY_DIR"
 
@@ -205,6 +228,8 @@ install_dev_scripts() {
     check_no_collisions
 
     dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
+
+    lock_dev_scripts_install
 
     install_dev_scripts_copy
 
