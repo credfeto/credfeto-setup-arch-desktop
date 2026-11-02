@@ -65,6 +65,12 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The bats test suite no longer reads the developer's global or system git configuration files
 - pacman-sync no longer reports failed when checkupdates finds no updates (exit code 2), and enable-services installs fakeroot, which checkupdates needs to run
 - configure-flatpak: fail when flatpak remotes fails instead of treating it as no flathub remote (#59)
+- install-latest-dotnet finds the .NET tool manifest at ~/dotnet-tools.json, so re-runs no longer fail when a manifest already exists
+- The login tests no longer launch the host's real stream script, which could hang the test suite
+- install-latest-dotnet builds the new SDK install beside the live one and switches to it in a single rename, so a failed or interrupted run leaves the existing dotnet working; a first-run install is moved aside to a dotnet-legacy-<stamp> folder and put back in place if it cannot be switched, and a run stops rather than removing or overwriting a folder when its new dotnet-<stamp> or dotnet-legacy-<stamp> name is already taken
+- buildtest restores the .NET code-analysis ruleset when the override tool fails part-way through or a signal (Ctrl-C, TERM or HUP) stops the run, instead of leaving the ruleset changed
+- install-latest-dotnet keeps its temporary files under /var/tmp and removes them when the run ends, including when it fails or a signal (Ctrl-C, TERM or HUP) stops it, checks free disk space before downloading (filesystems are told apart by UUID so btrfs subvolumes count as one, falling back to device id), and takes one system-wide run lock beside the install, opened read-only, so a lock owned by root or another account never blocks a run and XDG_RUNTIME_DIR is no longer needed
+- benchmark-test-affected and fetch remove their temporary files when a signal (Ctrl-C, TERM or HUP) stops them, instead of leaving them behind
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -76,6 +82,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The cd aliases, Go section and distro lookup in the shell sections no longer start extra processes, so shell start and timer runs are faster
 - Shell script tests now use fake versions of nvm, autojump, Go and .NET instead of skipping when these tools are not installed
 - dev-update now publishes the reference repos (credfeto-global-pre-commit, claude, credfeto-ai-skills and credfeto-orchestrator) as root-owned, timestamped snapshots under /usr/local/share/development, switches a symlink to each new snapshot atomically, and runs their installers with --system from that snapshot, so system-wide installs never point into a reference clone that can change or be removed
+- install-latest-dotnet installs only the .NET 10 and 11 SDKs, no longer 8.0 and 9.0
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited

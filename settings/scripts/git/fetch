@@ -33,6 +33,9 @@ done
 
 REPO_LIST=$(mktemp)
 trap 'rm -f "$REPO_LIST"' EXIT
+# dash does not run the EXIT trap when a signal kills the shell, so turn the
+# signals into an exit to get the repo list removed.
+trap 'exit 1' INT TERM HUP
 
 find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache' > "$REPO_LIST"
 

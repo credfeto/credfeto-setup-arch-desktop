@@ -279,13 +279,6 @@ EOF
     assert_fake_called '^sudo nmcli general reload$'
 }
 
-# Prints the line number of the first fake log line matching the given
-# grep -E pattern.
-# Usage: log_line_of <pattern>
-log_line_of() {
-    grep -n -m 1 -E "$1" "${FAKE_BIN_LOG}" | cut -d: -f1
-}
-
 @test "configure-network moves NetworkManager onto systemd-resolved before removing dnsmasq" {
     run_step configure-network
     [ "${status}" -eq 0 ]

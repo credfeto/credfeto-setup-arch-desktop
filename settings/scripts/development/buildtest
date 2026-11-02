@@ -11,6 +11,9 @@ cleanup() {
     [ "$RESTORE" = "1" ] && git checkout "$RULESET_FILE"
 }
 trap cleanup EXIT
+# dash does not run the EXIT trap when a signal kills the shell, so turn the
+# signals into an exit to get the ruleset restored.
+trap 'exit 1' INT TERM HUP
 
 # Returns true (0) when running inside a Claude Code Bash-tool session.
 # Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
@@ -94,10 +97,13 @@ RESTORE=0
 if [ -n "$RULESET_TYPE" ] && [ -f "$RULESET_ADJUSTMENT_FILE" ]; then
   require_dotnet_tool code-analysis Credfeto.DotNet.Code.Analysis.Overrides.Cmd
   info "Overriding $RULESET_FILE with $RULESET_ADJUSTMENT_FILE"
+  # Set before the rewrite rather than after: the tool can fail, or a signal
+  # can land, once it has already changed the file. Restoring a file the tool
+  # never touched is harmless.
+  RESTORE=1
   dotnet code-analysis "$RULESET_TYPE" \
     --ruleset "$RULESET_FILE" \
     --changes "$RULESET_ADJUSTMENT_FILE" || die "Failed to update $RULESET_FILE"
-  RESTORE=1
 fi
 
 info "Restoring..."
