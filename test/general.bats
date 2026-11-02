@@ -221,6 +221,10 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 # - stat runs the real stat, except that stat -c %d on the work root prints
 #   $FAKE_STAT_WORK_ROOT_DEVICE when it is set, as if the work root were on
 #   another filesystem from the install root;
+# - findmnt runs the real findmnt, except that when $FAKE_FINDMNT_UUID is set,
+#   even to nothing, it prints that as the UUID of every path, so a test can
+#   give both roots one filesystem UUID or none, and when $FAKE_FINDMNT_FAIL
+#   is set it prints a UUID but fails, so the UUID must not be used;
 # - date prints DOTNET_TEST_STAMP;
 # - curl serves a releases index with a 10.0 and an 11.0 SDK, and "downloads"
 #   an SDK by writing its URL to the -o file, or fails when
@@ -291,6 +295,21 @@ if [ -n "\${FAKE_STAT_WORK_ROOT_DEVICE:-}" ] && [ "\$*" = "-c %d \${DOTNET_TEST_
     exit 0
 fi
 exec "${real_stat}" "\$@"
+EOF
+
+    local real_findmnt
+    real_findmnt="$(PATH="${PATH#"${FAKE_BIN_DIR}:"}" type -P findmnt)"
+    write_fake_script "${FAKE_BIN_DIR}/findmnt" findmnt DOTNET_TEST_WORK_ROOT <<EOF
+#!/bin/sh
+if [ -n "\${FAKE_FINDMNT_FAIL:-}" ]; then
+    echo 11111111-2222-3333-4444-555555555555
+    exit 1
+fi
+if [ "\${FAKE_FINDMNT_UUID+set}" = set ]; then
+    echo "\${FAKE_FINDMNT_UUID}"
+    exit 0
+fi
+exec "${real_findmnt}" "\$@"
 EOF
 
     replace_fake date <<EOF
@@ -763,13 +782,32 @@ DOTNET_TEST_SWITCH_OR_RESTORE='^mv -T [^ ]*/(dotnet\.tmp-link|dotnet-legacy-[^ ]
     assert_previous_dotnet_install_live
 }
 
-@test "install-latest-dotnet treats paths on different devices as separate filesystems even when df names the same source" {
+@test "install-latest-dotnet treats paths with no UUID on different devices as separate filesystems even when df names the same source" {
     seed_previous_dotnet_install
 
-    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304 FAKE_STAT_WORK_ROOT_DEVICE=999999
+    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304 FAKE_STAT_WORK_ROOT_DEVICE=999999 FAKE_FINDMNT_UUID=
     [ "${status}" -eq 0 ]
     [[ "${output}" != *"MB free on"* ]]
     [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
+}
+
+@test "install-latest-dotnet falls back to the device id when findmnt fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304 FAKE_STAT_WORK_ROOT_DEVICE=999999 FAKE_FINDMNT_FAIL=1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"MB free on"* ]]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
+}
+
+@test "install-latest-dotnet treats paths with one UUID on different devices as one filesystem, as btrfs subvolumes are" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304 FAKE_STAT_WORK_ROOT_DEVICE=999999 FAKE_FINDMNT_UUID=11111111-2222-3333-4444-555555555555
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Only 4096 MB free on ${DOTNET_TEST_INSTALL_ROOT}; installing the SDKs needs 5120 MB"* ]]
+    refute_fake_called '^curl '
+    assert_previous_dotnet_install_live
 }
 
 @test "the install-latest-dotnet fake mktemp creates nothing outside the test's work root" {
