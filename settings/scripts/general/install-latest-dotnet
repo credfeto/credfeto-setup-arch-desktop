@@ -188,10 +188,13 @@ available_mb() {
     echo $((available_kb / 1024))
 }
 
+# df's source column does not identify a filesystem: separate tmpfs or overlay
+# mounts share one name, and a bind mount can name a different source, so the
+# device id is compared instead.
 # args:
 # path - $1
 filesystem_of() {
-    df -Pk "$1" | awk 'NR==2 {print $1}'
+    stat -c '%d' "$1"
 }
 
 # The work folder only ever holds one SDK archive and its extraction, as each

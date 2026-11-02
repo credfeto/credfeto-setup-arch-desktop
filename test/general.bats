@@ -218,6 +218,9 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 # - mktemp runs the real mktemp, unless its template is outside
 #   $DOTNET_TEST_WORK_ROOT, when it fails without creating anything;
 # - df reports $FAKE_DF_AVAILABLE_KB (default 100 GiB) free on one filesystem;
+# - stat runs the real stat, except that stat -c %d on the work root prints
+#   $FAKE_STAT_WORK_ROOT_DEVICE when it is set, as if the work root were on
+#   another filesystem from the install root;
 # - date prints DOTNET_TEST_STAMP;
 # - curl serves a releases index with a 10.0 and an 11.0 SDK, and "downloads"
 #   an SDK by writing its URL to the -o file, or fails when
@@ -277,6 +280,17 @@ EOF
 #!/bin/sh
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
 printf 'fakefs 999999999 1 %s 1%% /\n' "${FAKE_DF_AVAILABLE_KB:-104857600}"
+EOF
+
+    local real_stat
+    real_stat="$(PATH="${PATH#"${FAKE_BIN_DIR}:"}" type -P stat)"
+    write_fake_script "${FAKE_BIN_DIR}/stat" stat DOTNET_TEST_WORK_ROOT <<EOF
+#!/bin/sh
+if [ -n "\${FAKE_STAT_WORK_ROOT_DEVICE:-}" ] && [ "\$*" = "-c %d \${DOTNET_TEST_WORK_ROOT}" ]; then
+    echo "\${FAKE_STAT_WORK_ROOT_DEVICE}"
+    exit 0
+fi
+exec "${real_stat}" "\$@"
 EOF
 
     replace_fake date <<EOF
@@ -717,6 +731,25 @@ DOTNET_TEST_SWITCH_OR_RESTORE='^mv -T [^ ]*/(dotnet\.tmp-link|dotnet-legacy-[^ ]
     refute_fake_called '^sudo mkdir '
     assert_previous_dotnet_install_live
     work_root_has_no_work_dir
+}
+
+@test "install-latest-dotnet needs room for both the download and the install when they share a filesystem" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Only 4096 MB free on ${DOTNET_TEST_INSTALL_ROOT}; installing the SDKs needs 5120 MB"* ]]
+    refute_fake_called '^curl '
+    assert_previous_dotnet_install_live
+}
+
+@test "install-latest-dotnet treats paths on different devices as separate filesystems even when df names the same source" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_DF_AVAILABLE_KB=4194304 FAKE_STAT_WORK_ROOT_DEVICE=999999
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"MB free on"* ]]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
 }
 
 @test "the install-latest-dotnet fake mktemp creates nothing outside the test's work root" {
