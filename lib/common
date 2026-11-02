@@ -169,6 +169,89 @@ list_tracked_files() {
     done
 }
 
+# Runs a command directly when the given directory is writable by the caller
+# (or does not exist yet and can be created by them), otherwise through sudo,
+# so a test can point a system location at a folder of its own and run
+# without root, while the real system locations still go through sudo.
+# Usage: sudo_unless_writable <dir> <command> [<arg> ...]
+sudo_unless_writable() {
+    SUDO_UNLESS_DIR="$1"
+    shift
+    if [ -w "$SUDO_UNLESS_DIR" ] || { [ ! -e "$SUDO_UNLESS_DIR" ] && [ -w "$(dirname "$SUDO_UNLESS_DIR")" ]; }; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+# Versioned folders sit beside a stable link to the current one, named
+# <link name>-<UTC timestamp>; prune_versioned_folders matches that shape.
+
+# Prints a new versioned folder name for the given link name. Nanoseconds,
+# so two runs within the same second never collide. Fails when the time
+# cannot be read.
+# Usage: versioned_folder_name <link-name>
+versioned_folder_name() {
+    VERSIONED_STAMP="$(date -u +%Y%m%dT%H%M%S.%NZ)" || return 1
+    printf '%s-%s\n' "$1" "$VERSIONED_STAMP"
+}
+
+# Switches a stable link to the named versioned folder beside it: a new link
+# renamed over the old one, so the path is never missing or half-switched
+# for anything reading it. Leaves the folder the link pointed at before, or
+# nothing, in SWITCHED_FROM, for the caller to keep. The runner is the name
+# of a command or function that runs its arguments with whatever privilege
+# the link's folder needs.
+# Usage: switch_versioned_link <runner> <link> <folder-name>
+switch_versioned_link() {
+    SWITCH_RUNNER="$1"
+    SWITCH_LINK="$2"
+    SWITCH_NAME="$3"
+    SWITCH_PARENT="$(dirname "$SWITCH_LINK")"
+    SWITCH_TARGET="$SWITCH_PARENT/$SWITCH_NAME"
+    SWITCH_TEMP="$SWITCH_PARENT/.${SWITCH_LINK##*/}.tmp"
+
+    SWITCHED_FROM="$(readlink "$SWITCH_LINK" 2>/dev/null)" || SWITCHED_FROM=""
+    "$SWITCH_RUNNER" ln -sfn "$SWITCH_NAME" "$SWITCH_TEMP" || die "Failed to create a link to $SWITCH_TARGET"
+    "$SWITCH_RUNNER" mv -T "$SWITCH_TEMP" "$SWITCH_LINK" || die "Failed to switch $SWITCH_LINK to $SWITCH_TARGET"
+}
+
+# Removes every versioned folder beside the link but the two named ones,
+# which also clears any partial folder a failed run left behind. Always
+# through sudo: the folders are given to root, so only root can empty them,
+# even when the folder holding them is writable. The noun names a folder in
+# the messages.
+# Usage: prune_versioned_folders <link> <noun> <keep-name> <keep-name>
+prune_versioned_folders() {
+    PRUNE_LINK="$1"
+    PRUNE_NOUN="$2"
+    PRUNE_KEEP_CURRENT="$3"
+    PRUNE_KEEP_PREVIOUS="$4"
+    # Called only once the link points at a folder that now exists, so the
+    # glob always matches at least that and never comes through unexpanded.
+    for PRUNE_OLD in "$PRUNE_LINK"-[0-9]*Z; do
+        case "${PRUNE_OLD##*/}" in
+            "$PRUNE_KEEP_CURRENT" | "$PRUNE_KEEP_PREVIOUS") continue ;;
+        esac
+
+        info "Removing old $PRUNE_NOUN $PRUNE_OLD"
+        sudo rm -rf "$PRUNE_OLD" || die "Failed to remove the old $PRUNE_NOUN $PRUNE_OLD"
+    done
+}
+
+# Makes a run lock file readable by every account if it is not there yet.
+# touch and chmod keep an existing file's inode, so a run already holding the
+# lock still excludes this one; chmod, rather than the umask, makes the file
+# readable by every account. It is only ever opened for reading, which flock
+# allows, so whoever owns it never stops anyone else taking the lock. Never
+# removed: a run that recreated it would lock a different file from a run
+# already holding the old one. The caller opens and locks it itself: exec
+# takes its descriptor number literally, so only eval could pass one in.
+# Usage: create_lock_file <runner> <lock-file>
+create_lock_file() {
+    [ -r "$2" ] || { "$1" touch "$2" && "$1" chmod 0644 "$2"; } || die "Failed to create $2"
+}
+
 # Published snapshot layout: ${DEV_PUBLISH_DIR}/<repo> is a symlink to the
 # current <repo>-<UTC timestamp> snapshot, so system-wide installs never point
 # into a reference clone that can be switched or edited. DEV_PUBLISH_DIR is a
@@ -180,11 +263,7 @@ DEV_PUBLISH_LOCK_FILE="${DEV_PUBLISH_DIR}/.publish.lock"
 # Runs a command directly when DEV_PUBLISH_DIR is writable (or can be created),
 # otherwise through sudo.
 dev_publish_sudo() {
-    if [ -w "${DEV_PUBLISH_DIR}" ] || { [ ! -e "${DEV_PUBLISH_DIR}" ] && [ -w "$(dirname "${DEV_PUBLISH_DIR}")" ]; }; then
-        "$@"
-    else
-        sudo "$@"
-    fi
+    sudo_unless_writable "${DEV_PUBLISH_DIR}" "$@"
 }
 
 # Takes the publish lock on fd 8. The dev-update lock is per account, and
@@ -195,13 +274,7 @@ dev_publish_sudo() {
 # that publishes several repos never waits on itself, and nothing started
 # afterwards (an installer, a build server) inherits a held lock.
 lock_dev_publish_dir() {
-    # touch and chmod keep an existing file's inode, so a run already holding
-    # the lock still excludes this one; chmod, rather than the umask, makes
-    # the file readable by every account. Only ever opened for reading, which
-    # flock allows, so whoever owns it never stops anyone else taking the lock.
-    # Never removed: a run that recreated it would lock a different file from
-    # a run already holding the old one.
-    [ -r "${DEV_PUBLISH_LOCK_FILE}" ] || { dev_publish_sudo touch "${DEV_PUBLISH_LOCK_FILE}" && dev_publish_sudo chmod 0644 "${DEV_PUBLISH_LOCK_FILE}"; } || die "Failed to create ${DEV_PUBLISH_LOCK_FILE}"
+    create_lock_file dev_publish_sudo "${DEV_PUBLISH_LOCK_FILE}"
 
     # command, as a failed redirection on a bare exec ends a POSIX shell
     # before the die can name the lock.
@@ -219,8 +292,7 @@ publish_reference_repo() {
     PUBLISH_REPO="$1"
     PUBLISH_CLONE="${DEV_REFERENCE_DIR}/${PUBLISH_REPO}"
     PUBLISH_LINK="${DEV_PUBLISH_DIR}/${PUBLISH_REPO}"
-    # Nanoseconds so two publishes within the same second never collide.
-    PUBLISH_NAME="${PUBLISH_REPO}-$(date -u +%Y%m%dT%H%M%S.%NZ)" || die "Failed to name a snapshot of ${PUBLISH_REPO}"
+    PUBLISH_NAME="$(versioned_folder_name "${PUBLISH_REPO}")" || die "Failed to name a snapshot of ${PUBLISH_REPO}"
     PUBLISH_SNAPSHOT="${DEV_PUBLISH_DIR}/${PUBLISH_NAME}"
 
     info "Publishing ${PUBLISH_CLONE} to ${PUBLISH_SNAPSHOT}..."
@@ -246,22 +318,8 @@ publish_reference_repo() {
     # Always sudo: only root can give files to root, even in a writable directory.
     sudo chown -R root:root "${PUBLISH_SNAPSHOT}" || die "Failed to make ${PUBLISH_SNAPSHOT} owned by root"
 
-    PUBLISH_PREVIOUS="$(readlink "${PUBLISH_LINK}" 2>/dev/null)" || PUBLISH_PREVIOUS=""
-    # A new link renamed over the old one, so the path is never missing or
-    # half-switched for an installer or user reading it.
-    dev_publish_sudo ln -sfn "${PUBLISH_NAME}" "${DEV_PUBLISH_DIR}/.${PUBLISH_REPO}.tmp" || die "Failed to create a link to ${PUBLISH_SNAPSHOT}"
-    dev_publish_sudo mv -T "${DEV_PUBLISH_DIR}/.${PUBLISH_REPO}.tmp" "${PUBLISH_LINK}" || die "Failed to switch ${PUBLISH_LINK} to ${PUBLISH_SNAPSHOT}"
-
-    # Also clears any partial snapshot a failed run left behind.
-    for PUBLISH_OLD in "${DEV_PUBLISH_DIR}/${PUBLISH_REPO}"-[0-9]*Z; do
-        [ -e "${PUBLISH_OLD}" ] || continue
-        case "${PUBLISH_OLD##*/}" in
-            "${PUBLISH_NAME}" | "${PUBLISH_PREVIOUS}") continue ;;
-        esac
-        # Always sudo: the snapshot was given to root above, so only root can
-        # empty its folders, even when DEV_PUBLISH_DIR is writable.
-        sudo rm -rf "${PUBLISH_OLD}" || die "Failed to remove the old snapshot ${PUBLISH_OLD}"
-    done
+    switch_versioned_link dev_publish_sudo "${PUBLISH_LINK}" "${PUBLISH_NAME}"
+    prune_versioned_folders "${PUBLISH_LINK}" snapshot "${PUBLISH_NAME}" "${SWITCHED_FROM}"
 
     # Closing the descriptor releases the lock.
     exec 8<&-

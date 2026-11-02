@@ -874,6 +874,49 @@ lock_down_publish_dir() {
     refute_any_publish
 }
 
+@test "dev-update dies, naming the repo, when a snapshot cannot be named, and publishes nothing" {
+    setup_dev_update_fixture
+    setup_fake_bin date
+
+    run env FAKE_EXIT_date=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to name a snapshot of credfeto-global-pre-commit"* ]]
+    refute_any_publish
+}
+
+# Makes DEV_PUBLISH_DIR read-only with the publish lock already in it, so a
+# publish reaches its switch with every change routed through the fake sudo,
+# which runs nothing and fails the command line matching FAKE_SUDO_FAIL.
+lock_down_publish_dir_with_lock() {
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    : > "$(publish_lock_file)"
+    lock_down_publish_dir
+}
+
+@test "dev-update dies, naming the snapshot, when creating the switch link fails, and runs nothing after it" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir_with_lock
+
+    run env FAKE_SUDO_FAIL='^ln -sfn ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create a link to ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    refute_fake_called '^sudo mv -T '
+    refute_any_publish
+}
+
+@test "dev-update dies, naming the link, when switching it to the new snapshot fails, and runs nothing after it" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir_with_lock
+
+    run env FAKE_SUDO_FAIL='^mv -T ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to switch ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit to ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    refute_fake_called '^sudo rm -rf '
+    refute_any_publish
+}
+
 @test "dev-update fails, naming the lock, when the publish lock cannot be opened" {
     [ "$(id -u)" -ne 0 ] || skip "root can read a file with no permissions"
     setup_dev_update_fixture
