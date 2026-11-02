@@ -282,6 +282,22 @@ EOF
     [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
 }
 
+@test "dev-scripts removes the link of a script that stays tracked but is no longer executable" {
+    add_fake_dev_script
+    add_fake_lib_script othertool
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
+
+    chmod -x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/othertool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/othertool" ]
+}
+
 @test "dev-scripts keeps a live link into the lib folder" {
     add_fake_dev_script
     run_dev_scripts_against_fake_repo
