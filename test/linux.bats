@@ -781,6 +781,25 @@ EOF
 # test asserts on the logged command rather than on the snapshot being gone.
 # Each run publishes a different committed tree, as a run with nothing new
 # keeps the snapshot it has.
+@test "dev-update never prunes the snapshots of a sibling whose name starts with the repo's and a digit" {
+    setup_dev_update_fixture
+    # A sibling repo's current snapshot, named claude-2-<stamp>, which a looser
+    # claude-<digit>...Z glob would also match.
+    local _sibling="${DEV_PUBLISH_DIR}/claude-2-20000101T000000.000000000Z"
+    mkdir -p "${_sibling}"
+    ln -s "${_sibling##*/}" "${DEV_PUBLISH_DIR}/claude-2"
+    # And one of claude's own, older than the two it keeps.
+    local _old="${DEV_PUBLISH_DIR}/claude-20000101T000000.000000000Z"
+    mkdir -p "${_old}"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo rm -rf ${_old}\$"
+    refute_fake_called "^sudo rm -rf ${_sibling}\$"
+    [ -d "${_sibling}" ]
+    [ "$(readlink "${DEV_PUBLISH_DIR}/claude-2")" = "${_sibling##*/}" ]
+}
+
 @test "dev-update keeps the previous snapshot of a published repo and removes any older one" {
     setup_dev_update_fixture
     local _run _first _second _third
