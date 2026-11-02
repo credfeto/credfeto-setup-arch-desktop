@@ -484,6 +484,17 @@ listed" ]
     [ "${stderr}" = "section_reading: path.sh line 1: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
 }
 
+@test "section_reading fails, naming the line, for a section that names the system directory inside a command substitution within double quotes" {
+    # The quotes nest, so the flat scan would take the inner quote as closing
+    # the outer string and rewrite the path without error.
+    printf '%s\n' "x=\"\$(cat \"/usr/share/pkg/ver\")\"" >"${BATS_TEST_TMPDIR}/section.sh"
+
+    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "section_reading: section.sh line 1: names /usr/share/pkg inside a command substitution within a double-quoted string, where quotes nest" ]
+}
+
 @test "section_reading fails, naming the line, for a section that names the system directory inside single quotes after other text" {
     printf '%s\n' "echo 'loading /usr/share/pkg/load.sh'" > "${BATS_TEST_TMPDIR}/section.sh"
 

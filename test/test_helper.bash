@@ -360,13 +360,15 @@ section_reading_fail() {
 # occurrence that cannot be replaced safely. Quotes are followed within the
 # line only; a backslash outside single quotes escapes the next character,
 # and a "#" outside quotes at the start of a word starts a comment, where
-# quote characters are only text. Every occurrence is counted first, and the
+# quote characters are only text. A "$(" inside a double-quoted string nests
+# quotes the flat scan cannot follow, so the system directory after one fails.
+# Every occurrence is counted first, and the
 # line fails unless each was replaced, so one the scan stepped over (after a
 # backslash) cannot reach the copy still naming the system directory.
 # Usage: section_line_reading <section-file> <line-number> <line> <system-dir> <quoted-package-dir>
 section_line_reading() {
     local _line="$3" _system_dir="$4" _quoted="$5"
-    local _out="" _quote="" _quote_start=-1 _comment="" _i=0
+    local _out="" _quote="" _quote_start=-1 _comment="" _i=0 _subst=0
     local _char _before _after _rest="$3" _occurrences=0 _replaced=0
     while [[ "${_rest}" == *"${_system_dir}"* ]]; do
         _rest="${_rest#*"${_system_dir}"}"
@@ -384,6 +386,9 @@ section_line_reading() {
             _after="${_line:_i+${#_system_dir}:1}"
             if [[ "${_before}" == [A-Za-z0-9._/\}-] || "${_after}" == [A-Za-z0-9._-] ]]; then
                 section_reading_fail "$1" "$2" "names ${_system_dir} as part of a longer name, not a whole path component" || return
+            fi
+            if [ "${_subst}" -gt 0 ]; then
+                section_reading_fail "$1" "$2" "names ${_system_dir} inside a command substitution within a double-quoted string, where quotes nest" || return
             fi
             if [ -n "${_comment}" ] || [ -z "${_quote}" ]; then
                 _out+="${_quoted}"
@@ -409,6 +414,10 @@ section_line_reading() {
         fi
         if [ -n "${_comment}" ]; then
             :
+        elif [ "${_quote}" = '"' ] && [ "${_line:_i:2}" = "\$(" ]; then
+            _subst=$((_subst + 1))
+        elif [ "${_subst}" -gt 0 ] && [ "${_char}" = ")" ]; then
+            _subst=$((_subst - 1))
         elif [ -n "${_quote}" ]; then
             if [ "${_char}" = "${_quote}" ]; then
                 _quote=""
