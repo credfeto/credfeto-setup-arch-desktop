@@ -344,6 +344,14 @@ publish_reference_repo() {
     dev_publish_sudo chmod 755 "${DEV_PUBLISH_DIR}" || die "Failed to set permissions on ${DEV_PUBLISH_DIR}"
     lock_dev_publish_dir
 
+    # Only ever a link this function switches. Anything else there (a folder
+    # made by hand or by an older layout) would fail every switch after a
+    # whole snapshot had been built, so it is left for the user to move
+    # rather than moved or deleted here.
+    if [ -e "${PUBLISH_LINK}" ] && [ ! -L "${PUBLISH_LINK}" ]; then
+        die "${PUBLISH_LINK} exists but is not a symlink; move it aside, then re-run"
+    fi
+
     # Refused before the clean-up is armed, so it never removes a snapshot
     # this run did not make: the clock stepping back can name one an earlier
     # run kept.
