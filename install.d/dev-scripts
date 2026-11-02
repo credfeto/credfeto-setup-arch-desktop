@@ -42,19 +42,47 @@ dev_scripts_lib_sudo() {
     dev_scripts_sudo_in "$DEV_SCRIPTS_LIB_PARENT" "$@"
 }
 
-# Prints, relative to settings/scripts/, the path of every executable regular
-# file across all source directories, one per line.
-list_dev_scripts() {
+# The copy is world-readable, so it takes only what git tracks: an untracked,
+# ignored or private file beside the scripts never reaches it. Dies unless
+# BASEDIR is the top of a checkout, as git would otherwise answer for
+# whichever repository holds it.
+require_checkout() {
+    CHECKOUT_TOP="$(git -C "$BASEDIR" rev-parse --show-toplevel 2>/dev/null)" || CHECKOUT_TOP=""
+    [ "$CHECKOUT_TOP" = "$BASEDIR" ] || die "$BASEDIR is not a git checkout; dev-scripts copies only the files git tracks there"
+}
+
+# Prints, relative to BASEDIR, every tracked file under lib/ and the source
+# directories that is still in the working tree, one per line. The working
+# tree's content is what gets copied, so an uncommitted edit to a tracked
+# file is installed; a tracked file deleted from the working tree is skipped.
+# Without -z: the repo has no file name holding a newline, and quotePath is
+# off so other names print as they are.
+list_copied_files() {
+    set -- lib
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
-        SRC_DIR="$BASEDIR/settings/scripts/$DIR"
-        [ -d "$SRC_DIR" ] || continue
+        set -- "$@" "settings/scripts/$DIR"
+    done
 
-        for SCRIPT in "$SRC_DIR"/*; do
-            [ -f "$SCRIPT" ] || continue
-            [ -x "$SCRIPT" ] || continue
+    TRACKED_FILES=$(git -C "$BASEDIR" -c core.quotePath=false ls-files -- "$@") || return 1
+    printf '%s\n' "$TRACKED_FILES" | while IFS= read -r REL_PATH; do
+        if [ -f "$BASEDIR/$REL_PATH" ]; then
+            printf '%s\n' "$REL_PATH"
+        fi
+    done
+}
 
-            printf '%s/%s\n' "$DIR" "${SCRIPT##*/}"
-        done
+# Prints, relative to settings/scripts/, every executable file directly in a
+# source directory among COPY_FILES, one per line.
+list_dev_scripts() {
+    printf '%s\n' "$COPY_FILES" | while IFS= read -r REL_PATH; do
+        case "$REL_PATH" in
+            settings/scripts/*/*/*) ;;
+            settings/scripts/*/*)
+                if [ -x "$BASEDIR/$REL_PATH" ]; then
+                    printf '%s\n' "${REL_PATH#settings/scripts/}"
+                fi
+                ;;
+        esac
     done
 }
 
@@ -65,44 +93,32 @@ check_no_collisions() {
     fi
 }
 
-# Prints, relative to BASEDIR, lib/ and every source directory that exists:
-# the parts of the repo the installed scripts load at run time.
-list_copied_roots() {
-    printf '%s\n' lib
-    for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
-        if [ -d "$BASEDIR/settings/scripts/$DIR" ]; then
-            printf '%s\n' "settings/scripts/$DIR"
-        fi
-    done
-}
-
-# Copies lib/ and the source directories into a new folder, keeping their
-# paths relative to BASEDIR, as the scripts find lib/common and their sibling
-# files relative to their own real path. Every file is copied, not just the
-# linked ones, with its mode stated explicitly: 755 when executable in the
-# checkout, 644 otherwise.
+# Copies COPY_FILES into a new folder, keeping their paths relative to
+# BASEDIR, as the scripts find lib/common and their sibling files relative to
+# their own real path. Every listed file is copied, not just the linked ones,
+# with its mode stated explicitly: 755 when executable in the checkout, 644
+# otherwise.
 # Usage: copy_dev_scripts <target-dir>
 copy_dev_scripts() {
     TARGET_DIR="$1"
-    COPY_ROOTS=$(list_copied_roots)
 
-    # Folders before the files in them: find lists a folder before its contents.
-    # shellcheck disable=SC2086 # COPY_ROOTS is a list of repo-relative paths with no spaces.
-    COPY_ENTRIES=$(cd "$BASEDIR" && find $COPY_ROOTS \( -type d -o -type f \)) || die "Failed to list the files to copy from $BASEDIR"
+    # Folders before the files in them; install -d also makes any parent a
+    # nested folder needs.
+    COPY_DIRS=$(printf '%s\n' "$COPY_FILES" | sed -n 's|/[^/]*$||p' | sort -u)
+    while IFS= read -r REL_DIR; do
+        dev_scripts_lib_sudo install -d -m 755 "$TARGET_DIR/$REL_DIR" || die "Failed to create $TARGET_DIR/$REL_DIR"
+    done <<EOF
+$COPY_DIRS
+EOF
 
     while IFS= read -r REL_PATH; do
-        if [ -d "$BASEDIR/$REL_PATH" ]; then
-            dev_scripts_lib_sudo install -d -m 755 "$TARGET_DIR/$REL_PATH" || die "Failed to create $TARGET_DIR/$REL_PATH"
-            continue
-        fi
-
         MODE=644
         if [ -x "$BASEDIR/$REL_PATH" ]; then
             MODE=755
         fi
         dev_scripts_lib_sudo install -m "$MODE" "$BASEDIR/$REL_PATH" "$TARGET_DIR/$REL_PATH" || die "Failed to copy $REL_PATH to $TARGET_DIR"
     done <<EOF
-$COPY_ENTRIES
+$COPY_FILES
 EOF
 
     # Always sudo: only root can give files to root, even in a writable directory.
@@ -225,6 +241,10 @@ EOF
 install_dev_scripts() {
     info "Installing dev scripts into $DEV_SCRIPTS_BIN_DIR"
 
+    require_checkout
+    COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
+    # An empty copy would leave every installed link dangling once switched to.
+    [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"
     DEV_SCRIPT_PATHS=$(list_dev_scripts)
 
     check_no_collisions

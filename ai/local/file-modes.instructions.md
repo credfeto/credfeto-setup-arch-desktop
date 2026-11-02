@@ -35,7 +35,7 @@ Modes: `0644` by default; `0755` for anything that must be executable, including
 
 Setting the mode on the install root alone is not enough: `install-latest-dotnet` already had `sudo chmod 755 /usr/share/dotnet` and everything under it was still root-only.
 
-A tree small enough to copy file by file needs no archive: `install.d/dev-scripts` copies `lib/` and the `settings/scripts/` folders with `install -d -m 755` per folder and `install -m 755` or `install -m 644` per file, by the source's execute bit, under `umask 022`, then hands the copy to root with `sudo chown -R root:root`.
+A tree small enough to copy file by file needs no archive: `install.d/dev-scripts` copies the files git tracks under `lib/` and the `settings/scripts/` folders (their working-tree content, listed with `git ls-files`) with `install -d -m 755` per folder and `install -m 755` or `install -m 644` per file, by the source's execute bit, under `umask 022`, then hands the copy to root with `sudo chown -R root:root`.
 
 ## Verification
 
