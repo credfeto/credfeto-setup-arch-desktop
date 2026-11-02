@@ -255,6 +255,40 @@ EOF
     [[ "${output}" == *"Completed"* ]]
 }
 
+@test "buildtest restores the ruleset when the override tool fails after rewriting it" {
+    # A dotnet whose code-analysis tool is installed, and which rewrites the
+    # ruleset it is given, then fails, as a tool dying part-way would.
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
+case "$1 $2" in
+    "tool list")
+        printf 'Package Id      Version      Commands\n----------------------------------------\ncredfeto.dotnet.code.analysis.overrides.cmd   1.0.0   code-analysis\n'
+        ;;
+esac
+if [ "$1" = "code-analysis" ]; then
+    printf 'rewritten\n' > "$4"
+    exit 1
+fi
+exit 0
+EOF
+    mkdir -p "${BATS_TEST_TMPDIR}/repo/src/Foo"
+    cd "${BATS_TEST_TMPDIR}/repo"
+    git init --quiet
+    printf 'original\n' > .globalconfig
+    git add .globalconfig
+    git -c user.name=test -c user.email=test@example.com commit --quiet -m init
+    printf '<Project></Project>' > src/Foo.slnx
+    printf '<Project Sdk="Microsoft.NET.Sdk"></Project>' > src/Foo/Foo.csproj
+    printf '{}' > src/release.rule-settings.json
+
+    run "${BUILDTEST}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to update"* ]]
+    assert_fake_called '^dotnet code-analysis globalconfig --ruleset .*/\.globalconfig'
+    [ "$(cat .globalconfig)" = "original" ]
+}
+
 # ── benchmark-test-affected ─────────────────────────────────────────────────
 
 BENCHMARK_TEST_AFFECTED="${DEV_DIR}/benchmark-test-affected"

@@ -94,10 +94,13 @@ RESTORE=0
 if [ -n "$RULESET_TYPE" ] && [ -f "$RULESET_ADJUSTMENT_FILE" ]; then
   require_dotnet_tool code-analysis Credfeto.DotNet.Code.Analysis.Overrides.Cmd
   info "Overriding $RULESET_FILE with $RULESET_ADJUSTMENT_FILE"
+  # Set before the rewrite rather than after: the tool can fail, or a signal
+  # can land, once it has already changed the file. Restoring a file the tool
+  # never touched is harmless.
+  RESTORE=1
   dotnet code-analysis "$RULESET_TYPE" \
     --ruleset "$RULESET_FILE" \
     --changes "$RULESET_ADJUSTMENT_FILE" || die "Failed to update $RULESET_FILE"
-  RESTORE=1
 fi
 
 info "Restoring..."
