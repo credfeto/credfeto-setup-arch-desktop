@@ -394,8 +394,15 @@ elif [ -d "$DOTNET_INSTALL_DIR" ]; then
   # Only before the first switch, when the live path is still the folder
   # earlier versions of this script installed into.
   PREVIOUS_INSTALL_NAME="dotnet-legacy-$INSTALL_STAMP"
+  # Refused before the flag is set, so cleanup never moves a folder this run
+  # did not make back to the live path.
+  if [ -e "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME" ] || [ -L "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME" ]; then
+    die "$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME already exists; move it aside, then re-run"
+  fi
   LEGACY_INSTALL_DIR="$DOTNET_INSTALL_ROOT/$PREVIOUS_INSTALL_NAME"
-  sudo mv "$DOTNET_INSTALL_DIR" "$LEGACY_INSTALL_DIR" || die "Could not move $DOTNET_INSTALL_DIR aside"
+  # -T so the folder lands exactly at the new name, or the move fails with it
+  # left live, rather than moving it inside a folder already at that name.
+  sudo mv -T "$DOTNET_INSTALL_DIR" "$LEGACY_INSTALL_DIR" || die "Could not move $DOTNET_INSTALL_DIR aside"
 elif [ -e "$DOTNET_INSTALL_DIR" ]; then
   die "$DOTNET_INSTALL_DIR is neither a folder nor a link; move it aside, then re-run"
 fi

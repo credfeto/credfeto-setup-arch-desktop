@@ -592,20 +592,22 @@ assert_legacy_dotnet_install_restored() {
     assert_legacy_dotnet_install_restored
 }
 
+# The sudo mv -T that moves the legacy folder aside, as opposed to the ones
+# that rename the switch link or put the legacy folder back, which
+# DOTNET_TEST_SWITCH_OR_RESTORE matches.
+DOTNET_TEST_LEGACY_MOVE="^mv -T .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
+DOTNET_TEST_SWITCH_OR_RESTORE='^mv -T [^ ]*/(dotnet\.tmp-link|dotnet-legacy-[^ ]*) '
+
 @test "install-latest-dotnet names the moved-aside install when it cannot put it back" {
     seed_legacy_dotnet_install
     legacy_install="${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}"
 
     # Fails both the switch rename and the move back.
-    run_install_latest_dotnet FAKE_SUDO_FAIL='^mv -T '
+    run_install_latest_dotnet FAKE_SUDO_FAIL="${DOTNET_TEST_SWITCH_OR_RESTORE}"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Could not move ${legacy_install} back to ${DOTNET_TEST_INSTALL_ROOT}/dotnet"* ]]
     [ "$(cat "${legacy_install}/marker")" = legacy ]
 }
-
-# The sudo mv that moves the legacy folder aside, as opposed to the mv -T
-# that renames the switch link or puts the legacy folder back.
-DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
 
 @test "install-latest-dotnet puts a moved-aside install back when signalled just after moving it" {
     seed_legacy_dotnet_install
@@ -623,8 +625,33 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Could not move ${DOTNET_TEST_INSTALL_ROOT}/dotnet aside"* ]]
     [[ "${output}" != *"back to"* ]]
-    refute_fake_called '^sudo mv -T '
+    refute_fake_called "^sudo ${DOTNET_TEST_SWITCH_OR_RESTORE#^}"
     assert_legacy_dotnet_install_restored
+}
+
+@test "install-latest-dotnet moves the legacy folder aside with mv -T" {
+    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
+    grep -qF 'sudo mv -T "$DOTNET_INSTALL_DIR" "$LEGACY_INSTALL_DIR"' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet leaves both folders alone when the moved-aside name is already taken" {
+    seed_legacy_dotnet_install
+    taken="${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}"
+    mkdir -p "${taken}"
+    echo other > "${taken}/marker"
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${taken} already exists"* ]]
+    [[ "${output}" != *"back to"* ]]
+    refute_fake_called '^sudo mv '
+    [ -d "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
+    [ ! -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
+    [ "$(cat "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker")" = legacy ]
+    [ "$(cat "${taken}/marker")" = other ]
+    [ ! -e "${taken}/dotnet" ]
+    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet dotnet-install.lock "dotnet-legacy-${DOTNET_TEST_STAMP}")" ]
+    work_root_has_no_work_dir
 }
 
 @test "install-latest-dotnet removes the new install folder when signalled just after making it" {
