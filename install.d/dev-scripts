@@ -85,25 +85,23 @@ copy_dev_scripts() {
     TARGET_DIR="$1"
     COPY_ROOTS=$(list_copied_roots)
 
+    # Folders before the files in them: find lists a folder before its contents.
     # shellcheck disable=SC2086 # COPY_ROOTS is a list of repo-relative paths with no spaces.
-    COPY_DIRS=$(cd "$BASEDIR" && find $COPY_ROOTS -type d) || die "Failed to list the folders to copy from $BASEDIR"
-    # shellcheck disable=SC2086 # As above.
-    COPY_FILES=$(cd "$BASEDIR" && find $COPY_ROOTS -type f) || die "Failed to list the files to copy from $BASEDIR"
+    COPY_ENTRIES=$(cd "$BASEDIR" && find $COPY_ROOTS \( -type d -o -type f \)) || die "Failed to list the files to copy from $BASEDIR"
 
-    while IFS= read -r REL_DIR; do
-        dev_scripts_lib_sudo install -d -m 755 "$TARGET_DIR/$REL_DIR" || die "Failed to create $TARGET_DIR/$REL_DIR"
-    done <<EOF
-$COPY_DIRS
-EOF
+    while IFS= read -r REL_PATH; do
+        if [ -d "$BASEDIR/$REL_PATH" ]; then
+            dev_scripts_lib_sudo install -d -m 755 "$TARGET_DIR/$REL_PATH" || die "Failed to create $TARGET_DIR/$REL_PATH"
+            continue
+        fi
 
-    while IFS= read -r REL_FILE; do
         MODE=644
-        if [ -x "$BASEDIR/$REL_FILE" ]; then
+        if [ -x "$BASEDIR/$REL_PATH" ]; then
             MODE=755
         fi
-        dev_scripts_lib_sudo install -m "$MODE" "$BASEDIR/$REL_FILE" "$TARGET_DIR/$REL_FILE" || die "Failed to copy $REL_FILE to $TARGET_DIR"
+        dev_scripts_lib_sudo install -m "$MODE" "$BASEDIR/$REL_PATH" "$TARGET_DIR/$REL_PATH" || die "Failed to copy $REL_PATH to $TARGET_DIR"
     done <<EOF
-$COPY_FILES
+$COPY_ENTRIES
 EOF
 
     # Always sudo: only root can give files to root, even in a writable directory.

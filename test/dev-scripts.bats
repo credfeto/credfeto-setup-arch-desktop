@@ -429,19 +429,9 @@ exec "${_real_find}" "\$@"
 EOF
 }
 
-@test "dev-scripts fails when the folders to copy cannot be listed" {
-    add_fake_dev_script
-    fail_find_for '-type d'
-
-    run_dev_scripts_against_fake_repo
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Failed to list the folders to copy from ${FAKE_SCRIPTS_REPO}"* ]]
-    [[ "${output}" != *"Dev scripts installed"* ]]
-}
-
 @test "dev-scripts fails when the files to copy cannot be listed" {
     add_fake_dev_script
-    fail_find_for '-type f'
+    fail_find_for '-type d'
 
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 1 ]
