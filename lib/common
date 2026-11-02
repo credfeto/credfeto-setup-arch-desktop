@@ -12,8 +12,19 @@ _emit() {
     fi
 }
 
+# A function can name a command in DIE_CLEANUP for die to run before it
+# exits, to undo a half-made change, and clear it once the change is
+# complete. Set here so nothing in the environment can name one. Cleared
+# before it runs, so a clean-up that dies does not run itself again.
+DIE_CLEANUP=""
+
 die() {
     _emit '✗' 31 2 "$@"
+    if [ -n "$DIE_CLEANUP" ]; then
+        DIE_CLEANING_UP="$DIE_CLEANUP"
+        DIE_CLEANUP=""
+        "$DIE_CLEANING_UP"
+    fi
     exit 1
 }
 
@@ -305,6 +316,14 @@ lock_dev_publish_dir() {
     wait_for_run_lock 8 "${DEV_PUBLISH_LOCK_FILE}" "another publish"
 }
 
+# Removes the snapshot publish_reference_repo made but never switched to, so
+# a failed publish leaves no half-filled snapshot behind. Always sudo, as the
+# snapshot may already belong to root. Run from die, so it warns rather than
+# dies.
+remove_unswitched_snapshot() {
+    sudo rm -rf "${UNSWITCHED_SNAPSHOT}" || warn "Failed to remove the unfinished snapshot ${UNSWITCHED_SNAPSHOT}"
+}
+
 # Publishes the committed HEAD of a reference clone as a new root-owned
 # snapshot and switches ${DEV_PUBLISH_DIR}/<repo> to it. git archive takes
 # HEAD only, so untracked or ignored files in the clone are never published.
@@ -324,6 +343,18 @@ publish_reference_repo() {
     # still gets a publish directory every account can read.
     dev_publish_sudo chmod 755 "${DEV_PUBLISH_DIR}" || die "Failed to set permissions on ${DEV_PUBLISH_DIR}"
     lock_dev_publish_dir
+
+    # Refused before the clean-up is armed, so it never removes a snapshot
+    # this run did not make: the clock stepping back can name one an earlier
+    # run kept.
+    if [ -e "${PUBLISH_SNAPSHOT}" ] || [ -L "${PUBLISH_SNAPSHOT}" ]; then
+        die "${PUBLISH_SNAPSHOT} already exists; move it aside, then re-run"
+    fi
+
+    # Armed before the mkdir and disarmed once the link is switched, so any
+    # step between them that dies removes the half-made snapshot first.
+    UNSWITCHED_SNAPSHOT="${PUBLISH_SNAPSHOT}"
+    DIE_CLEANUP=remove_unswitched_snapshot
     dev_publish_sudo mkdir "${PUBLISH_SNAPSHOT}" || die "Failed to create ${PUBLISH_SNAPSHOT}"
 
     PUBLISH_ARCHIVE="$(mktemp)" || die "Failed to create a temporary file for ${PUBLISH_REPO}"
@@ -342,6 +373,7 @@ publish_reference_repo() {
     sudo chown -R root:root "${PUBLISH_SNAPSHOT}" || die "Failed to make ${PUBLISH_SNAPSHOT} owned by root"
 
     switch_versioned_link dev_publish_sudo "${PUBLISH_LINK}" "${PUBLISH_NAME}"
+    DIE_CLEANUP=""
     prune_versioned_folders "${PUBLISH_LINK}" snapshot "${PUBLISH_NAME}" "${SWITCHED_FROM}"
 
     # Closing the descriptor releases the lock.

@@ -249,8 +249,9 @@ run_clone_reference_repo() {
 #   every existing directory reads as a clone, or its parent when <path>'s
 #   basename is FAKE_GIT_NOT_TOPLEVEL, as for a plain directory inside an
 #   enclosing repo;
-# - `git -C <path> archive --format=tar -o <file> HEAD` writes a tar of
-#   everything in <path> to <file>.
+# - `git -C <path> archive --format=tar -o <file> HEAD` exits with
+#   FAKE_EXIT_git_archive when that is set and non-zero, and otherwise
+#   writes a tar of everything in <path> to <file>.
 setup_fake_git() {
     FAKE_CLONE_SOURCE="${BATS_TEST_TMPDIR}/clone-source"
     mkdir -p "${FAKE_CLONE_SOURCE}"
@@ -275,7 +276,10 @@ if [ "\$1" = "-C" ]; then
             ;;
         switch) exit "\${FAKE_EXIT_git_switch:-0}" ;;
         pull) exit "\${FAKE_EXIT_git_pull:-0}" ;;
-        archive) tar -C "\$2" -cf "\$6" . ;;
+        archive)
+            [ "\${FAKE_EXIT_git_archive:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git_archive}"
+            tar -C "\$2" -cf "\$6" .
+            ;;
         rev-parse)
             if [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
                 dirname "\$(readlink -f "\$2")"
@@ -735,6 +739,8 @@ EOF
     [ ! -e "${DEV_PUBLISH_DIR}/credfeto-setup-arch-desktop" ]
     [ -x "${DEV_PUBLISH_DIR}/claude/install" ]
     [ ! -e "${DEV_PUBLISH_DIR}/.claude.tmp" ]
+    # Each snapshot it switched to is kept, not cleaned up as unfinished.
+    refute_fake_called '^sudo rm -rf '
 }
 
 @test "dev-update publishes snapshots with directories readable by all but writable only by their owner" {
@@ -800,6 +806,17 @@ EOF
     [[ "${output}" == *"Failed to remove the old snapshot ${_old}"* ]]
     refute_fake_called '^claude/install'
     refute_fake_called '^systemctl --user start '
+
+    # The clean-up of an unfinished snapshot is disarmed once the link is
+    # switched, so the die in the prune leaves the new, live snapshot alone:
+    # the only removal is the failed one of the old snapshot.
+    local _live
+    _live="$(readlink "${DEV_PUBLISH_DIR}/claude")"
+    [ "${_live}" != "${_old##*/}" ]
+    [ "$(grep -c '^sudo rm -rf ' "${FAKE_BIN_LOG}")" -eq 1 ]
+    assert_fake_called "^sudo rm -rf ${_old}\$"
+    refute_fake_called "^sudo rm -rf ${DEV_PUBLISH_DIR}/${_live}\$"
+    [[ "${output}" != *"unfinished snapshot"* ]]
 }
 
 @test "dev-update dies if publishing a reference repo fails, and runs nothing after it" {
@@ -807,6 +824,7 @@ EOF
     run env FAKE_SUDO_FAIL='^chown -R root:root .*/claude-' "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"owned by root"* ]]
+    assert_unswitched_snapshot_removed claude
     refute_fake_called '^claude/install'
     refute_fake_called '^update-dotnet-tools'
     refute_fake_called '^systemctl --user start '
@@ -820,6 +838,13 @@ teardown() {
 # The lock publish_reference_repo takes in DEV_PUBLISH_DIR.
 publish_lock_file() {
     printf '%s/.publish.lock' "${DEV_PUBLISH_DIR}"
+}
+
+# Asserts the run removed, through sudo, the snapshot of the given repo it
+# made but never switched to; the fake sudo logs it without running it.
+# Usage: assert_unswitched_snapshot_removed <repo>
+assert_unswitched_snapshot_removed() {
+    assert_fake_called "^sudo rm -rf ${DEV_PUBLISH_DIR}/$1-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
 }
 
 # Asserts the run died before publishing or installing anything.
@@ -917,6 +942,7 @@ lock_down_publish_dir_with_lock() {
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to create a link to ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
     refute_fake_called '^sudo mv -T '
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
     refute_any_publish
 }
 
@@ -928,8 +954,72 @@ lock_down_publish_dir_with_lock() {
     run env FAKE_SUDO_FAIL='^mv -T ' "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to switch ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit to ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
-    refute_fake_called '^sudo rm -rf '
+    # Only the unswitched snapshot is removed: no prune runs after a failed switch.
+    [ "$(grep -c '^sudo rm -rf ' "${FAKE_BIN_LOG}")" -eq 1 ]
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
     refute_any_publish
+}
+
+@test "dev-update removes the snapshot it was making when archiving the clone fails, and runs nothing after it" {
+    setup_dev_update_fixture
+
+    run env FAKE_EXIT_git_archive=1 "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to archive ${HOME}/work/reference/credfeto-global-pre-commit"* ]]
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
+    [ ! -e "${DEV_PUBLISH_DIR}/credfeto-global-pre-commit" ]
+    refute_fake_called '^credfeto-global-pre-commit/install'
+    refute_fake_called '^systemctl --user start '
+}
+
+@test "dev-update removes the snapshot it was making when extracting the archive fails, and runs nothing after it" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir_with_lock
+
+    run env FAKE_SUDO_FAIL='^tar -x ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to extract credfeto-global-pre-commit into ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
+    refute_any_publish
+}
+
+@test "dev-update removes the snapshot it was making when setting its permissions fails, and runs nothing after it" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir_with_lock
+
+    run env FAKE_SUDO_FAIL='^chmod -R u=rwX,go=rX ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to set permissions on ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    assert_unswitched_snapshot_removed credfeto-global-pre-commit
+    refute_any_publish
+}
+
+@test "dev-update warns, still failing, when removing an unfinished snapshot fails" {
+    setup_dev_update_fixture
+
+    run env FAKE_EXIT_git_archive=1 FAKE_SUDO_FAIL='^rm -rf ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to archive ${HOME}/work/reference/credfeto-global-pre-commit"* ]]
+    [[ "${output}" == *"Failed to remove the unfinished snapshot ${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-"* ]]
+    refute_fake_called '^systemctl --user start '
+}
+
+@test "dev-update refuses a snapshot name that already exists, leaving that folder alone" {
+    setup_dev_update_fixture
+    local _taken="${DEV_PUBLISH_DIR}/credfeto-global-pre-commit-20000101T000000.000000000Z"
+    mkdir -p "${_taken}"
+    : > "${_taken}/kept"
+    setup_fake_bin date
+    seed_fake_output date <<< "20000101T000000.000000000Z"
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_taken} already exists; move it aside, then re-run"* ]]
+    [ -f "${_taken}/kept" ]
+    refute_fake_called '^sudo rm -rf '
+    refute_fake_called '^credfeto-global-pre-commit/install'
 }
 
 @test "dev-update fails, naming the lock, when the publish lock cannot be opened" {
