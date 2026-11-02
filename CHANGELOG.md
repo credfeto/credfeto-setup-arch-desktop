@@ -71,6 +71,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - buildtest restores the .NET code-analysis ruleset when the override tool fails part-way through or a signal (Ctrl-C, TERM or HUP) stops the run, instead of leaving the ruleset changed
 - install-latest-dotnet keeps its temporary files under /var/tmp and removes them when the run ends, including when it fails or a signal (Ctrl-C, TERM or HUP) stops it, checks free disk space before downloading (filesystems are told apart by UUID so btrfs subvolumes count as one, falling back to device id), and takes one system-wide run lock beside the install, opened read-only, so a lock owned by root or another account never blocks a run and XDG_RUNTIME_DIR is no longer needed
 - benchmark-test-affected and fetch remove their temporary files when a signal (Ctrl-C, TERM or HUP) stops them, instead of leaving them behind
+- TBD - to be finalized after review
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
