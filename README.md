@@ -15,7 +15,7 @@ dev-install
 
 ## Installation
 
-Run `install` from a checkout of this repository, as your normal user in a logged-in session (desktop, console or SSH login), not through `sudo` or `su`. It calls `sudo` itself where it needs to, and it needs your systemd user manager to enable the `ssh-agent` user service. It checks both before changing anything: run as root, or where `systemctl --user` cannot reach the user manager, it stops at once with a message saying which. It then runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which symlinks every script under `settings/scripts/` into `/usr/local/bin`.
+Run `install` from a checkout of this repository, as your normal user in a logged-in session (desktop, console or SSH login), not through `sudo` or `su`. It calls `sudo` itself where it needs to, and it needs your systemd user manager to enable the `ssh-agent` user service. It checks both before changing anything: run as root, or where `systemctl --user` cannot reach the user manager, it stops at once with a message saying which. It then runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which copies `lib/` and `settings/scripts/` into a root-owned, world-readable folder, `/usr/local/lib/credfeto-setup-arch-desktop`, and symlinks every script in that copy into `/usr/local/bin`, so every account can run them without reading your home folder. Editing a script in the checkout does not change the installed copy until `install` (or `install.d/dev-scripts`) is run again. Each run makes a new copy and switches to it in one step, keeping the previous copy and deleting older ones.
 
 Then run `dev-install` once, outside a Claude Code session, with the network up and `dotnet` on `PATH`, under the same user and session rules as `install`, which it checks before cloning anything. It:
 
@@ -33,7 +33,7 @@ Any other failure stops `dev-install`.
 
 ### Reference clones
 
-The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. The `/usr/local/bin` symlinks resolve into the reference clones, and the systemd units run `dev-update` and `network-online` straight from the `credfeto-setup-arch-desktop` reference clone, so the timer never runs code that is mid-change in a working checkout. The symlinks remain for running the scripts by hand.
+The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. `dev-update` reinstalls the `/usr/local/bin` scripts from the reference clone, and the systemd units run `dev-update` and `network-online` straight from the `credfeto-setup-arch-desktop` reference clone, so the timer never runs code that is mid-change in a working checkout. The symlinks remain for running the scripts by hand.
 
 Both `dev-install` and `dev-update` switch each reference clone to `main` and fast-forward it with `git pull --ff-only`. A clone with uncommitted changes, one that cannot be switched to `main`, or one whose `main` has diverged from its upstream stops the run with an error naming the clone. A directory under `~/work/reference/` that is not itself a git clone also stops the run with an error naming it, because git would otherwise act on whichever repository encloses it. Neither script ever forces, resets or stashes a clone, so fix the clone by hand and re-run.
 

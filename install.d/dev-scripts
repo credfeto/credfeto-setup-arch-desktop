@@ -7,25 +7,42 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 . "$BASEDIR/lib/common"
 
 # Overridable so this script is testable without real root/sudo (tests point
-# it at a temp dir they already own); defaults to the real system location.
+# them at temp dirs they already own); default to the real system locations.
 DEV_SCRIPTS_BIN_DIR="${DEV_SCRIPTS_BIN_DIR:-/usr/local/bin}"
+DEV_SCRIPTS_LIB_DIR="${DEV_SCRIPTS_LIB_DIR:-/usr/local/lib/credfeto-setup-arch-desktop}"
 DEV_SCRIPTS_SOURCE_DIRS="db development general git linux"
 
-# Uses sudo only when the target directory isn't already writable by the
-# invoking user - keeps this runnable without real root under test, while
-# still using sudo for the real /usr/local/bin case.
-dev_scripts_sudo() {
-    if [ -w "$DEV_SCRIPTS_BIN_DIR" ] || { [ ! -e "$DEV_SCRIPTS_BIN_DIR" ] && [ -w "$(dirname "$DEV_SCRIPTS_BIN_DIR")" ]; }; then
+# The installed scripts are read by every account, so nothing created here
+# may take a mode from the caller's umask.
+umask 022
+
+# Runs the command directly when the given directory is already writable by
+# the invoking user (or can be created by them), otherwise through sudo -
+# keeps this runnable without real root under test, while still using sudo
+# for the real system locations.
+# Usage: dev_scripts_sudo_in <dir> <command> [<arg> ...]
+dev_scripts_sudo_in() {
+    SUDO_DIR="$1"
+    shift
+    if [ -w "$SUDO_DIR" ] || { [ ! -e "$SUDO_DIR" ] && [ -w "$(dirname "$SUDO_DIR")" ]; }; then
         "$@"
     else
         sudo "$@"
     fi
 }
 
-# Prints the canonical path of every executable regular file across all
-# source directories, one per line. Called once; both check_no_collisions
-# and install_dev_scripts below iterate the captured result instead of
-# each re-walking settings/scripts/ themselves.
+dev_scripts_sudo() {
+    dev_scripts_sudo_in "$DEV_SCRIPTS_BIN_DIR" "$@"
+}
+
+dev_scripts_lib_sudo() {
+    dev_scripts_sudo_in "$(dirname "$DEV_SCRIPTS_LIB_DIR")" "$@"
+}
+
+# Prints, relative to settings/scripts/, the path of every executable regular
+# file across all source directories, one per line. Called once; both
+# check_no_collisions and link_dev_scripts below iterate the captured result
+# instead of each re-walking settings/scripts/ themselves.
 list_dev_scripts() {
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
         SRC_DIR="$BASEDIR/settings/scripts/$DIR"
@@ -35,7 +52,7 @@ list_dev_scripts() {
             [ -f "$SCRIPT" ] || continue
             [ -x "$SCRIPT" ] || continue
 
-            readlink -f "$SCRIPT"
+            printf '%s/%s\n' "$DIR" "$(basename "$SCRIPT")"
         done
     done
 }
@@ -47,15 +64,104 @@ check_no_collisions() {
     fi
 }
 
-# Succeeds when the given symlink points into a settings/scripts/ tree of
-# this repo: this checkout's, or any other checkout of it. The links can
-# point into either the working checkout or the reference clone, whichever
-# ran dev-scripts last, so a run from one has to recognise the other's. The
-# stored target is matched as well as the resolved one, because readlink -f
-# gives nothing once the other checkout's directory is gone.
+# Prints, relative to BASEDIR, lib/ and every source directory that exists:
+# the parts of the repo the installed scripts load at run time.
+list_copied_roots() {
+    printf '%s\n' lib
+    for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
+        if [ -d "$BASEDIR/settings/scripts/$DIR" ]; then
+            printf '%s\n' "settings/scripts/$DIR"
+        fi
+    done
+}
+
+# Copies lib/ and the source directories into a new folder, keeping their
+# paths relative to BASEDIR, as the scripts find lib/common and their sibling
+# files relative to their own real path. Every file is copied, not just the
+# linked ones, with its mode stated explicitly: 755 when executable in the
+# checkout, 644 otherwise.
+# Usage: copy_dev_scripts <target-dir>
+copy_dev_scripts() {
+    TARGET_DIR="$1"
+    COPY_ROOTS=$(list_copied_roots)
+
+    # shellcheck disable=SC2086 # COPY_ROOTS is a list of repo-relative paths with no spaces.
+    COPY_DIRS=$(cd "$BASEDIR" && find $COPY_ROOTS -type d) || die "Failed to list the folders to copy from $BASEDIR"
+    # shellcheck disable=SC2086 # As above.
+    COPY_FILES=$(cd "$BASEDIR" && find $COPY_ROOTS -type f) || die "Failed to list the files to copy from $BASEDIR"
+
+    while IFS= read -r REL_DIR; do
+        dev_scripts_lib_sudo install -d -m 755 "$TARGET_DIR/$REL_DIR" || die "Failed to create $TARGET_DIR/$REL_DIR"
+    done <<EOF
+$COPY_DIRS
+EOF
+
+    while IFS= read -r REL_FILE; do
+        MODE=644
+        if [ -x "$BASEDIR/$REL_FILE" ]; then
+            MODE=755
+        fi
+        dev_scripts_lib_sudo install -m "$MODE" "$BASEDIR/$REL_FILE" "$TARGET_DIR/$REL_FILE" || die "Failed to copy $REL_FILE to $TARGET_DIR"
+    done <<EOF
+$COPY_FILES
+EOF
+
+    # Always sudo: only root can give files to root, even in a writable directory.
+    sudo chown -R root:root "$TARGET_DIR" || die "Failed to make $TARGET_DIR owned by root"
+}
+
+# Builds a fresh copy in a new versioned folder beside DEV_SCRIPTS_LIB_DIR,
+# then switches DEV_SCRIPTS_LIB_DIR (a symlink) to it. The links in
+# DEV_SCRIPTS_BIN_DIR go through the stable DEV_SCRIPTS_LIB_DIR path, so they
+# never need re-pointing, and a script already running from the previous
+# copy keeps working. Leaves the new and previous copies' names in COPY_NAME
+# and PREVIOUS_NAME for the caller to keep.
+install_dev_scripts_copy() {
+    LIB_PARENT="$(dirname "$DEV_SCRIPTS_LIB_DIR")"
+    LIB_NAME="$(basename "$DEV_SCRIPTS_LIB_DIR")"
+    # Nanoseconds so two installs within the same second never collide.
+    COPY_NAME="$LIB_NAME-$(date -u +%Y%m%dT%H%M%S.%NZ)" || die "Failed to name a new copy of the dev scripts"
+    COPY_DIR="$LIB_PARENT/$COPY_NAME"
+
+    info "Copying dev scripts to $COPY_DIR"
+    dev_scripts_lib_sudo mkdir -p "$LIB_PARENT" || die "Failed to create $LIB_PARENT"
+    dev_scripts_lib_sudo mkdir -m 755 "$COPY_DIR" || die "Failed to create $COPY_DIR"
+    copy_dev_scripts "$COPY_DIR"
+
+    PREVIOUS_NAME="$(readlink "$DEV_SCRIPTS_LIB_DIR" 2>/dev/null)" || PREVIOUS_NAME=""
+    # A new link renamed over the old one, so the path is never missing or
+    # half-switched for a script being run through it.
+    dev_scripts_lib_sudo ln -sfn "$COPY_NAME" "$LIB_PARENT/.$LIB_NAME.tmp" || die "Failed to create a link to $COPY_DIR"
+    dev_scripts_lib_sudo mv -T "$LIB_PARENT/.$LIB_NAME.tmp" "$DEV_SCRIPTS_LIB_DIR" || die "Failed to switch $DEV_SCRIPTS_LIB_DIR to $COPY_DIR"
+}
+
+# Deletes every copy but the two named ones; also clears any partial copy a
+# failed run left behind. Only called once the current copy exists, so the
+# glob always matches at least that and never comes through unexpanded.
+# Usage: remove_old_copies <current-copy-name> <previous-copy-name>
+remove_old_copies() {
+    KEEP_CURRENT="$1"
+    KEEP_PREVIOUS="$2"
+    for OLD_COPY in "$DEV_SCRIPTS_LIB_DIR"-[0-9]*Z; do
+        case "$(basename "$OLD_COPY")" in
+            "$KEEP_CURRENT" | "$KEEP_PREVIOUS") continue ;;
+        esac
+
+        info "Removing old copy $OLD_COPY"
+        dev_scripts_lib_sudo rm -rf "$OLD_COPY" || die "Failed to remove the old copy $OLD_COPY"
+    done
+}
+
+# Succeeds when the given symlink points into the installed copy or into a
+# settings/scripts/ tree of this repo: this checkout's, or any other checkout
+# of it. Links into a checkout were made by earlier versions of this script,
+# from either the working checkout or the reference clone, so they are still
+# recognised to be replaced or pruned. The stored target is matched as well
+# as the resolved one, because readlink -f gives nothing once the other
+# checkout's directory is gone.
 is_dev_script_link() {
     case "$(readlink "$1")" in
-        "$BASEDIR"/settings/scripts/* | */credfeto-setup-arch-desktop/settings/scripts/*) return 0 ;;
+        "$DEV_SCRIPTS_LIB_DIR"/settings/scripts/* | "$BASEDIR"/settings/scripts/* | */credfeto-setup-arch-desktop/settings/scripts/*) return 0 ;;
     esac
     case "$(readlink -f "$1" 2>/dev/null)" in
         "$BASEDIR"/settings/scripts/*) return 0 ;;
@@ -63,10 +169,10 @@ is_dev_script_link() {
     return 1
 }
 
-# Removes any dangling symlink in DEV_SCRIPTS_BIN_DIR that points into a
-# settings/scripts/ tree of this repo (the script was renamed or removed
-# there since a prior install run, or that checkout is gone). Leaves every
-# live symlink, and every symlink/file pointing anywhere else, untouched.
+# Removes any dangling symlink in DEV_SCRIPTS_BIN_DIR that is_dev_script_link
+# recognises (the script was renamed or removed since a prior install run,
+# or that checkout is gone). Leaves every live symlink, and every
+# symlink/file pointing anywhere else, untouched.
 prune_stale_symlinks() {
     [ -d "$DEV_SCRIPTS_BIN_DIR" ] || return 0
 
@@ -80,6 +186,20 @@ prune_stale_symlinks() {
     done
 }
 
+link_dev_scripts() {
+    # Fed from a here-doc rather than a pipe so the loop runs in this shell
+    # and a die inside it stops the whole script instead of just a subshell.
+    while IFS= read -r SCRIPT; do
+        [ -n "$SCRIPT" ] || continue
+
+        NAME=$(basename "$SCRIPT")
+        info "Linking $NAME"
+        dev_scripts_sudo ln -sf "$DEV_SCRIPTS_LIB_DIR/settings/scripts/$SCRIPT" "$DEV_SCRIPTS_BIN_DIR/$NAME" || die "Failed to link $DEV_SCRIPTS_BIN_DIR/$NAME"
+    done <<EOF
+$DEV_SCRIPT_PATHS
+EOF
+}
+
 install_dev_scripts() {
     info "Installing dev scripts into $DEV_SCRIPTS_BIN_DIR"
 
@@ -89,19 +209,15 @@ install_dev_scripts() {
 
     dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
 
+    install_dev_scripts_copy
+
+    # After the switch: a script removed from the checkout is still in the
+    # previous copy, so its link only dangles once the new copy is in place.
     prune_stale_symlinks
 
-    # Fed from a here-doc rather than a pipe so the loop runs in this shell
-    # and a die inside it stops the whole script instead of just a subshell.
-    while IFS= read -r SCRIPT; do
-        [ -n "$SCRIPT" ] || continue
+    link_dev_scripts
 
-        NAME=$(basename "$SCRIPT")
-        info "Linking $NAME"
-        dev_scripts_sudo ln -sf "$SCRIPT" "$DEV_SCRIPTS_BIN_DIR/$NAME" || die "Failed to link $DEV_SCRIPTS_BIN_DIR/$NAME"
-    done <<EOF
-$DEV_SCRIPT_PATHS
-EOF
+    remove_old_copies "$COPY_NAME" "$PREVIOUS_NAME"
 
     success "Dev scripts installed"
 }
