@@ -668,6 +668,26 @@ DOTNET_TEST_SWITCH_OR_RESTORE='^mv -T [^ ]*/(dotnet\.tmp-link|dotnet-legacy-[^ ]
     work_root_has_no_work_dir
 }
 
+@test "install-latest-dotnet leaves an install already at the new install's name alone" {
+    seed_previous_dotnet_install
+    taken="${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}"
+    mkdir -p "${taken}"
+    echo other > "${taken}/marker"
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${taken} already exists"* ]]
+    refute_fake_called '^sudo mkdir '
+    refute_fake_called '^sudo rm '
+    refute_fake_called '^curl .*/dotnet-sdk-'
+    refute_fake_called '^sudo (ln|mv) '
+    assert_previous_dotnet_install_live
+    [ -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_PREVIOUS_INSTALL}/marker" ]
+    [ "$(cat "${taken}/marker")" = other ]
+    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet dotnet-install.lock "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_NEW_INSTALL}" | sort)" ]
+    work_root_has_no_work_dir
+}
+
 @test "install-latest-dotnet removes the new install folder when signalled just after making it" {
     seed_previous_dotnet_install
 

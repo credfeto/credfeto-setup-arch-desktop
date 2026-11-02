@@ -345,6 +345,12 @@ WORK_DIR="$(mktemp -d "$DOTNET_WORK_ROOT/dotnet-install.XXXXXXXX")" || die "Coul
 # signal is only handled once the step's command has finished, so setting it
 # afterwards leaves a window where cleanup does not know the step happened.
 # cleanup tolerates a step that never ran.
+# Refused before the flag is set, so cleanup never removes a folder this run
+# did not make: the clock stepping back, or a re-run within the same second,
+# can name an install kept from an earlier run.
+if [ -e "$NEW_INSTALL_DIR" ] || [ -L "$NEW_INSTALL_DIR" ]; then
+  die "$NEW_INSTALL_DIR already exists; move it aside, then re-run"
+fi
 NEW_INSTALL_CREATED=true
 sudo mkdir "$NEW_INSTALL_DIR" || die "Could not create $NEW_INSTALL_DIR"
 sudo chmod 755 "$NEW_INSTALL_DIR" || die "Could not set permissions for $NEW_INSTALL_DIR"
