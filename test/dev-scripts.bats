@@ -16,6 +16,10 @@ setup() {
     # path is exercised - no real root/sudo needed for these tests.
     export DEV_SCRIPTS_BIN_DIR="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${DEV_SCRIPTS_BIN_DIR}"
+    # Likewise user-writable; only the chown of each copy to root goes through
+    # the fake sudo, which logs it without running it.
+    export DEV_SCRIPTS_LIB_DIR="${BATS_TEST_TMPDIR}/lib/credfeto-setup-arch-desktop"
+    setup_fake_sudo
     # The throwaway repo tree run_dev_scripts_against_fake_repo runs in.
     FAKE_SCRIPTS_REPO="${BATS_TEST_TMPDIR}/fake-scripts-repo"
 }
@@ -26,7 +30,27 @@ setup() {
     [ -L "${DEV_SCRIPTS_BIN_DIR}/dbenv" ]
     [ -L "${DEV_SCRIPTS_BIN_DIR}/login" ]
     [ -L "${DEV_SCRIPTS_BIN_DIR}/buildcheck" ]
-    readlink -f "${DEV_SCRIPTS_BIN_DIR}/dbenv" | grep -qF "settings/scripts/db/dbenv"
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbenv")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbenv" ]
+    [[ "$(readlink -f "${DEV_SCRIPTS_BIN_DIR}/dbenv")" != "${REPO_DIR}/"* ]]
+}
+
+# The versioned copies made beside DEV_SCRIPTS_LIB_DIR, oldest first.
+lib_copies() {
+    find "$(dirname "${DEV_SCRIPTS_LIB_DIR}")" -mindepth 1 -maxdepth 1 -type d -name "$(basename "${DEV_SCRIPTS_LIB_DIR}")-*Z" -printf '%f\n' | sort
+}
+
+@test "dev-scripts copies lib and every script folder into a root-owned versioned folder" {
+    run "${DEV_SCRIPTS}"
+    [ "${status}" -eq 0 ]
+    [ -L "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/lib/common" ]
+    local _dir
+    for _dir in db development general git linux; do
+        [ -d "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/${_dir}" ]
+    done
+    [ -x "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbenv" ]
+    [ "$(lib_copies | wc -l)" -eq 1 ]
+    assert_fake_called "^sudo chown -R root:root ${DEV_SCRIPTS_LIB_DIR}-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
 }
 
 # Copies install.d/dev-scripts and lib/common into a throwaway fake repo
@@ -67,6 +91,99 @@ run_dev_scripts_against_fake_repo() {
     [ "${status}" -eq 0 ]
     [ -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
     [ ! -e "${DEV_SCRIPTS_BIN_DIR}/dbtool-config" ]
+}
+
+# A fixture script that finds lib/common the way the real scripts do, three
+# folders up from its own real path, and fails when it cannot source it.
+# Usage: add_fake_lib_script <name>
+add_fake_lib_script() {
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db"
+    cat > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/$1" <<'EOF'
+#!/bin/sh
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+. "$BASEDIR/lib/common" || exit 1
+success "$(basename "$0") ran"
+EOF
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/$1"
+}
+
+@test "dev-scripts copies every file with an explicit mode, whatever the umask" {
+    add_fake_lib_script dbtool
+    printf 'not a script\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-config"
+    chmod 600 "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-config"
+    chmod 700 "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+
+    umask 027
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(stat -c %a "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool")" = "755" ]
+    [ "$(stat -c %a "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-config")" = "644" ]
+    [ "$(stat -c %a "${DEV_SCRIPTS_LIB_DIR}/lib/common")" = "644" ]
+    [ "$(stat -c %a "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db")" = "755" ]
+    [ "$(stat -c %a "$(readlink -f "${DEV_SCRIPTS_LIB_DIR}")")" = "755" ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/dbtool-config" ]
+}
+
+@test "dev-scripts links still run once the source checkout is unreadable" {
+    [ "$(id -u)" -ne 0 ] || skip "root can read an unreadable directory"
+    add_fake_lib_script dbtool
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    chmod 000 "${FAKE_SCRIPTS_REPO}"
+
+    run "${DEV_SCRIPTS_BIN_DIR}/dbtool"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"dbtool ran"* ]]
+}
+
+@test "dev-scripts replaces a link into the checkout with one into the lib folder" {
+    add_fake_lib_script dbtool
+    ln -s "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool" "${DEV_SCRIPTS_BIN_DIR}/dbtool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
+@test "dev-scripts prunes the link of a script removed since the last install" {
+    add_fake_lib_script dbtool
+    add_fake_lib_script oldtool
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/oldtool" ]
+
+    rm "${FAKE_SCRIPTS_REPO}/settings/scripts/db/oldtool"
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 0 ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/oldtool" ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
+}
+
+@test "dev-scripts switches to a new copy on each run, keeping only the previous one" {
+    add_fake_lib_script dbtool
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 0 ]
+    local _second
+    _second="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
+    [ "${_second}" != "${_first}" ]
+    [ "$(lib_copies)" = "$(printf '%s\n' "${_first}" "${_second}" | sort)" ]
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 0 ]
+    local _third
+    _third="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
+    [ "$(lib_copies)" = "$(printf '%s\n' "${_second}" "${_third}" | sort)" ]
+    [ ! -e "$(dirname "${DEV_SCRIPTS_LIB_DIR}")/.$(basename "${DEV_SCRIPTS_LIB_DIR}").tmp" ]
+
+    run "${DEV_SCRIPTS_BIN_DIR}/dbtool"
+    [ "${status}" -eq 0 ]
 }
 
 @test "dev-scripts prunes a stale symlink left by a renamed/removed script, leaves unrelated symlinks alone" {
@@ -150,8 +267,10 @@ EOF
 }
 
 teardown() {
-    # Restored so bats can clean up a bin dir a test made read-only.
+    # Restored so bats can clean up a bin dir or fake repo a test locked down.
     chmod 755 "${DEV_SCRIPTS_BIN_DIR}" 2>/dev/null || true
+    chmod 755 "${FAKE_SCRIPTS_REPO}" 2>/dev/null || true
+    chmod 755 "$(dirname "${DEV_SCRIPTS_LIB_DIR}")" 2>/dev/null || true
 }
 
 # A single executable fixture script in the fake repo, so the link step has
@@ -195,6 +314,160 @@ add_fake_dev_script() {
     [[ "${output}" == *"Failed to remove stale symlink ${DEV_SCRIPTS_BIN_DIR}/no-longer-here"* ]]
     [[ "${output}" != *"Linking"* ]]
     [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+# Makes the folder holding DEV_SCRIPTS_LIB_DIR read-only, so dev-scripts
+# routes every change it makes there through the fake sudo, which runs
+# nothing and fails the command line matching FAKE_SUDO_FAIL, then runs
+# dev-scripts against the fake repo with one fixture script. The caller
+# asserts on the run in its own @test body: shellcheck treats each body as
+# a subshell, so reading status or output in a helper defined after other
+# tests' runs is flagged (SC2030/SC2031).
+# Usage: run_with_lib_step_failing <grep -E pattern>
+run_with_lib_step_failing() {
+    add_fake_dev_script
+    LIB_PARENT="$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    mkdir -p "${LIB_PARENT}"
+    chmod 555 "${LIB_PARENT}"
+    export FAKE_SUDO_FAIL="$1"
+
+    run_dev_scripts_against_fake_repo
+}
+
+@test "dev-scripts fails, naming the folder, when creating the lib folder's parent fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^mkdir -p '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to create ${LIB_PARENT}"* ]]
+}
+
+@test "dev-scripts fails, naming the folder, when creating the new copy fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^mkdir -m 755 '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+}
+
+@test "dev-scripts fails, naming the folder, when creating a folder in the copy fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^install -d '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to create ${DEV_SCRIPTS_LIB_DIR}-"*"/lib"* ]]
+}
+
+@test "dev-scripts fails, naming the file, when copying a file fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^install -m '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to copy lib/common to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+}
+
+@test "dev-scripts fails, naming the copy, when giving it to root fails" {
+    add_fake_dev_script
+    export FAKE_SUDO_FAIL='^chown '
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to make ${DEV_SCRIPTS_LIB_DIR}-"*" owned by root"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+}
+
+@test "dev-scripts fails, naming the copy, when creating the switch link fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^ln -sfn '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to create a link to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+}
+
+@test "dev-scripts fails, naming the lib folder, when switching it to the new copy fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    run_with_lib_step_failing '^mv -T '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to switch ${DEV_SCRIPTS_LIB_DIR} to ${DEV_SCRIPTS_LIB_DIR}-"* ]]
+}
+
+@test "dev-scripts fails, naming the copy, when removing an old copy fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    local _old="${DEV_SCRIPTS_LIB_DIR}-20000101T000000.000000000Z"
+    mkdir -p "${_old}"
+    run_with_lib_step_failing '^rm -rf '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [[ "${output}" == *"Failed to remove the old copy ${_old}"* ]]
+}
+
+@test "dev-scripts fails when the new copy cannot be named" {
+    add_fake_dev_script
+    setup_fake_bin date
+    export FAKE_EXIT_date=1
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to name a new copy of the dev scripts"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+# Replaces find with one that fails when its arguments contain the given
+# text and runs the real find otherwise.
+# Usage: fail_find_for <text>
+fail_find_for() {
+    local _real_find
+    _real_find="$(command -v find)"
+    replace_fake find <<EOF
+#!/bin/sh
+case "\$*" in
+    *"$1"*) exit 1 ;;
+esac
+exec "${_real_find}" "\$@"
+EOF
+}
+
+@test "dev-scripts fails when the folders to copy cannot be listed" {
+    add_fake_dev_script
+    fail_find_for '-type d'
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to list the folders to copy from ${FAKE_SCRIPTS_REPO}"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts fails when the files to copy cannot be listed" {
+    add_fake_dev_script
+    fail_find_for '-type f'
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to list the files to copy from ${FAKE_SCRIPTS_REPO}"* ]]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+}
+
+@test "dev-scripts prunes a dangling relative symlink that resolves into its own checkout" {
+    add_fake_dev_script
+    ln -s "../$(basename "${FAKE_SCRIPTS_REPO}")/settings/scripts/db/gone" "${DEV_SCRIPTS_BIN_DIR}/gone"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/gone" ]
+}
+
+@test "dev-scripts installs the copy and links nothing when there are no executable scripts" {
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db"
+    printf 'not a script\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/data"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Dev scripts installed"* ]]
+    [[ "${output}" != *"Linking"* ]]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/data" ]
+    [ -z "$(find "${DEV_SCRIPTS_BIN_DIR}" -mindepth 1)" ]
 }
 
 # ── git-environment ──────────────────────────────────────────────────────────
