@@ -792,6 +792,82 @@ EOF
     refute_fake_called '^systemctl --user start '
 }
 
+teardown() {
+    # Restored so bats can clean up a publish directory a test locked down.
+    [ -z "${DEV_PUBLISH_DIR:-}" ] || chmod 755 "${DEV_PUBLISH_DIR}" 2>/dev/null || true
+}
+
+# The lock publish_reference_repo takes in DEV_PUBLISH_DIR.
+publish_lock_file() {
+    printf '%s/.publish.lock' "${DEV_PUBLISH_DIR}"
+}
+
+# Asserts the run died before publishing or installing anything.
+refute_any_publish() {
+    [ -z "$(published_snapshots credfeto-global-pre-commit)" ]
+    [ ! -e "${DEV_PUBLISH_DIR}/credfeto-global-pre-commit" ]
+    refute_fake_called '^credfeto-global-pre-commit/install'
+    refute_fake_called '^systemctl --user start '
+}
+
+# Makes DEV_PUBLISH_DIR read-only, so every change lib/common makes there
+# goes through the fake sudo, which runs nothing; no run lock exists yet
+# unless the caller made one first.
+lock_down_publish_dir() {
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    chmod 555 "${DEV_PUBLISH_DIR}"
+}
+
+@test "dev-update stops, naming the lock and publishing nothing, when another run holds the publish lock" {
+    setup_dev_update_fixture
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    : > "$(publish_lock_file)"
+    exec 7<"$(publish_lock_file)"
+    flock -n 7
+
+    run "${LINUX_DIR}/dev-update"
+    exec 7<&-
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Another publish holds $(publish_lock_file)"* ]]
+    refute_any_publish
+}
+
+@test "dev-update fails, naming the lock, when creating the publish lock fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir
+
+    run env FAKE_SUDO_FAIL='^touch ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create $(publish_lock_file)"* ]]
+    refute_any_publish
+}
+
+@test "dev-update fails, naming the lock, when making the publish lock readable fails" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only directory"
+    setup_dev_update_fixture
+    lock_down_publish_dir
+
+    run env FAKE_SUDO_FAIL='^chmod 0644 ' "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create $(publish_lock_file)"* ]]
+    refute_any_publish
+}
+
+@test "dev-update fails, naming the lock, when the publish lock cannot be opened" {
+    [ "$(id -u)" -ne 0 ] || skip "root can read a file with no permissions"
+    setup_dev_update_fixture
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    : > "$(publish_lock_file)"
+    chmod 000 "$(publish_lock_file)"
+    lock_down_publish_dir
+
+    run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to open $(publish_lock_file)"* ]]
+    refute_any_publish
+}
+
 # ── dev-install ──────────────────────────────────────────────────────────────
 
 # Online under NetworkManager with dotnet present. The cloned
