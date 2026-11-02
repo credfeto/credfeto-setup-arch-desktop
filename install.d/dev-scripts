@@ -270,16 +270,9 @@ install_dev_scripts() {
     # the signals into an exit to get an unfinished copy removed.
     trap 'exit 1' INT TERM HUP
 
-    require_deploy_checkout "$BASEDIR"
-    COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
-    # An empty copy would leave every installed link dangling once switched to.
-    [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"
-    DEV_SCRIPT_PATHS=$(list_dev_scripts)
-
-    check_no_collisions
-
-    dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
-
+    # First, as it can wait for another run: everything below reads the
+    # checkout or changes something only once the lock is held, so a pull or
+    # switch of the checkout during the wait is seen in full.
     lock_dev_scripts_install
 
     # Only ever a link this script switches. Anything else there (a folder
@@ -289,6 +282,16 @@ install_dev_scripts() {
     if [ -e "$DEV_SCRIPTS_LIB_DIR" ] && [ ! -L "$DEV_SCRIPTS_LIB_DIR" ]; then
         die "$DEV_SCRIPTS_LIB_DIR exists but is not a symlink; move it aside, then re-run"
     fi
+
+    require_deploy_checkout "$BASEDIR"
+    COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
+    # An empty copy would leave every installed link dangling once switched to.
+    [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"
+    DEV_SCRIPT_PATHS=$(list_dev_scripts)
+
+    check_no_collisions
+
+    dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
 
     # Under the lock, so no other run is switching the copy being compared.
     if dev_scripts_copy_is_current; then

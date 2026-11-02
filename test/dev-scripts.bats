@@ -729,6 +729,31 @@ run_with_lock_step_failing() {
     [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
 }
 
+@test "dev-scripts lists the checkout only once it holds the lock, so a file tracked during the wait is copied" {
+    add_fake_dev_script
+    prepare_fake_repo
+    mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    : > "$(dev_scripts_lock_file)"
+    hold_lock_in_background "$(dev_scripts_lock_file)" 3
+    # Tracks a new script a second into the wait, as a pull of the checkout
+    # while another run holds the lock would.
+    (
+        sleep 1
+        printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/pulledtool"
+        chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/pulledtool"
+        git -C "${FAKE_SCRIPTS_REPO}" add settings/scripts/db/pulledtool
+    ) > /dev/null 2>&1 3>&- &
+    local _adder=$!
+
+    run env RUN_LOCK_WAIT_SECONDS=30 "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    wait "${_adder}"
+    wait "${LOCK_HOLDER_PID}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Waiting up to 30s for another dev-scripts install to release"* ]]
+    [ -x "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/pulledtool" ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/pulledtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/pulledtool" ]
+}
+
 @test "dev-scripts waits for another run to release the lock, then installs" {
     mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
     : > "$(dev_scripts_lock_file)"
