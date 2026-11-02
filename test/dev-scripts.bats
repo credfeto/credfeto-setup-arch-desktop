@@ -443,6 +443,45 @@ EOF
     [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
 }
 
+@test "dev-scripts dies, changing nothing, when a folder matching the checkout stands at the lib path" {
+    add_fake_dev_script
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
+    # The same files as the copy, but in a plain folder in the link's place.
+    cp -R "${DEV_SCRIPTS_LIB_DIR}/" "${BATS_TEST_TMPDIR}/hand-made"
+    rm "${DEV_SCRIPTS_LIB_DIR}"
+    mv "${BATS_TEST_TMPDIR}/hand-made" "${DEV_SCRIPTS_LIB_DIR}"
+    : > "${FAKE_BIN_LOG}"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${DEV_SCRIPTS_LIB_DIR} exists but is not a symlink; move it aside, then re-run"* ]]
+    [[ "${output}" != *"already matches the checkout"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [ ! -L "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+    [ "$(lib_copies)" = "${_first}" ]
+    refute_fake_called '^sudo '
+}
+
+@test "dev-scripts dies, changing nothing, when a folder that differs from the checkout stands at the lib path" {
+    add_fake_dev_script
+    mkdir -p "${DEV_SCRIPTS_LIB_DIR}"
+    : > "${DEV_SCRIPTS_LIB_DIR}/hand-made"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${DEV_SCRIPTS_LIB_DIR} exists but is not a symlink; move it aside, then re-run"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [ ! -L "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/hand-made" ]
+    [ -z "$(lib_copies)" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+    refute_fake_called '^sudo '
+}
+
 @test "dev-scripts makes a new copy when the lib link dangles" {
     local _first
     _first="$(first_copy_of_fake_repo)"

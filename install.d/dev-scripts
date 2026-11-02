@@ -116,9 +116,10 @@ lock_dev_scripts_install() {
 # long-running script started from within two runs. Compared against the copy
 # itself rather than a recorded manifest, so a copy changed or damaged since
 # it was made is never trusted; its files are world-readable, so no root is
-# needed. A missing copy or a dangling link counts as changed.
+# needed. A missing copy or a dangling link counts as changed, and only a
+# link is ever accepted, never a folder standing at DEV_SCRIPTS_LIB_DIR.
 dev_scripts_copy_is_current() {
-    [ -d "$DEV_SCRIPTS_LIB_DIR" ] || return 1
+    [ -L "$DEV_SCRIPTS_LIB_DIR" ] && [ -d "$DEV_SCRIPTS_LIB_DIR" ] || return 1
 
     # The same set of files: none added, and none that stopped being tracked.
     # find on its own, not in a pipeline, so a folder it cannot read fails the
@@ -255,6 +256,14 @@ install_dev_scripts() {
     dev_scripts_sudo install -d -m 755 "$DEV_SCRIPTS_BIN_DIR" || die "Failed to create $DEV_SCRIPTS_BIN_DIR"
 
     lock_dev_scripts_install
+
+    # Only ever a link this script switches. Anything else there (a folder
+    # made by hand or by an older layout) would never become a root-owned
+    # copy and would fail every switch, so it is left for the user to move
+    # rather than moved or deleted here.
+    if [ -e "$DEV_SCRIPTS_LIB_DIR" ] && [ ! -L "$DEV_SCRIPTS_LIB_DIR" ]; then
+        die "$DEV_SCRIPTS_LIB_DIR exists but is not a symlink; move it aside, then re-run"
+    fi
 
     # Under the lock, so no other run is switching the copy being compared.
     if dev_scripts_copy_is_current; then
