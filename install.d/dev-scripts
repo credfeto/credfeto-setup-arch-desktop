@@ -138,11 +138,41 @@ lock_dev_scripts_install() {
     flock -n 9 || die "Another dev-scripts install holds $DEV_SCRIPTS_LOCK_FILE"
 }
 
+# Succeeds when the copy DEV_SCRIPTS_LIB_DIR points at already holds exactly
+# COPY_FILES, each with the checkout's content and execute bit, so a run with
+# nothing changed keeps it: a new copy every run would prune the copy a
+# long-running script started from within two runs. Compared against the copy
+# itself rather than a recorded manifest, so a copy changed or damaged since
+# it was made is never trusted; its files are world-readable, so no root is
+# needed. A missing copy or a dangling link counts as changed.
+dev_scripts_copy_is_current() {
+    [ -d "$DEV_SCRIPTS_LIB_DIR" ] || return 1
+
+    # The same set of files: none added, and none that stopped being tracked.
+    # find on its own, not in a pipeline, so a folder it cannot read fails the
+    # check instead of passing off a partial list; -H follows the link.
+    CURRENT_FILES=$(find -H "$DEV_SCRIPTS_LIB_DIR" -type f -printf '%P\n') || return 1
+    [ "$(printf '%s\n' "$CURRENT_FILES" | sort)" = "$(printf '%s\n' "$COPY_FILES" | sort)" ] || return 1
+
+    while IFS= read -r REL_PATH; do
+        cmp -s "$BASEDIR/$REL_PATH" "$DEV_SCRIPTS_LIB_DIR/$REL_PATH" || return 1
+        # Copied as 755 or 644 by this bit, so a flip means a different mode.
+        if [ -x "$BASEDIR/$REL_PATH" ]; then
+            [ -x "$DEV_SCRIPTS_LIB_DIR/$REL_PATH" ] || return 1
+        else
+            [ ! -x "$DEV_SCRIPTS_LIB_DIR/$REL_PATH" ] || return 1
+        fi
+    done <<EOF
+$COPY_FILES
+EOF
+}
+
 # Builds a fresh copy in a new versioned folder beside DEV_SCRIPTS_LIB_DIR,
 # then switches DEV_SCRIPTS_LIB_DIR (a symlink) to it. The links in
 # DEV_SCRIPTS_BIN_DIR go through the stable DEV_SCRIPTS_LIB_DIR path, so they
 # never need re-pointing, and a script already running from the previous
-# copy keeps working. Leaves the new and previous copies' names in COPY_NAME
+# copy keeps working until a second change is installed after the one that
+# replaced it; runs with nothing changed make no copy. Leaves the new and previous copies' names in COPY_NAME
 # and PREVIOUS_NAME for the caller to keep.
 install_dev_scripts_copy() {
     LIB_PARENT="$DEV_SCRIPTS_LIB_PARENT"
@@ -244,7 +274,14 @@ install_dev_scripts() {
 
     lock_dev_scripts_install
 
-    install_dev_scripts_copy
+    # Under the lock, so no other run is switching the copy being compared.
+    if dev_scripts_copy_is_current; then
+        info "$DEV_SCRIPTS_LIB_DIR already matches the checkout; keeping it"
+        COPY_SWITCHED=0
+    else
+        install_dev_scripts_copy
+        COPY_SWITCHED=1
+    fi
 
     # After the switch: a script removed from the checkout is still in the
     # previous copy, so its link only dangles once the new copy is in place.
@@ -252,7 +289,9 @@ install_dev_scripts() {
 
     link_dev_scripts
 
-    remove_old_copies "$COPY_NAME" "$PREVIOUS_NAME"
+    if [ "$COPY_SWITCHED" -eq 1 ]; then
+        remove_old_copies "$COPY_NAME" "$PREVIOUS_NAME"
+    fi
 
     success "Dev scripts installed"
 }
