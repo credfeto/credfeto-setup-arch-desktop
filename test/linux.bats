@@ -838,18 +838,33 @@ lock_down_publish_dir() {
     chmod 555 "${DEV_PUBLISH_DIR}"
 }
 
-@test "dev-update stops, naming the lock and publishing nothing, when another run holds the publish lock" {
+@test "dev-update waits for the publish lock, then stops, naming it and publishing nothing, when another run never releases it" {
     setup_dev_update_fixture
     mkdir -p "${DEV_PUBLISH_DIR}"
     : > "$(publish_lock_file)"
     exec 7<"$(publish_lock_file)"
     flock -n 7
 
-    run "${LINUX_DIR}/dev-update"
+    run env RUN_LOCK_WAIT_SECONDS=1 "${LINUX_DIR}/dev-update"
     exec 7<&-
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Another publish holds $(publish_lock_file)"* ]]
+    [[ "${output}" == *"Waiting up to 1s for another publish to release $(publish_lock_file)"* ]]
+    [[ "${output}" == *"Timed out after 1s waiting for another publish to release $(publish_lock_file)"* ]]
     refute_any_publish
+}
+
+@test "dev-update waits for another run to release the publish lock, then publishes" {
+    setup_dev_update_fixture
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    : > "$(publish_lock_file)"
+    hold_lock_in_background "$(publish_lock_file)" 2
+
+    run env RUN_LOCK_WAIT_SECONDS=30 "${LINUX_DIR}/dev-update"
+    wait "${LOCK_HOLDER_PID}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Waiting up to 30s for another publish to release $(publish_lock_file)"* ]]
+    [ -L "${DEV_PUBLISH_DIR}/credfeto-global-pre-commit" ]
+    assert_fake_called '^credfeto-global-pre-commit/install'
 }
 
 @test "dev-update fails, naming the lock, when creating the publish lock fails" {

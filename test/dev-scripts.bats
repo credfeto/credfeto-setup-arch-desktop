@@ -615,19 +615,33 @@ run_with_lock_step_failing() {
     [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
 }
 
-@test "dev-scripts stops, naming the lock and changing nothing, when another run holds the lock" {
+@test "dev-scripts waits for the lock, then stops, naming it and changing nothing, when another run never releases it" {
     mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
     : > "$(dev_scripts_lock_file)"
     exec 8<"$(dev_scripts_lock_file)"
     flock -n 8
 
-    run "${DEV_SCRIPTS}"
+    run env RUN_LOCK_WAIT_SECONDS=1 "${DEV_SCRIPTS}"
     exec 8<&-
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"Another dev-scripts install holds $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" == *"Waiting up to 1s for another dev-scripts install to release $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" == *"Timed out after 1s waiting for another dev-scripts install to release $(dev_scripts_lock_file)"* ]]
     [ -z "$(lib_copies)" ]
     [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
     [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+}
+
+@test "dev-scripts waits for another run to release the lock, then installs" {
+    mkdir -p "$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    : > "$(dev_scripts_lock_file)"
+    hold_lock_in_background "$(dev_scripts_lock_file)" 2
+
+    run env RUN_LOCK_WAIT_SECONDS=30 "${DEV_SCRIPTS}"
+    wait "${LOCK_HOLDER_PID}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Waiting up to 30s for another dev-scripts install to release $(dev_scripts_lock_file)"* ]]
+    [[ "${output}" == *"Dev scripts installed"* ]]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/dbenv" ]
 }
 
 @test "dev-scripts fails, naming the folder, when creating the lib folder's parent fails" {
