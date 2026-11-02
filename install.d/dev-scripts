@@ -10,6 +10,7 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # them at temp dirs they already own); default to the real system locations.
 DEV_SCRIPTS_BIN_DIR="${DEV_SCRIPTS_BIN_DIR:-/usr/local/bin}"
 DEV_SCRIPTS_LIB_DIR="${DEV_SCRIPTS_LIB_DIR:-/usr/local/lib/credfeto-setup-arch-desktop}"
+DEV_SCRIPTS_LIB_PARENT="$(dirname "$DEV_SCRIPTS_LIB_DIR")"
 DEV_SCRIPTS_SOURCE_DIRS="db development general git linux"
 
 # The installed scripts are read by every account, so nothing created here
@@ -36,13 +37,11 @@ dev_scripts_sudo() {
 }
 
 dev_scripts_lib_sudo() {
-    dev_scripts_sudo_in "$(dirname "$DEV_SCRIPTS_LIB_DIR")" "$@"
+    dev_scripts_sudo_in "$DEV_SCRIPTS_LIB_PARENT" "$@"
 }
 
 # Prints, relative to settings/scripts/, the path of every executable regular
-# file across all source directories, one per line. Called once; both
-# check_no_collisions and link_dev_scripts below iterate the captured result
-# instead of each re-walking settings/scripts/ themselves.
+# file across all source directories, one per line.
 list_dev_scripts() {
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
         SRC_DIR="$BASEDIR/settings/scripts/$DIR"
@@ -52,13 +51,13 @@ list_dev_scripts() {
             [ -f "$SCRIPT" ] || continue
             [ -x "$SCRIPT" ] || continue
 
-            printf '%s/%s\n' "$DIR" "$(basename "$SCRIPT")"
+            printf '%s/%s\n' "$DIR" "${SCRIPT##*/}"
         done
     done
 }
 
 check_no_collisions() {
-    DUPLICATES=$(printf '%s\n' "$DEV_SCRIPT_PATHS" | while IFS= read -r SCRIPT; do [ -n "$SCRIPT" ] && basename "$SCRIPT"; done | sort | uniq -d)
+    DUPLICATES=$(printf '%s\n' "$DEV_SCRIPT_PATHS" | while IFS= read -r SCRIPT; do [ -n "$SCRIPT" ] && printf '%s\n' "${SCRIPT##*/}"; done | sort | uniq -d)
     if [ -n "$DUPLICATES" ]; then
         die "Duplicate script name(s) across settings/scripts/: $(printf '%s' "$DUPLICATES" | tr '\n' ' ')"
     fi
@@ -115,7 +114,7 @@ EOF
 # copy keeps working. Leaves the new and previous copies' names in COPY_NAME
 # and PREVIOUS_NAME for the caller to keep.
 install_dev_scripts_copy() {
-    LIB_PARENT="$(dirname "$DEV_SCRIPTS_LIB_DIR")"
+    LIB_PARENT="$DEV_SCRIPTS_LIB_PARENT"
     LIB_NAME="$(basename "$DEV_SCRIPTS_LIB_DIR")"
     # Nanoseconds so two installs within the same second never collide.
     COPY_NAME="$LIB_NAME-$(date -u +%Y%m%dT%H%M%S.%NZ)" || die "Failed to name a new copy of the dev scripts"
@@ -190,7 +189,7 @@ link_dev_scripts() {
     while IFS= read -r SCRIPT; do
         [ -n "$SCRIPT" ] || continue
 
-        NAME=$(basename "$SCRIPT")
+        NAME="${SCRIPT##*/}"
         info "Linking $NAME"
         dev_scripts_sudo ln -sf "$DEV_SCRIPTS_LIB_DIR/settings/scripts/$SCRIPT" "$DEV_SCRIPTS_BIN_DIR/$NAME" || die "Failed to link $DEV_SCRIPTS_BIN_DIR/$NAME"
     done <<EOF
