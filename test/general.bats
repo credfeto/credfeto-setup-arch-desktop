@@ -222,7 +222,8 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 setup_dotnet_install_fakes() {
     DOTNET_TEST_INSTALL_ROOT="${BATS_TEST_TMPDIR}/share"
     DOTNET_TEST_WORK_ROOT="${BATS_TEST_TMPDIR}/vartmp"
-    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}"
+    DOTNET_TEST_RUNTIME_DIR="${BATS_TEST_TMPDIR}/run"
+    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}" "${DOTNET_TEST_RUNTIME_DIR}"
     setup_fake_bin
 
     replace_fake sudo <<'EOF'
@@ -313,13 +314,13 @@ chmod 755 "${out}/dotnet"
 EOF
 }
 
-# Runs install-latest-dotnet against the test's install and work roots, with
-# DOTNET_ROOT set as a login shell would set it. Leading VAR=value arguments
-# are passed on to env.
+# Runs install-latest-dotnet against the test's install, work and runtime
+# folders, with DOTNET_ROOT set as a login shell would set it. Leading
+# VAR=value arguments are passed on to env.
 # Usage: run_install_latest_dotnet [<VAR=value> ...]
 run_install_latest_dotnet() {
     run env DOTNET_INSTALL_ROOT="${DOTNET_TEST_INSTALL_ROOT}" DOTNET_WORK_ROOT="${DOTNET_TEST_WORK_ROOT}" \
-        DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
+        XDG_RUNTIME_DIR="${DOTNET_TEST_RUNTIME_DIR}" DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
 }
 
 # Seeds the previous install folder holding a marker file, and points the live
@@ -666,13 +667,45 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     work_root_has_no_work_dir
 }
 
+@test "install-latest-dotnet keeps its run lock in the caller's runtime folder" {
+    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
+    grep -qxF 'LOCK_FILE="$XDG_RUNTIME_DIR/install-latest-dotnet.lock"' "${INSTALL_LATEST_DOTNET}"
+}
+
+@test "install-latest-dotnet stops without touching anything when XDG_RUNTIME_DIR is not set" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet XDG_RUNTIME_DIR=
+
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"XDG_RUNTIME_DIR is not set"* ]]
+    refute_fake_called '^curl '
+    refute_fake_called '^sudo '
+    assert_previous_dotnet_install_live
+    [ ! -e "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock" ]
+}
+
+@test "install-latest-dotnet runs while another account's lock file sits in the work folder" {
+    [ "$(id -u)" -ne 0 ] || skip "root can open an unreadable file"
+    seed_previous_dotnet_install
+    # Stands in for a lock another account left in the shared /var/tmp, which
+    # this account cannot reopen for writing.
+    touch "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
+    chmod 0 "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
+
+    run_install_latest_dotnet
+
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
+}
+
 @test "install-latest-dotnet stops without touching anything while another run holds the lock" {
     seed_previous_dotnet_install
     # A switch link a running install has just made, which this run must not
     # take for one of its own.
     ln -s "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link"
 
-    exec 8> "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
+    exec 8> "${DOTNET_TEST_RUNTIME_DIR}/install-latest-dotnet.lock"
     flock -n 8
     run_install_latest_dotnet
     exec 8>&-

@@ -272,7 +272,10 @@ DOTNET_INSTALL_DIR="$DOTNET_INSTALL_ROOT/dotnet"
 DOTNET_SWITCH_LINK="$DOTNET_INSTALL_ROOT/dotnet.tmp-link"
 DOTNET="$DOTNET_INSTALL_DIR/dotnet"
 DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"
-LOCK_FILE="$DOTNET_WORK_ROOT/install-latest-dotnet.lock"
+# In the caller's own runtime folder rather than the shared, sticky /var/tmp,
+# where a lock file left by another account (such as a run under sudo) cannot
+# be reopened for writing, so it would block every later run.
+LOCK_FILE="$XDG_RUNTIME_DIR/install-latest-dotnet.lock"
 
 INSTALL_STAMP="$(date -u +%Y%m%dT%H%M%SZ)" || die "Could not read the current time"
 NEW_INSTALL_NAME="dotnet-$INSTALL_STAMP"
@@ -317,6 +320,7 @@ trap 'exit 1' INT TERM HUP
 
 # Non-blocking, so a second run stops at once rather than queueing behind the
 # first and then replacing the install it has just made.
+[ -n "${XDG_RUNTIME_DIR}" ] || die "XDG_RUNTIME_DIR is not set"
 exec 9>"$LOCK_FILE" || die "Could not open $LOCK_FILE"
 flock -n 9 || die "Another install-latest-dotnet run holds $LOCK_FILE"
 
