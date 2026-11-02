@@ -8,10 +8,16 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 harden_ssh() {
     info "Hardening SSH"
-    for SSHD_CONF in "$BASEDIR"/settings/sshd/*.conf; do
+    # Only tracked drop-ins, so an untracked or private file left beside them
+    # never reaches /etc/ssh/sshd_config.d.
+    SSHD_CONFS=$(list_tracked_files "$BASEDIR" ":(glob)settings/sshd/*.conf") || die "Failed to list the sshd drop-ins in $BASEDIR/settings/sshd"
+    [ -n "$SSHD_CONFS" ] || die "No sshd drop-ins found in $BASEDIR/settings/sshd"
+    while IFS= read -r SSHD_CONF; do
         SSHD_TARGET="/etc/ssh/sshd_config.d/${SSHD_CONF##*/}"
-        sudo install -m 0644 "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
-    done
+        sudo install -m 0644 "$BASEDIR/$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
+    done <<EOF
+$SSHD_CONFS
+EOF
 
     info "Installing curl for key server AuthorizedKeysCommand"
     sudo pacman -S --needed --noconfirm curl || die "Failed to install curl"

@@ -52,23 +52,14 @@ require_checkout() {
 }
 
 # Prints, relative to BASEDIR, every tracked file under lib/ and the source
-# directories that is still in the working tree, one per line. The working
-# tree's content is what gets copied, so an uncommitted edit to a tracked
-# file is installed; a tracked file deleted from the working tree is skipped.
-# Without -z: the repo has no file name holding a newline, and quotePath is
-# off so other names print as they are.
+# directories that is still in the working tree, one per line.
 list_copied_files() {
     set -- lib
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
         set -- "$@" "settings/scripts/$DIR"
     done
 
-    TRACKED_FILES=$(git -C "$BASEDIR" -c core.quotePath=false ls-files -- "$@") || return 1
-    printf '%s\n' "$TRACKED_FILES" | while IFS= read -r REL_PATH; do
-        if [ -f "$BASEDIR/$REL_PATH" ]; then
-            printf '%s\n' "$REL_PATH"
-        fi
-    done
+    list_tracked_files "$BASEDIR" "$@"
 }
 
 # Prints, relative to settings/scripts/, every executable file directly in a

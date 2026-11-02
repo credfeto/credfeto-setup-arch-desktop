@@ -73,6 +73,8 @@ expected_deployments() {
 
 # Copies shell-environment, lib/common and both settings directories into a
 # checkout-shaped tree under the test dir, so a test can remove files from it.
+# The tree is a git repo with everything in it tracked, as shell-environment
+# deploys only tracked files; a file a test adds afterwards stays untracked.
 # Prints the tree's root.
 setup_shell_environment_tree() {
     local _root="${BATS_TEST_TMPDIR}/checkout"
@@ -80,7 +82,33 @@ setup_shell_environment_tree() {
     cp "${SHELL_ENVIRONMENT}" "${_root}/install.d/"
     cp "${REPO_DIR}/lib/common" "${_root}/lib/"
     cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    git init --quiet "${_root}"
+    git -C "${_root}" add -A
     printf '%s\n' "${_root}"
+}
+
+@test "shell-environment deploys only tracked files, leaving out an untracked one beside them" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    printf 'export SECRET=1\n' > "${_root}/settings/shell-env/99_untracked.sh"
+    printf 'export SECRET=1\n' > "${_root}/settings/bash.bashrc.d/99_untracked.sh"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/shell-env/[^ ]+\\.sh /etc/profile\\.d/"
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/bash.bashrc.d/[^ ]+\\.sh /etc/bash\\.bashrc\\.d/"
+    refute_fake_called '99_untracked\.sh'
+}
+
+@test "shell-environment fails when the shell config files cannot be listed" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm -rf "${_root}/.git"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to list the shell config files in ${_root}/settings/shell-env"* ]]
+    refute_fake_called '^sudo install -m '
 }
 
 @test "shell-environment fails when settings/shell-env holds no files to deploy" {

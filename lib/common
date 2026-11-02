@@ -147,6 +147,28 @@ DEV_REFERENCE_DIR="${DEV_REFERENCE_DIR:-${DEV_REFERENCE_DEFAULT_DIR}}"
 # shellcheck disable=SC2034
 DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-global-pre-commit credfeto/cs-template credfeto/credfeto-orchestrator dnyw4l3n13/claude credfeto/credfeto-ai-skills"
 
+# Prints, relative to the checkout, every file git tracks there that matches
+# one of the pathspecs and is still a regular file in the working tree, one
+# per line. A step that deploys a folder's files lists them with this rather
+# than a glob, so an untracked, ignored or private file left beside them is
+# never deployed; the working tree's content is what gets deployed, so an
+# uncommitted edit to a tracked file is included. Pass ":(glob)<dir>/*.<ext>"
+# to match only a folder's own files, as * then does not cross a /. Without
+# -z: no deployed file name holds a newline, and quotePath is off so other
+# names print as they are. Fails when git cannot list them, as it does
+# outside a checkout.
+# Usage: list_tracked_files <checkout> <pathspec> [<pathspec> ...]
+list_tracked_files() {
+    TRACKED_CHECKOUT="$1"
+    shift
+    TRACKED_LIST=$(git -C "$TRACKED_CHECKOUT" -c core.quotePath=false ls-files -- "$@") || return 1
+    printf '%s\n' "$TRACKED_LIST" | while IFS= read -r TRACKED_PATH; do
+        if [ -f "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then
+            printf '%s\n' "$TRACKED_PATH"
+        fi
+    done
+}
+
 # Published snapshot layout: ${DEV_PUBLISH_DIR}/<repo> is a symlink to the
 # current <repo>-<UTC timestamp> snapshot, so system-wide installs never point
 # into a reference clone that can be switched or edited. DEV_PUBLISH_DIR is a
