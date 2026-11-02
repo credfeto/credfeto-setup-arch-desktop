@@ -59,16 +59,121 @@ lib_copies() {
 }
 
 # Copies install.d/dev-scripts and lib/common into a throwaway fake repo
-# tree at FAKE_SCRIPTS_REPO, so a test can populate
-# settings/scripts/ with fixtures without touching the real repo tree, then
-# runs the copied dev-scripts against it.
-run_dev_scripts_against_fake_repo() {
+# tree at FAKE_SCRIPTS_REPO, so a test can populate settings/scripts/ with
+# fixtures without touching the real repo tree. dev-scripts copies only what
+# git tracks, so the first call makes the tree a git repo and tracks
+# everything in it then; a file a test adds afterwards stays untracked.
+prepare_fake_repo() {
     mkdir -p "${FAKE_SCRIPTS_REPO}/lib" "${FAKE_SCRIPTS_REPO}/install.d"
     cp "${REPO_DIR}/lib/common" "${FAKE_SCRIPTS_REPO}/lib/common"
     cp "${DEV_SCRIPTS}" "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
     chmod +x "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
 
+    if [ ! -e "${FAKE_SCRIPTS_REPO}/.git" ]; then
+        git init --quiet "${FAKE_SCRIPTS_REPO}"
+        git -C "${FAKE_SCRIPTS_REPO}" add -A
+    fi
+}
+
+# Prepares the fake repo, then runs the copied dev-scripts against it.
+run_dev_scripts_against_fake_repo() {
+    prepare_fake_repo
+
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+}
+
+@test "dev-scripts copies only tracked files, leaving out untracked and ignored ones" {
+    add_fake_dev_script
+    printf 'secret.conf\n' > "${FAKE_SCRIPTS_REPO}/.gitignore"
+    printf 'password\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/secret.conf"
+    prepare_fake_repo
+    printf 'notes\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/notes.txt"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/untracked-tool"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/untracked-tool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/lib/common" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/secret.conf" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/notes.txt" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/untracked-tool" ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/untracked-tool" ]
+}
+
+@test "dev-scripts copies the working-tree content of a tracked file, including an uncommitted edit" {
+    add_fake_dev_script
+    prepare_fake_repo
+    printf '#!/bin/sh\necho edited\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool")" = "$(printf '#!/bin/sh\necho edited')" ]
+}
+
+@test "dev-scripts skips a tracked file deleted from the working tree" {
+    add_fake_dev_script
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/gone-tool"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/gone-tool"
+    prepare_fake_repo
+    rm "${FAKE_SCRIPTS_REPO}/settings/scripts/db/gone-tool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/gone-tool" ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/gone-tool" ]
+}
+
+@test "dev-scripts leaves a file out of the next copy once it is no longer tracked" {
+    add_fake_dev_script
+    printf 'data\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data"
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data" ]
+
+    git -C "${FAKE_SCRIPTS_REPO}" rm --cached --quiet settings/scripts/db/dbtool-data
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -f "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data" ]
+}
+
+@test "dev-scripts copies a tracked executable in a subfolder of a source folder but does not link it" {
+    add_fake_dev_script
+    mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db/helpers"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/helpers/nested-tool"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/helpers/nested-tool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(stat -c '%a' "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/helpers/nested-tool")" = "755" ]
+    [ -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/nested-tool" ]
+}
+
+@test "dev-scripts dies, changing nothing, when no file under lib or the script folders is tracked" {
+    add_fake_dev_script
+    prepare_fake_repo
+    git -C "${FAKE_SCRIPTS_REPO}" rm -r --cached --quiet lib settings
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"No tracked files to copy under ${FAKE_SCRIPTS_REPO}"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+}
+
+@test "dev-scripts dies, changing nothing, when it is not run from a git checkout" {
+    add_fake_dev_script
+    prepare_fake_repo
+    rm -rf "${FAKE_SCRIPTS_REPO}/.git"
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${FAKE_SCRIPTS_REPO} is not a git checkout"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
 }
 
 @test "dev-scripts dies on a basename collision across source directories" {
@@ -489,24 +594,24 @@ run_with_lock_step_failing() {
     [[ "${output}" != *"Dev scripts installed"* ]]
 }
 
-# Replaces find with one that fails when its arguments contain the given
-# text and runs the real find otherwise.
-# Usage: fail_find_for <text>
-fail_find_for() {
-    local _real_find
-    _real_find="$(command -v find)"
-    replace_fake find <<EOF
+# Replaces git with one that fails when its arguments contain the given
+# text and runs the real git otherwise.
+# Usage: fail_git_for <text>
+fail_git_for() {
+    local _real_git
+    _real_git="$(command -v git)"
+    replace_fake git <<EOF
 #!/bin/sh
 case "\$*" in
     *"$1"*) exit 1 ;;
 esac
-exec "${_real_find}" "\$@"
+exec "${_real_git}" "\$@"
 EOF
 }
 
 @test "dev-scripts fails when the files to copy cannot be listed" {
     add_fake_dev_script
-    fail_find_for '-type d'
+    fail_git_for ' ls-files '
 
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 1 ]
