@@ -193,13 +193,12 @@ EOF
 # own, against the fakes setup_dotnet_install_fakes makes. Should the script
 # stop honouring an override, the run fails rather than touching the host:
 # - DOTNET_INSTALL_ROOT: every change to the install root runs under sudo,
-#   and the fake sudo refuses any argument naming the real /usr/share/dotnet*;
+#   and the fake sudo refuses any argument naming the real /usr/share/dotnet*.
+#   The run lock lives there too, so the same override moves it and the same
+#   refusal stops it being created at the real /usr/share/dotnet-install.lock;
 # - DOTNET_WORK_ROOT: every work folder and file comes from mktemp, and the
 #   fake mktemp refuses any template outside the test's work root. The work
-#   folder variable is then left empty, so the clean-up removes nothing;
-# - XDG_RUNTIME_DIR: no fake can stop the shell creating the lock file, so
-#   the "keeps its run lock in the caller's runtime folder" test pins where
-#   the script opens it instead.
+#   folder variable is then left empty, so the clean-up removes nothing.
 
 INSTALL_LATEST_DOTNET="${GENERAL_DIR}/install-latest-dotnet"
 
@@ -230,8 +229,8 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 setup_dotnet_install_fakes() {
     DOTNET_TEST_INSTALL_ROOT="${BATS_TEST_TMPDIR}/share"
     export DOTNET_TEST_WORK_ROOT="${BATS_TEST_TMPDIR}/vartmp"
-    DOTNET_TEST_RUNTIME_DIR="${BATS_TEST_TMPDIR}/run"
-    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}" "${DOTNET_TEST_RUNTIME_DIR}"
+    DOTNET_TEST_LOCK_FILE="${DOTNET_TEST_INSTALL_ROOT}/dotnet-install.lock"
+    mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}"
     setup_fake_bin
 
     replace_fake sudo <<'EOF'
@@ -339,13 +338,12 @@ chmod 755 "${out}/dotnet"
 EOF
 }
 
-# Runs install-latest-dotnet against the test's install, work and runtime
-# folders, with DOTNET_ROOT set as a login shell would set it. Leading
+# Runs install-latest-dotnet against the test's install and work folders, with DOTNET_ROOT set as a login shell would set it. Leading
 # VAR=value arguments are passed on to env.
 # Usage: run_install_latest_dotnet [<VAR=value> ...]
 run_install_latest_dotnet() {
     run env DOTNET_INSTALL_ROOT="${DOTNET_TEST_INSTALL_ROOT}" DOTNET_WORK_ROOT="${DOTNET_TEST_WORK_ROOT}" \
-        XDG_RUNTIME_DIR="${DOTNET_TEST_RUNTIME_DIR}" DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
+        DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
 }
 
 # Seeds the previous install folder holding a marker file, and points the live
@@ -398,9 +396,9 @@ first_line_matching() {
 
 @test "install-latest-dotnet sets the umask before it touches the filesystem" {
     # Presence alone is not enough: a umask set after the install directory is
-    # created no longer governs anything that matters. sudo mkdir is the first
-    # thing the script does to the filesystem, and everything that extracts or
-    # copies happens after it.
+    # created no longer governs anything that matters. Everything that
+    # extracts or copies happens after sudo mkdir; the run lock made before it
+    # has its mode set explicitly.
     umask_line="$(first_line_matching '^umask ')"
     mkdir_line="$(first_line_matching '^sudo mkdir ')"
 
@@ -568,12 +566,13 @@ seed_legacy_dotnet_install() {
 }
 
 # Succeeds when the folder seed_legacy_dotnet_install made is back at the live
-# path, untouched, with nothing of the failed run left beside it.
+# path, untouched, with nothing of the failed run left beside it but the run
+# lock, which is kept for the next run.
 assert_legacy_dotnet_install_restored() {
     [ -d "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
     [ ! -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
     [ "$(cat "${DOTNET_TEST_INSTALL_ROOT}/dotnet/marker")" = legacy ]
-    [ "$(dotnet_install_root_listing)" = dotnet ]
+    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet dotnet-install.lock)" ]
     work_root_has_no_work_dir
 }
 
@@ -658,7 +657,8 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
 
     run_install_latest_dotnet
     [ "${status}" -eq 0 ]
-    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_NEW_INSTALL}" dotnet-unrelated | sort)" ]
+    # The run lock survives the prune as well.
+    [ "$(dotnet_install_root_listing)" = "$(printf '%s\n' dotnet dotnet-install.lock "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_NEW_INSTALL}" dotnet-unrelated | sort)" ]
 }
 
 @test "install-latest-dotnet leaves the previous install live and cleans up when a download fails" {
@@ -708,37 +708,104 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     [ -d "${output}" ]
 }
 
-@test "install-latest-dotnet keeps its run lock in the caller's runtime folder" {
+@test "install-latest-dotnet keeps one run lock for every account beside the install, opened read-only" {
     # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qxF 'LOCK_FILE="$XDG_RUNTIME_DIR/install-latest-dotnet.lock"' "${INSTALL_LATEST_DOTNET}"
+    grep -qxF 'LOCK_FILE="$DOTNET_INSTALL_ROOT/dotnet-install.lock"' "${INSTALL_LATEST_DOTNET}"
+    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
+    grep -qxF 'exec 9<"$LOCK_FILE" || die "Could not open $LOCK_FILE"' "${INSTALL_LATEST_DOTNET}"
+    # Never opened for writing, so a lock file owned by another account
+    # cannot stop a run.
+    run ! grep -E '^[^#]*9>' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet stops without touching anything when XDG_RUNTIME_DIR is not set" {
+@test "install-latest-dotnet creates a world-readable run lock beside the install when there is none" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet
+
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo touch ${DOTNET_TEST_LOCK_FILE}$"
+    assert_fake_called "^sudo chmod 0644 ${DOTNET_TEST_LOCK_FILE}$"
+    [ "$(stat -c '%a' "${DOTNET_TEST_LOCK_FILE}")" = 644 ]
+}
+
+@test "install-latest-dotnet keeps the run lock when a run fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_CURL_FAIL_DOWNLOAD=1
+
+    [ "${status}" -eq 1 ]
+    [ -f "${DOTNET_TEST_LOCK_FILE}" ]
+}
+
+@test "install-latest-dotnet runs when XDG_RUNTIME_DIR is not set" {
     seed_previous_dotnet_install
 
     run_install_latest_dotnet XDG_RUNTIME_DIR=
 
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"XDG_RUNTIME_DIR is not set"* ]]
-    refute_fake_called '^curl '
-    refute_fake_called '^sudo '
-    assert_previous_dotnet_install_live
-    # Neither a lock file nor a work folder made anywhere it could reach.
-    [ -z "$(find "${DOTNET_TEST_WORK_ROOT}" "${DOTNET_TEST_RUNTIME_DIR}" -mindepth 1)" ]
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
 }
 
-@test "install-latest-dotnet runs while another account's lock file sits in the work folder" {
-    [ "$(id -u)" -ne 0 ] || skip "root can open an unreadable file"
+@test "install-latest-dotnet runs while the run lock belongs to another account" {
+    [ "$(id -u)" -ne 0 ] || skip "root can open a read-only file for writing"
     seed_previous_dotnet_install
-    # Stands in for a lock another account left in the shared /var/tmp, which
-    # this account cannot reopen for writing.
-    touch "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
-    chmod 0 "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock"
+    # Stands in for the lock a run under sudo, or from another account, made:
+    # readable by this account but not writable by it.
+    touch "${DOTNET_TEST_LOCK_FILE}"
+    chmod 0444 "${DOTNET_TEST_LOCK_FILE}"
 
     run_install_latest_dotnet
 
     [ "${status}" -eq 0 ]
     [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
+    refute_fake_called "^sudo touch ${DOTNET_TEST_LOCK_FILE}$"
+}
+
+# Succeeds when a run that stopped at the run lock left the install
+# seed_previous_dotnet_install made live, and never downloaded, made an install
+# folder or a work folder, or switched.
+assert_stopped_at_run_lock() {
+    refute_fake_called '^curl '
+    refute_fake_called '^sudo mkdir '
+    refute_fake_called '^sudo mv -T '
+    assert_failed_run_left_previous_install
+}
+
+@test "install-latest-dotnet stops without installing anything when it cannot create the run lock" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_SUDO_FAIL='^touch .*/dotnet-install\.lock$'
+
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not create ${DOTNET_TEST_LOCK_FILE}"* ]]
+    assert_stopped_at_run_lock
+}
+
+@test "install-latest-dotnet stops without installing anything when it cannot open the run lock" {
+    [ "$(id -u)" -ne 0 ] || skip "root can open an unreadable file"
+    seed_previous_dotnet_install
+    touch "${DOTNET_TEST_LOCK_FILE}"
+    chmod 0 "${DOTNET_TEST_LOCK_FILE}"
+    # A chmod that reports success on the lock without changing it, so the
+    # lock is still unreadable when the script opens it.
+    local real_chmod
+    real_chmod="$(PATH="${PATH#"${FAKE_BIN_DIR}:"}" type -P chmod)"
+    write_fake_script "${FAKE_BIN_DIR}/chmod" chmod <<EOF
+#!/bin/sh
+printf 'chmod %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+for arg in "\$@"; do
+    [ "\${arg}" = "${DOTNET_TEST_LOCK_FILE}" ] && exit 0
+done
+exec "${real_chmod}" "\$@"
+EOF
+
+    run_install_latest_dotnet
+
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not open ${DOTNET_TEST_LOCK_FILE}"* ]]
+    assert_fake_called "^sudo chmod 0644 ${DOTNET_TEST_LOCK_FILE}$"
+    assert_stopped_at_run_lock
 }
 
 @test "install-latest-dotnet stops without touching anything while another run holds the lock" {
@@ -747,7 +814,7 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     # take for one of its own.
     ln -s "${DOTNET_TEST_PREVIOUS_INSTALL}" "${DOTNET_TEST_INSTALL_ROOT}/dotnet.tmp-link"
 
-    exec 8> "${DOTNET_TEST_RUNTIME_DIR}/install-latest-dotnet.lock"
+    exec 8> "${DOTNET_TEST_LOCK_FILE}"
     flock -n 8
     run_install_latest_dotnet
     exec 8>&-

@@ -272,10 +272,14 @@ DOTNET_INSTALL_DIR="$DOTNET_INSTALL_ROOT/dotnet"
 DOTNET_SWITCH_LINK="$DOTNET_INSTALL_ROOT/dotnet.tmp-link"
 DOTNET="$DOTNET_INSTALL_DIR/dotnet"
 DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"
-# In the caller's own runtime folder rather than the shared, sticky /var/tmp,
-# where a lock file left by another account (such as a run under sudo) cannot
-# be reopened for writing, so it would block every later run.
-LOCK_FILE="$XDG_RUNTIME_DIR/install-latest-dotnet.lock"
+# One lock for every account, beside the system-wide install it guards, so a
+# run from one account cannot prune a folder another account's run is still
+# building. It is only ever opened for reading, which flock allows, so whoever
+# owns the file never stops anyone else taking the lock. It is never removed:
+# a run that recreated it would lock a different file from a run already
+# holding the old one. The name cannot match the folders prune_old_installs
+# removes.
+LOCK_FILE="$DOTNET_INSTALL_ROOT/dotnet-install.lock"
 
 INSTALL_STAMP="$(date -u +%Y%m%dT%H%M%SZ)" || die "Could not read the current time"
 NEW_INSTALL_NAME="dotnet-$INSTALL_STAMP"
@@ -318,10 +322,14 @@ LEGACY_INSTALL_DIR=""
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP
 
+# touch and chmod keep an existing file's inode, so a run already holding the
+# lock still excludes this one; chmod, rather than the umask, makes the file
+# readable by every account.
+[ -r "$LOCK_FILE" ] || { sudo touch "$LOCK_FILE" && sudo chmod 0644 "$LOCK_FILE"; } || die "Could not create $LOCK_FILE"
+
 # Non-blocking, so a second run stops at once rather than queueing behind the
 # first and then replacing the install it has just made.
-[ -n "${XDG_RUNTIME_DIR}" ] || die "XDG_RUNTIME_DIR is not set"
-exec 9>"$LOCK_FILE" || die "Could not open $LOCK_FILE"
+exec 9<"$LOCK_FILE" || die "Could not open $LOCK_FILE"
 flock -n 9 || die "Another install-latest-dotnet run holds $LOCK_FILE"
 
 require_free_space
@@ -374,7 +382,7 @@ done
 # DOTNET_ROOT is cleared so the new dotnet cannot lean on the live install the
 # caller's shell points it at, and the lock is not passed on, so nothing this
 # starts can keep holding it.
-LISTED_SDKS="$(env -u DOTNET_ROOT "$NEW_INSTALL_DIR/dotnet" --list-sdks 9>&-)" || die "Could not run $NEW_INSTALL_DIR/dotnet - check the installed permissions"
+LISTED_SDKS="$(env -u DOTNET_ROOT "$NEW_INSTALL_DIR/dotnet" --list-sdks 9<&-)" || die "Could not run $NEW_INSTALL_DIR/dotnet - check the installed permissions"
 for SDK_VERSION in $EXPECTED_SDK_VERSIONS; do
   printf '%s\n' "$LISTED_SDKS" | cut -d' ' -f1 | grep -qxF "$SDK_VERSION" || die "$NEW_INSTALL_DIR/dotnet does not list the $SDK_VERSION SDK"
 done
@@ -407,7 +415,7 @@ prune_old_installs "$PREVIOUS_INSTALL_NAME"
 
 # Released before the tool steps, so a dotnet build server they start cannot
 # keep holding it once this run has ended.
-exec 9>&-
+exec 9<&-
 
 info "Install/update powershell"
 
