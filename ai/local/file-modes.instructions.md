@@ -39,7 +39,7 @@ An archive extracted without `cp` needs only an explicit mode after the extracti
 
 A tree small enough to copy file by file needs no archive: `install.d/dev-scripts` copies the files git tracks under `lib/` and the `settings/scripts/` folders (their working-tree content, listed with `list_tracked_files` from `lib/common`) with `install -d -m 755` per folder and `install -m 755` or `install -m 644` per file, by the source's execute bit, under `umask 022`, then hands the copy to root with `sudo chown -R root:root`. A run that finds the current copy already matching the tracked files, content and execute bits keeps it rather than making another.
 
-Both make a new root-owned folder beside a stable link and switch the link to it with the shared `lib/common` helpers (`versioned_folder_name`, `switch_versioned_link`, `prune_versioned_folders`), under a run lock, keeping the current and previous folders and removing older ones with `sudo rm -rf`, since only root can empty a root-owned folder.
+Both make a new root-owned folder beside a stable link and switch the link to it with the shared `lib/common` helpers (`versioned_folder_name`, `switch_versioned_link`, `prune_versioned_folders`), under a run lock, keeping the current and previous folders and removing older ones with `sudo rm -rf`, since only root can empty a root-owned folder. Neither makes a new folder when nothing has changed: `publish_reference_repo` records the git tree each snapshot was made from in a hidden `.published-tree` file at its root and keeps a snapshot whose record matches the clone's committed tree.
 
 ## Verification
 
