@@ -125,16 +125,19 @@ run_dev_scripts_against_fake_repo() {
     [ ! -e "${DEV_SCRIPTS_BIN_DIR}/gone-tool" ]
 }
 
-@test "dev-scripts leaves a file out of the next copy once it is no longer tracked" {
+@test "dev-scripts makes a new copy without a file once it is no longer tracked" {
     add_fake_dev_script
     printf 'data\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data"
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 0 ]
     [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data" ]
+    local _first
+    _first="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
 
     git -C "${FAKE_SCRIPTS_REPO}" rm --cached --quiet settings/scripts/db/dbtool-data
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
     [ -f "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data" ]
     [ ! -e "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data" ]
 }
@@ -273,13 +276,15 @@ EOF
 
 # The fake sudo logs the removal of a copy without running it, so a test
 # asserts on the logged command rather than on the copy being gone.
-@test "dev-scripts switches to a new copy on each run, keeping only the previous one" {
+# Each run edits dbtool first, as a run with nothing changed keeps the copy.
+@test "dev-scripts switches to a new copy on each changed run, keeping only the previous one" {
     add_fake_lib_script dbtool
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 0 ]
     local _first
     _first="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
 
+    printf '# run 2\n' >> "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
     [ "${status}" -eq 0 ]
     local _second
@@ -288,6 +293,7 @@ EOF
     [ "$(lib_copies)" = "$(printf '%s\n' "${_first}" "${_second}" | sort)" ]
     refute_fake_called '^sudo rm -rf '
 
+    printf '# run 3\n' >> "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
     [ "${status}" -eq 0 ]
     local _third _lib_parent
@@ -302,6 +308,116 @@ EOF
 
     run "${DEV_SCRIPTS_BIN_DIR}/dbtool"
     [ "${status}" -eq 0 ]
+}
+
+@test "dev-scripts keeps the current copy when nothing has changed, but still checks the links" {
+    add_fake_dev_script
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    local _first
+    _first="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
+    rm "${DEV_SCRIPTS_BIN_DIR}/dbtool"
+    : > "${FAKE_BIN_LOG}"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"${DEV_SCRIPTS_LIB_DIR} already matches the checkout; keeping it"* ]]
+    [[ "${output}" != *"Copying dev scripts"* ]]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" = "${_first}" ]
+    [ "$(lib_copies)" = "${_first}" ]
+    refute_fake_called '^sudo '
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
+# Runs dev-scripts against the fake repo once, so a test can change the
+# checkout and run it again; prints the copy the first run switched to.
+# Run directly rather than through run, so this helper never reads status.
+first_copy_of_fake_repo() {
+    add_fake_dev_script
+    printf 'data\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data"
+    prepare_fake_repo
+    "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts" > /dev/null 2>&1 || return 1
+    readlink "${DEV_SCRIPTS_LIB_DIR}"
+}
+
+@test "dev-scripts makes a new copy when a tracked file's content changes" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    printf 'changed\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ "$(cat "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data")" = "changed" ]
+}
+
+@test "dev-scripts makes a new copy when a tracked file's execute bit changes" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    chmod +x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-data"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ "$(stat -c '%a' "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-data")" = "755" ]
+}
+
+@test "dev-scripts makes a new copy when an executable file stops being executable" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    chmod -x "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ "$(stat -c '%a' "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool")" = "644" ]
+}
+
+@test "dev-scripts makes a new copy when a file starts being tracked" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    printf 'more\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dbtool-more"
+    git -C "${FAKE_SCRIPTS_REPO}" add settings/scripts/db/dbtool-more
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool-more" ]
+}
+
+# Replaces find with one that lists everything the real find does but then
+# exits 1, as find does when it meets a folder it cannot read part-way
+# through, so only its status shows the listing cannot be trusted.
+fail_find_after_listing() {
+    local _real_find
+    _real_find="$(command -v find)"
+    replace_fake find <<EOF
+#!/bin/sh
+"${_real_find}" "\$@"
+exit 1
+EOF
+}
+
+@test "dev-scripts makes a new copy when it cannot list all of the current one" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    fail_find_after_listing
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
+@test "dev-scripts makes a new copy when the lib link dangles" {
+    local _first
+    _first="$(first_copy_of_fake_repo)"
+    rm -rf "$(dirname "${DEV_SCRIPTS_LIB_DIR}")/${_first:?}"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ "$(readlink "${DEV_SCRIPTS_LIB_DIR}")" != "${_first}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
 }
 
 @test "dev-scripts prunes a stale symlink left by a renamed/removed script, leaves unrelated symlinks alone" {
