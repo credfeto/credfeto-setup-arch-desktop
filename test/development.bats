@@ -255,9 +255,14 @@ EOF
     [[ "${output}" == *"Completed"* ]]
 }
 
-@test "buildtest restores the ruleset when the override tool fails after rewriting it" {
-    # A dotnet whose code-analysis tool is installed, and which rewrites the
-    # ruleset it is given, then fails, as a tool dying part-way would.
+# A repo whose solution has a ruleset override, so buildtest runs the
+# code-analysis tool on a committed .globalconfig holding "original", and a
+# dotnet whose code-analysis tool is installed and rewrites the ruleset it is
+# given, then fails, as a tool dying part-way would. When
+# $FAKE_CODE_ANALYSIS_SIGNAL is set it instead sends buildtest SIGTERM once
+# the ruleset is rewritten, as a Ctrl-C landing mid-rewrite would, and
+# succeeds, so only the signal handling can restore the ruleset.
+setup_buildtest_ruleset_override() {
     replace_fake dotnet <<'EOF'
 #!/bin/sh
 printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
@@ -268,12 +273,16 @@ case "$1 $2" in
 esac
 if [ "$1" = "code-analysis" ]; then
     printf 'rewritten\n' > "$4"
+    if [ -n "${FAKE_CODE_ANALYSIS_SIGNAL:-}" ]; then
+        kill -TERM "${PPID}"
+        exit 0
+    fi
     exit 1
 fi
 exit 0
 EOF
     mkdir -p "${BATS_TEST_TMPDIR}/repo/src/Foo"
-    cd "${BATS_TEST_TMPDIR}/repo"
+    cd "${BATS_TEST_TMPDIR}/repo" || return 1
     git init --quiet
     printf 'original\n' > .globalconfig
     git add .globalconfig
@@ -281,11 +290,27 @@ EOF
     printf '<Project></Project>' > src/Foo.slnx
     printf '<Project Sdk="Microsoft.NET.Sdk"></Project>' > src/Foo/Foo.csproj
     printf '{}' > src/release.rule-settings.json
+}
+
+@test "buildtest restores the ruleset when the override tool fails after rewriting it" {
+    setup_buildtest_ruleset_override
 
     run "${BUILDTEST}"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to update"* ]]
     assert_fake_called '^dotnet code-analysis globalconfig --ruleset .*/\.globalconfig'
+    [ "$(cat .globalconfig)" = "original" ]
+}
+
+@test "buildtest restores the ruleset when it is sent SIGTERM after the override tool rewrote it" {
+    setup_buildtest_ruleset_override
+    export FAKE_CODE_ANALYSIS_SIGNAL=1
+
+    run "${BUILDTEST}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"Failed to update"* ]]
+    assert_fake_called '^dotnet code-analysis globalconfig --ruleset .*/\.globalconfig'
+    refute_fake_called '^dotnet restore'
     [ "$(cat .globalconfig)" = "original" ]
 }
 

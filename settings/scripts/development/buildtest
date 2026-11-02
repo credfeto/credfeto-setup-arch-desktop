@@ -11,6 +11,9 @@ cleanup() {
     [ "$RESTORE" = "1" ] && git checkout "$RULESET_FILE"
 }
 trap cleanup EXIT
+# dash does not run the EXIT trap when a signal kills the shell, so turn the
+# signals into an exit to get the ruleset restored.
+trap 'exit 1' INT TERM HUP
 
 # Returns true (0) when running inside a Claude Code Bash-tool session.
 # Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
