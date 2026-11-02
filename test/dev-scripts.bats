@@ -809,6 +809,29 @@ run_with_lock_step_failing() {
     refute_fake_called '^sudo rm -rf '
 }
 
+@test "dev-scripts keeps the copy it has just switched to when a SIGTERM lands during the switch" {
+    add_fake_dev_script
+    local _real_mv
+    _real_mv="$(command -v mv)"
+    # The switch completes, then dev-scripts gets a SIGTERM before it can
+    # record that, as one arriving while mv runs would be handled.
+    replace_fake mv <<EOF
+#!/bin/sh
+"${_real_mv}" "\$@" || exit
+case "\$*" in
+    "-T "*"${DEV_SCRIPTS_LIB_DIR}") kill -TERM "\${PPID}" ;;
+esac
+exit 0
+EOF
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"Dev scripts installed"* ]]
+    [ -L "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ -f "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+    refute_fake_called '^sudo rm -rf '
+}
+
 @test "dev-scripts removes its unfinished copy when it is sent SIGTERM while copying" {
     add_fake_dev_script
     local _real_install

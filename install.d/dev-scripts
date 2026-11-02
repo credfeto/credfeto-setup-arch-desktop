@@ -179,6 +179,10 @@ install_dev_scripts_copy() {
 # rather than dies.
 remove_unswitched_copy() {
     [ -n "$UNSWITCHED_COPY_DIR" ] || return 0
+    # A signal that lands while the switch runs is handled only once it has
+    # finished, before UNSWITCHED_COPY_DIR is cleared, so the link may already
+    # point at this copy: it is then the live one and must stay.
+    [ "$(readlink "$DEV_SCRIPTS_LIB_DIR" 2>/dev/null)" != "${UNSWITCHED_COPY_DIR##*/}" ] || return 0
     sudo rm -rf "$UNSWITCHED_COPY_DIR" || warn "Failed to remove the unfinished copy $UNSWITCHED_COPY_DIR"
 }
 
