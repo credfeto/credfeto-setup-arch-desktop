@@ -84,6 +84,29 @@ assert_global_json_kept_after_failed_replace() {
     [[ "${output}" == *"could not determine origin"* ]]
 }
 
+@test "fetch removes its repo list when it is sent SIGTERM" {
+    mkdir -p "${BATS_TEST_TMPDIR}/repos/repo-a/.git"
+    local _tmp="${BATS_TEST_TMPDIR}/tmp"
+    mkdir -p "${_tmp}"
+    # A git that sends fetch SIGTERM when asked to fetch, as a Ctrl-C during
+    # a slow fetch would, and succeeds at everything else.
+    replace_fake git <<'EOF'
+#!/bin/sh
+case " $* " in
+    *" fetch "*)
+        kill -TERM "${PPID}"
+        ;;
+esac
+exit 0
+EOF
+    cd "${BATS_TEST_TMPDIR}/repos"
+
+    TMPDIR="${_tmp}" run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"repo(s) fetched"* ]]
+    [ -z "$(ls -A "${_tmp}")" ]
+}
+
 # ── optimise-git ─────────────────────────────────────────────────────────────
 
 @test "optimise-git prunes, repacks, and garbage-collects every repo found" {

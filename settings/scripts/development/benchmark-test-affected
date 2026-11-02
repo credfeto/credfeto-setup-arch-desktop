@@ -95,6 +95,9 @@ EDGES_FILE=$(mktemp "${TMPDIR:-/tmp}/benchmark-test-affected.edges.XXXXXXXXXX") 
 BENCH_FILE=$(mktemp "${TMPDIR:-/tmp}/benchmark-test-affected.bench.XXXXXXXXXX") || die "mktemp failed"
 UNRESOLVABLE_FILE=$(mktemp "${TMPDIR:-/tmp}/benchmark-test-affected.unresolved.XXXXXXXXXX") || die "mktemp failed"
 trap 'rm -f "$EDGES_FILE" "$BENCH_FILE" "$UNRESOLVABLE_FILE"' EXIT
+# dash does not run the EXIT trap when a signal kills the shell, so turn the
+# signals into an exit to get the temporary files removed.
+trap 'exit 1' INT TERM HUP
 
 printf '%s\n' "$BENCH_PROJECTS" | sed '/^$/d' > "$BENCH_FILE" || die "Failed to write the benchmark project list to $BENCH_FILE"
 

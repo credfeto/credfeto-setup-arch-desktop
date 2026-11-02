@@ -386,3 +386,22 @@ EOF
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to record an unresolvable reference in ${_tmp}/benchmark-test-affected.unresolved"* ]]
 }
+
+@test "benchmark-test-affected removes its temporary files when it is sent SIGTERM" {
+    make_bench_solution '..\Lib\Lib.csproj'
+    stage_in_bench_solution Lib/Changed.cs
+    local _tmp="${BATS_TEST_TMPDIR}/tmp"
+    mkdir -p "${_tmp}"
+    # awk runs once, after the temporary files exist, so a SIGTERM sent from
+    # it lands as a Ctrl-C mid-run would.
+    replace_fake awk <<'EOF'
+#!/bin/sh
+kill -TERM "${PPID}"
+exit 0
+EOF
+
+    TMPDIR="${_tmp}" run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"Foo.Benchmark.Tests"* ]]
+    [ -z "$(ls -A "${_tmp}")" ]
+}
