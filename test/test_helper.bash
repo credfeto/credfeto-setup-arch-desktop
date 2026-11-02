@@ -229,6 +229,30 @@ seed_fake_output() {
     cat > "${FAKE_BIN_OUTPUT_DIR}/$1"
 }
 
+# Holds a flock on the given file from a background process for the given
+# number of seconds, as another run would, and returns once it is held. The
+# holder's pid is left in LOCK_HOLDER_PID for the test to wait on. Its output
+# and bats's fd 3 are closed, so bats does not wait on it when a test ends.
+# Usage: hold_lock_in_background <lock-file> <seconds>
+hold_lock_in_background() {
+    local _ready="${BATS_TEST_TMPDIR}/lock-holder-ready" _holder="${BATS_TEST_TMPDIR}/lock-holder" _tries=0
+    rm -f "${_ready}"
+    # Signals it holds the lock, then keeps it for the given seconds.
+    cat > "${_holder}" <<'EOF'
+#!/bin/sh
+: > "$1"
+sleep "$2"
+EOF
+    chmod +x "${_holder}"
+    flock "$1" "${_holder}" "${_ready}" "$2" > /dev/null 2>&1 3>&- &
+    export LOCK_HOLDER_PID=$!
+    until [ -e "${_ready}" ]; do
+        _tries=$((_tries + 1))
+        [ "${_tries}" -le 100 ] || return 1
+        sleep 0.1
+    done
+}
+
 # Asserts the fake invocation log contains a line matching the given
 # grep -E pattern.
 assert_fake_called() {

@@ -252,6 +252,22 @@ create_lock_file() {
     [ -r "$2" ] || { "$1" touch "$2" && "$1" chmod 0644 "$2"; } || die "Failed to create $2"
 }
 
+# Seconds a run waits for another run to release a run lock before giving
+# up. Two accounts' dev-update timers can fire together, so stopping at once
+# would fail the second unit and skip its later steps; a bound still stops a
+# run stuck behind one that has hung. Overridable so a test need not wait.
+RUN_LOCK_WAIT_SECONDS="${RUN_LOCK_WAIT_SECONDS:-300}"
+
+# Takes the lock on an already open descriptor, waiting up to
+# RUN_LOCK_WAIT_SECONDS, and saying so, when another run holds it. flock
+# takes the descriptor as an argument, so unlike exec it can be passed in.
+# Usage: wait_for_run_lock <fd> <lock-file> <holder>
+wait_for_run_lock() {
+    flock -n "$1" && return 0
+    info "Waiting up to ${RUN_LOCK_WAIT_SECONDS}s for $3 to release $2"
+    flock -w "$RUN_LOCK_WAIT_SECONDS" "$1" || die "Timed out after ${RUN_LOCK_WAIT_SECONDS}s waiting for $3 to release $2"
+}
+
 # Published snapshot layout: ${DEV_PUBLISH_DIR}/<repo> is a symlink to the
 # current <repo>-<UTC timestamp> snapshot, so system-wide installs never point
 # into a reference clone that can be switched or edited. DEV_PUBLISH_DIR is a
@@ -269,8 +285,8 @@ dev_publish_sudo() {
 # Takes the publish lock on fd 8. The dev-update lock is per account, and
 # each publish removes the snapshots it does not keep, so two accounts
 # publishing at once could delete the snapshot the other is about to switch
-# to. Non-blocking, so a second run stops at once rather than queueing behind
-# the first. publish_reference_repo releases it before returning, so a run
+# to. A second run waits for the first, within a bound, rather than failing.
+# publish_reference_repo releases it before returning, so a run
 # that publishes several repos never waits on itself, and nothing started
 # afterwards (an installer, a build server) inherits a held lock.
 lock_dev_publish_dir() {
@@ -279,7 +295,7 @@ lock_dev_publish_dir() {
     # command, as a failed redirection on a bare exec ends a POSIX shell
     # before the die can name the lock.
     command exec 8<"${DEV_PUBLISH_LOCK_FILE}" || die "Failed to open ${DEV_PUBLISH_LOCK_FILE}"
-    flock -n 8 || die "Another publish holds ${DEV_PUBLISH_LOCK_FILE}"
+    wait_for_run_lock 8 "${DEV_PUBLISH_LOCK_FILE}" "another publish"
 }
 
 # Publishes the committed HEAD of a reference clone as a new root-owned

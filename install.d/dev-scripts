@@ -104,8 +104,8 @@ EOF
 # Takes the run lock beside DEV_SCRIPTS_LIB_DIR and holds it until this
 # script exits. A manual install and the dev-update timer's run each remove
 # the copies they do not keep, so two runs at once could delete the copy the
-# other is about to switch to. Non-blocking, so a second run stops at once
-# rather than queueing behind the first and then replacing what it made.
+# other is about to switch to. A second run waits for the first, within a
+# bound, then finds the copy it made already current and keeps it.
 lock_dev_scripts_install() {
     dev_scripts_lib_sudo mkdir -p "$DEV_SCRIPTS_LIB_PARENT" || die "Failed to create $DEV_SCRIPTS_LIB_PARENT"
 
@@ -114,7 +114,7 @@ lock_dev_scripts_install() {
     # command, as a failed redirection on a bare exec ends a POSIX shell
     # before the die can name the lock.
     command exec 9<"$DEV_SCRIPTS_LOCK_FILE" || die "Failed to open $DEV_SCRIPTS_LOCK_FILE"
-    flock -n 9 || die "Another dev-scripts install holds $DEV_SCRIPTS_LOCK_FILE"
+    wait_for_run_lock 9 "$DEV_SCRIPTS_LOCK_FILE" "another dev-scripts install"
 }
 
 # Succeeds when the copy DEV_SCRIPTS_LIB_DIR points at already holds exactly
