@@ -74,11 +74,15 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Installed dev scripts are now copied into a root-owned, world-readable versioned folder beside /usr/local/lib/credfeto-setup-arch-desktop, switched in one step with the previous copy kept, and the /usr/local/bin links point there instead of into the checkout, so every account can run them (#103); the copy is replaced only when install or dev-update runs and the scripts have changed
 - Dev-scripts copy only git-tracked files, so untracked, ignored and private files in the checkout are never made world-readable
 - Dev-scripts keep the current copy when nothing has changed, so long-running scripts are not left without their copy
-- Dev-scripts installs take a run lock, so a manual install and the dev-update timer cannot run at once
 - Shell environment and sshd drop-ins are deployed only from git-tracked files, so an untracked or private file left beside them never reaches /etc/profile.d, /etc/bash.bashrc.d or /etc/ssh/sshd_config.d
-- dev-update publish takes a lock so two accounts cannot prune each other's root-owned snapshots under /usr/local/share/development
 - Old root-owned dev-scripts copies and dev-update snapshots are removed with sudo, so an account other than the one that created them can still clear them out
 - install-latest-dotnet stops instead of installing a partial .NET SDK when the extracted files cannot be listed
+- Dev-scripts installs take a run lock and wait up to five minutes for another run to release it, instead of failing, so a manual install and the dev-update timer no longer clash
+- dev-update publish takes a lock and waits up to five minutes for another account's publish, so two accounts cannot prune each other's root-owned snapshots under /usr/local/share/development
+- Shell environment, sshd drop-ins and dev-scripts refuse to deploy unless run from the top of a git clone, with a clear error, instead of failing misleadingly or deploying files that an enclosing repository tracks
+- dev-scripts removes /usr/local/bin links that still point into a checkout, live as well as dangling, so a command installed from one account's branch no longer breaks for every other account
+- Unfinished dev-scripts copies are removed when a run fails or is stopped, and unfinished dev-update snapshots when a publish fails, so half-filled root-owned folders no longer pile up under /usr/local
+- dev-scripts and dev-update publish stop, changing nothing, when a real folder stands where their /usr/local link goes, instead of failing at the switch after the work is done
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
