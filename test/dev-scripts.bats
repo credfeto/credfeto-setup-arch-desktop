@@ -260,6 +260,38 @@ EOF
     [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
 }
 
+@test "dev-scripts removes a live link into another checkout for a script it does not install" {
+    add_fake_dev_script
+    # A script that exists only on a branch of another checkout, linked by an
+    # earlier install from there; it still resolves, into that home folder.
+    local _branch_scripts="${BATS_TEST_TMPDIR}/${OTHER_CHECKOUT_SCRIPTS}/db"
+    mkdir -p "${_branch_scripts}"
+    printf '#!/bin/sh\nexit 0\n' > "${_branch_scripts}/branch-tool"
+    chmod +x "${_branch_scripts}/branch-tool"
+    ln -s "${_branch_scripts}/branch-tool" "${DEV_SCRIPTS_BIN_DIR}/branch-tool"
+    ln -s /bin/true "${DEV_SCRIPTS_BIN_DIR}/unrelated"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/branch-tool" ]
+    [ ! -L "${DEV_SCRIPTS_BIN_DIR}/branch-tool" ]
+    [ -f "${_branch_scripts}/branch-tool" ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/unrelated")" = "/bin/true" ]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
+@test "dev-scripts keeps a live link into the lib folder" {
+    add_fake_dev_script
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    : > "${FAKE_BIN_LOG}"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Removing stale symlink"* ]]
+    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/dbtool")" = "${DEV_SCRIPTS_LIB_DIR}/settings/scripts/db/dbtool" ]
+}
+
 @test "dev-scripts prunes the link of a script removed since the last install" {
     add_fake_lib_script dbtool
     add_fake_lib_script oldtool
@@ -432,9 +464,9 @@ EOF
     [ -L "${DEV_SCRIPTS_BIN_DIR}/unrelated" ]
 }
 
-# The links can point into either the working checkout or the reference
-# clone, whichever ran dev-scripts last, so a run from one must also prune
-# the other's dangling links. The other checkout lives outside REPO_DIR.
+# Links made by earlier versions point into whichever checkout ran
+# dev-scripts last, so a run from one must also prune the other's links,
+# live or dangling. The other checkout lives outside REPO_DIR.
 OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scripts"
 
 @test "dev-scripts prunes a dangling symlink into another checkout's settings/scripts" {
@@ -449,18 +481,6 @@ OTHER_CHECKOUT_SCRIPTS="other-checkout/credfeto-setup-arch-desktop/settings/scri
     [ "${status}" -eq 0 ]
     [ ! -L "${DEV_SCRIPTS_BIN_DIR}/removed-script" ]
     [ ! -L "${DEV_SCRIPTS_BIN_DIR}/gone" ]
-}
-
-@test "dev-scripts keeps a live symlink into another checkout's settings/scripts" {
-    local _scripts="${BATS_TEST_TMPDIR}/${OTHER_CHECKOUT_SCRIPTS}"
-    mkdir -p "${_scripts}/db"
-    printf '#!/bin/sh\nexit 0\n' > "${_scripts}/db/still-here"
-    chmod +x "${_scripts}/db/still-here"
-    ln -s "${_scripts}/db/still-here" "${DEV_SCRIPTS_BIN_DIR}/still-here"
-
-    run "${DEV_SCRIPTS}"
-    [ "${status}" -eq 0 ]
-    [ "$(readlink "${DEV_SCRIPTS_BIN_DIR}/still-here")" = "${_scripts}/db/still-here" ]
 }
 
 @test "dev-scripts keeps a dangling symlink that points outside any settings/scripts tree" {

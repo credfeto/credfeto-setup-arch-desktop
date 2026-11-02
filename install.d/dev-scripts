@@ -176,17 +176,24 @@ is_dev_script_link() {
     return 1
 }
 
-# Removes any dangling symlink in DEV_SCRIPTS_BIN_DIR that is_dev_script_link
-# recognises (the script was renamed or removed since a prior install run,
-# or that checkout is gone). Leaves every live symlink, and every
-# symlink/file pointing anywhere else, untouched.
+# Removes every symlink in DEV_SCRIPTS_BIN_DIR that is_dev_script_link
+# recognises but is no longer right: one into a checkout, live or not, as an
+# earlier version made them and a live one would keep pointing into that
+# account's home (such as a script that is only on a branch); and one into
+# the lib folder that dangles, as its script was renamed or removed since.
+# link_dev_scripts then links every current script into the lib folder.
+# Leaves every symlink or file pointing anywhere else untouched.
 prune_stale_symlinks() {
     [ -d "$DEV_SCRIPTS_BIN_DIR" ] || return 0
 
     for LINK in "$DEV_SCRIPTS_BIN_DIR"/*; do
         [ -L "$LINK" ] || continue
-        [ ! -e "$LINK" ] || continue
         is_dev_script_link "$LINK" || continue
+        case "$(readlink "$LINK")" in
+            "$DEV_SCRIPTS_LIB_DIR"/settings/scripts/*)
+                [ ! -e "$LINK" ] || continue
+                ;;
+        esac
 
         info "Removing stale symlink $LINK"
         dev_scripts_sudo rm -f "$LINK" || die "Failed to remove stale symlink $LINK"
