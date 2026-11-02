@@ -174,8 +174,8 @@ require_deploy_checkout() {
 }
 
 # Prints, relative to the checkout, every file git tracks there that matches
-# one of the pathspecs and is still a regular file in the working tree, one
-# per line. A step that deploys a folder's files lists them with this rather
+# one of the pathspecs and is still a regular file, not a symlink, in the
+# working tree, one per line. A step that deploys a folder's files lists them with this rather
 # than a glob, so an untracked, ignored or private file left beside them is
 # never deployed; the working tree's content is what gets deployed, so an
 # uncommitted edit to a tracked file is included. Pass ":(glob)<dir>/*.<ext>"
@@ -189,7 +189,13 @@ list_tracked_files() {
     shift
     TRACKED_LIST=$(git -C "$TRACKED_CHECKOUT" -c core.quotePath=false ls-files -- "$@") || return 1
     printf '%s\n' "$TRACKED_LIST" | while IFS= read -r TRACKED_PATH; do
-        if [ -f "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then
+        # A symlink is skipped, tracked or not: deploying it would copy
+        # whatever it points at, such as a private key in the caller's home,
+        # into a world-readable place. Warned about, so a link tracked on
+        # purpose is not dropped unnoticed.
+        if [ -L "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then
+            warn "Not deploying $TRACKED_CHECKOUT/$TRACKED_PATH: it is a symlink, and only regular files are deployed"
+        elif [ -f "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then
             printf '%s\n' "$TRACKED_PATH"
         fi
     done

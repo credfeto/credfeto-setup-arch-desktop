@@ -116,6 +116,20 @@ setup_shell_environment_tree() {
     refute_fake_called '^sudo install -m '
 }
 
+@test "shell-environment skips a tracked symlink, warning, and never deploys what it points at" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    printf 'export SECRET=1\n' > "${BATS_TEST_TMPDIR}/private.sh"
+    ln -s "${BATS_TEST_TMPDIR}/private.sh" "${_root}/settings/shell-env/99_link.sh"
+    git -C "${_root}" add settings/shell-env/99_link.sh
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Not deploying ${_root}/settings/shell-env/99_link.sh: it is a symlink"* ]]
+    refute_fake_called '99_link\.sh'
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/shell-env/[^ ]+\\.sh /etc/profile\\.d/"
+}
+
 @test "shell-environment fails when the shell config files cannot be listed" {
     local _root
     _root="$(setup_shell_environment_tree)"
