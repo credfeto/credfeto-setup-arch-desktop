@@ -27,17 +27,10 @@ dev_scripts_lib_sudo() {
     sudo_unless_writable "$DEV_SCRIPTS_LIB_PARENT" "$@"
 }
 
-# The copy is world-readable, so it takes only what git tracks: an untracked,
-# ignored or private file beside the scripts never reaches it. Dies unless
-# BASEDIR is the top of a checkout, as git would otherwise answer for
-# whichever repository holds it.
-require_checkout() {
-    CHECKOUT_TOP="$(git -C "$BASEDIR" rev-parse --show-toplevel 2>/dev/null)" || CHECKOUT_TOP=""
-    [ "$CHECKOUT_TOP" = "$BASEDIR" ] || die "$BASEDIR is not a git checkout; dev-scripts copies only the files git tracks there"
-}
-
 # Prints, relative to BASEDIR, every tracked file under lib/ and the source
-# directories that is still in the working tree, one per line.
+# directories that is still in the working tree, one per line. The copy is
+# world-readable, so it takes only what git tracks: an untracked, ignored or
+# private file beside the scripts never reaches it.
 list_copied_files() {
     set -- lib
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
@@ -217,7 +210,6 @@ EOF
 install_dev_scripts() {
     info "Installing dev scripts into $DEV_SCRIPTS_BIN_DIR"
 
-    require_checkout
     COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
     # An empty copy would leave every installed link dangling once switched to.
     [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"

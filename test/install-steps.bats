@@ -746,6 +746,19 @@ setup_harden_ssh_tree() {
     refute_fake_called '99_untracked\.conf'
 }
 
+@test "harden-ssh dies, deploying nothing, when its tree is not a checkout but sits inside another repo" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    rm -rf "${_root}/.git"
+    # An enclosing repo that tracks the whole tree, as a dotfiles repo in
+    # $HOME might; listing through it would deploy what it tracks.
+    git init --quiet "${BATS_TEST_TMPDIR}"
+    git -C "${BATS_TEST_TMPDIR}" add "${_root}"
+    run "${_root}/install.d/harden-ssh"
+    assert_step_died "${_root} is not a git checkout; run install from a git clone of this repository" "SSH hardened"
+    refute_fake_called '^sudo install '
+}
+
 @test "harden-ssh fails when the sshd drop-ins cannot be listed" {
     local _root
     _root="$(setup_harden_ssh_tree)"

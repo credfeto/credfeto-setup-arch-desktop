@@ -100,6 +100,21 @@ setup_shell_environment_tree() {
     refute_fake_called '99_untracked\.sh'
 }
 
+@test "shell-environment dies, deploying nothing, when its tree is not a checkout but sits inside another repo" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm -rf "${_root}/.git"
+    # An enclosing repo that tracks the whole tree, as a dotfiles repo in
+    # $HOME might; listing through it would deploy what it tracks.
+    git init --quiet "${BATS_TEST_TMPDIR}"
+    git -C "${BATS_TEST_TMPDIR}" add "${_root}"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_root} is not a git checkout; run install from a git clone of this repository"* ]]
+    refute_fake_called '^sudo install -m '
+}
+
 @test "shell-environment fails when the shell config files cannot be listed" {
     local _root
     _root="$(setup_shell_environment_tree)"

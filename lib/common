@@ -93,12 +93,15 @@ run_reference_step() {
 # Dies unless the directory is the top level of a git work tree. git -C on a
 # directory that is not one searches up the tree, so the status, switch and
 # pull that follow would act on an enclosing repo (such as a dotfiles repo in
-# $HOME) instead. --show-toplevel prints a resolved path, hence pwd -P.
-# Usage: require_clone_toplevel <dir>
+# $HOME) instead. --show-toplevel prints a resolved path, hence pwd -P. git
+# also refuses a checkout owned by another account ("dubious ownership"),
+# which fails the check the same way. The message defaults to one for a
+# reference clone.
+# Usage: require_clone_toplevel <dir> [<message>]
 require_clone_toplevel() {
     CLONE_TOPLEVEL="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || CLONE_TOPLEVEL=""
     CLONE_RESOLVED="$(cd "$1" && pwd -P)" || die "Failed to resolve $1"
-    [ "${CLONE_TOPLEVEL}" = "${CLONE_RESOLVED}" ] || die "$1 exists but is not a git clone; move or delete it, then re-run"
+    [ "${CLONE_TOPLEVEL}" = "${CLONE_RESOLVED}" ] || die "${2:-$1 exists but is not a git clone; move or delete it, then re-run}"
 }
 
 # Clones a reference repo from GitHub over SSH when it is missing; an existing
@@ -155,12 +158,15 @@ DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-glob
 # uncommitted edit to a tracked file is included. Pass ":(glob)<dir>/*.<ext>"
 # to match only a folder's own files, as * then does not cross a /. Without
 # -z: no deployed file name holds a newline, and quotePath is off so other
-# names print as they are. Fails when git cannot list them, as it does
-# outside a checkout.
+# names print as they are. Dies unless the checkout is the top of its own
+# git work tree: outside one (a downloaded archive), git would fail with
+# nothing to say why, and inside another repository it would list what that
+# repository tracks instead. Fails when git cannot list them.
 # Usage: list_tracked_files <checkout> <pathspec> [<pathspec> ...]
 list_tracked_files() {
     TRACKED_CHECKOUT="$1"
     shift
+    require_clone_toplevel "$TRACKED_CHECKOUT" "$TRACKED_CHECKOUT is not a git checkout; run install from a git clone of this repository, as only the files git tracks are deployed"
     TRACKED_LIST=$(git -C "$TRACKED_CHECKOUT" -c core.quotePath=false ls-files -- "$@") || return 1
     printf '%s\n' "$TRACKED_LIST" | while IFS= read -r TRACKED_PATH; do
         if [ -f "$TRACKED_CHECKOUT/$TRACKED_PATH" ]; then
