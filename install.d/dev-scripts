@@ -57,7 +57,7 @@ list_dev_scripts() {
 }
 
 check_no_collisions() {
-    DUPLICATES=$(printf '%s\n' "$DEV_SCRIPT_PATHS" | while IFS= read -r SCRIPT; do [ -n "$SCRIPT" ] && printf '%s\n' "${SCRIPT##*/}"; done | sort | uniq -d)
+    DUPLICATES=$(printf '%s\n' "$DEV_SCRIPT_PATHS" | sed 's|.*/||' | sort | uniq -d)
     if [ -n "$DUPLICATES" ]; then
         die "Duplicate script name(s) across settings/scripts/: $(printf '%s' "$DUPLICATES" | tr '\n' ' ')"
     fi
