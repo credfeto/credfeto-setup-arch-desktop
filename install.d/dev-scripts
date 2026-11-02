@@ -151,12 +151,34 @@ install_dev_scripts_copy() {
     COPY_NAME="$(versioned_folder_name "$(basename "$DEV_SCRIPTS_LIB_DIR")")" || die "Failed to name a new copy of the dev scripts"
     COPY_DIR="$DEV_SCRIPTS_LIB_PARENT/$COPY_NAME"
 
+    # Refused before UNSWITCHED_COPY_DIR is set, so the clean-up never removes
+    # a folder this run did not make: the clock stepping back can name a copy
+    # an earlier run kept.
+    if [ -e "$COPY_DIR" ] || [ -L "$COPY_DIR" ]; then
+        die "$COPY_DIR already exists; move it aside, then re-run"
+    fi
+
     info "Copying dev scripts to $COPY_DIR"
+    # Set before the mkdir rather than after: a signal is only handled once
+    # the running command has finished, so setting it afterwards leaves a
+    # window where the clean-up does not know the folder was made.
+    UNSWITCHED_COPY_DIR="$COPY_DIR"
     dev_scripts_lib_sudo mkdir -m 755 "$COPY_DIR" || die "Failed to create $COPY_DIR"
     copy_dev_scripts "$COPY_DIR"
 
     switch_versioned_link dev_scripts_lib_sudo "$DEV_SCRIPTS_LIB_DIR" "$COPY_NAME"
+    UNSWITCHED_COPY_DIR=""
     PREVIOUS_NAME="$SWITCHED_FROM"
+}
+
+# Removes a copy this run made but never switched to, so a failed or
+# interrupted run leaves no half-filled folder behind: a later run with
+# nothing changed would keep the current copy and never prune it. Always
+# sudo, as the copy may already belong to root. Run on exit, so it warns
+# rather than dies.
+remove_unswitched_copy() {
+    [ -n "$UNSWITCHED_COPY_DIR" ] || return 0
+    sudo rm -rf "$UNSWITCHED_COPY_DIR" || warn "Failed to remove the unfinished copy $UNSWITCHED_COPY_DIR"
 }
 
 # Succeeds when the given symlink points into the installed copy or into a
@@ -216,6 +238,12 @@ EOF
 
 install_dev_scripts() {
     info "Installing dev scripts into $DEV_SCRIPTS_BIN_DIR"
+
+    UNSWITCHED_COPY_DIR=""
+    trap remove_unswitched_copy EXIT
+    # dash does not run the EXIT trap when a signal kills the shell, so turn
+    # the signals into an exit to get an unfinished copy removed.
+    trap 'exit 1' INT TERM HUP
 
     COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
     # An empty copy would leave every installed link dangling once switched to.
