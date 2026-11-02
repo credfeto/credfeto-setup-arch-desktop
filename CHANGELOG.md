@@ -66,9 +66,10 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pacman-sync no longer reports failed when checkupdates finds no updates (exit code 2), and enable-services installs fakeroot, which checkupdates needs to run
 - configure-flatpak: fail when flatpak remotes fails instead of treating it as no flathub remote (#59)
 - install-latest-dotnet builds the new SDK install beside the live one and switches to it in a single rename, so a failed or interrupted run leaves the existing dotnet working, and a first-run install that cannot be switched is put back in place
-- install-latest-dotnet keeps its temporary files under /var/tmp and removes them on failure, checks free disk space before downloading and refuses to run while another run holds its lock
 - install-latest-dotnet finds the .NET tool manifest at ~/dotnet-tools.json, so re-runs no longer fail when a manifest already exists
 - The login tests no longer launch the host's real stream script, which could hang the test suite
+- install-latest-dotnet keeps its temporary files under /var/tmp and removes them on failure, checks free disk space before downloading, and keeps its run lock in XDG_RUNTIME_DIR so a run under sudo cannot leave a lock that blocks later runs; it refuses to run when XDG_RUNTIME_DIR is unset
+- buildtest restores the .NET code-analysis ruleset when the override tool fails part-way through, instead of leaving the ruleset changed
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
