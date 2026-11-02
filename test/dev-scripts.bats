@@ -166,6 +166,8 @@ EOF
     [ -L "${DEV_SCRIPTS_BIN_DIR}/dbtool" ]
 }
 
+# The fake sudo logs the removal of a copy without running it, so a test
+# asserts on the logged command rather than on the copy being gone.
 @test "dev-scripts switches to a new copy on each run, keeping only the previous one" {
     add_fake_lib_script dbtool
     run_dev_scripts_against_fake_repo
@@ -179,12 +181,18 @@ EOF
     _second="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
     [ "${_second}" != "${_first}" ]
     [ "$(lib_copies)" = "$(printf '%s\n' "${_first}" "${_second}" | sort)" ]
+    refute_fake_called '^sudo rm -rf '
 
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
     [ "${status}" -eq 0 ]
-    local _third
+    local _third _lib_parent
     _third="$(readlink "${DEV_SCRIPTS_LIB_DIR}")"
-    [ "$(lib_copies)" = "$(printf '%s\n' "${_second}" "${_third}" | sort)" ]
+    _lib_parent="$(dirname "${DEV_SCRIPTS_LIB_DIR}")"
+    # Through sudo although the folder holding the copies is writable, as
+    # each copy belongs to root.
+    [ -w "${_lib_parent}" ]
+    assert_fake_called "^sudo rm -rf ${_lib_parent}/${_first}\$"
+    refute_fake_called "^sudo rm -rf ${_lib_parent}/(${_second}|${_third})\$"
     [ ! -e "$(dirname "${DEV_SCRIPTS_LIB_DIR}")/.$(basename "${DEV_SCRIPTS_LIB_DIR}").tmp" ]
 
     run "${DEV_SCRIPTS_BIN_DIR}/dbtool"

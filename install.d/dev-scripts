@@ -168,7 +168,9 @@ remove_old_copies() {
         esac
 
         info "Removing old copy $OLD_COPY"
-        dev_scripts_lib_sudo rm -rf "$OLD_COPY" || die "Failed to remove the old copy $OLD_COPY"
+        # Always sudo: copy_dev_scripts gave the copy to root, so only root can
+        # empty its folders, even when the folder holding it is writable.
+        sudo rm -rf "$OLD_COPY" || die "Failed to remove the old copy $OLD_COPY"
     done
 }
 
