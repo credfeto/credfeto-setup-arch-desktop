@@ -79,10 +79,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-latest-dotnet stops instead of installing a partial .NET SDK when the extracted files cannot be listed
 - Dev-scripts installs take a run lock and wait up to five minutes for another run to release it, instead of failing, so a manual install and the dev-update timer no longer clash
 - dev-update publish takes a lock and waits up to five minutes for another account's publish, so two accounts cannot prune each other's root-owned snapshots under /usr/local/share/development
-- Shell environment, sshd drop-ins and dev-scripts refuse to deploy unless run from the top of a git clone, with a clear error, instead of failing misleadingly or deploying files that an enclosing repository tracks
-- dev-scripts removes /usr/local/bin links that still point into a checkout, live as well as dangling, so a command installed from one account's branch no longer breaks for every other account
-- Unfinished dev-scripts copies are removed when a run fails or is stopped, and unfinished dev-update snapshots when a publish fails, so half-filled root-owned folders no longer pile up under /usr/local
 - dev-scripts and dev-update publish stop, changing nothing, when a real folder stands where their /usr/local link goes, instead of failing at the switch after the work is done
+- Unfinished dev-scripts copies are removed when a run fails or is stopped, and unfinished dev-update snapshots when a publish fails, so half-filled root-owned folders no longer pile up under /usr/local; a copy that the /usr/local/lib link already points at is never removed
+- dev-scripts removes /usr/local/bin links that still point into a checkout, live as well as dangling, and links to scripts that are tracked but no longer executable, so a command installed from one account's branch, or a script that lost its execute bit, no longer fails for every other account
+- Shell environment, sshd drop-ins and dev-scripts refuse to deploy unless run from the top of a git clone, printing one clear error instead of a second misleading one, and never deploy files that an enclosing repository tracks
+- dev-update keeps the published snapshot when the committed tree has not changed, so a process started from a snapshot is no longer cut off after two runs and nothing is rebuilt when the tree is unchanged
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
