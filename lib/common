@@ -236,7 +236,9 @@ publish_reference_repo() {
         case "${PUBLISH_OLD##*/}" in
             "${PUBLISH_NAME}" | "${PUBLISH_PREVIOUS}") continue ;;
         esac
-        dev_publish_sudo rm -rf "${PUBLISH_OLD}" || die "Failed to remove the old snapshot ${PUBLISH_OLD}"
+        # Always sudo: the snapshot was given to root above, so only root can
+        # empty its folders, even when DEV_PUBLISH_DIR is writable.
+        sudo rm -rf "${PUBLISH_OLD}" || die "Failed to remove the old snapshot ${PUBLISH_OLD}"
     done
 
     # Closing the descriptor releases the lock.
