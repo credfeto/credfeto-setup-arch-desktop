@@ -723,7 +723,8 @@ DOTNET_TEST_LEGACY_MOVE="^mv .*/dotnet .*/dotnet-legacy-${DOTNET_TEST_STAMP}$"
     refute_fake_called '^curl '
     refute_fake_called '^sudo '
     assert_previous_dotnet_install_live
-    [ ! -e "${DOTNET_TEST_WORK_ROOT}/install-latest-dotnet.lock" ]
+    # Neither a lock file nor a work folder made anywhere it could reach.
+    [ -z "$(find "${DOTNET_TEST_WORK_ROOT}" "${DOTNET_TEST_RUNTIME_DIR}" -mindepth 1)" ]
 }
 
 @test "install-latest-dotnet runs while another account's lock file sits in the work folder" {
