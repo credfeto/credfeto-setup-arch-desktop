@@ -9,7 +9,7 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 harden_ssh() {
     info "Hardening SSH"
     for SSHD_CONF in "$BASEDIR"/settings/sshd/*.conf; do
-        SSHD_TARGET="/etc/ssh/sshd_config.d/$(basename "$SSHD_CONF")"
+        SSHD_TARGET="/etc/ssh/sshd_config.d/${SSHD_CONF##*/}"
         sudo install -m 0644 "$SSHD_CONF" "$SSHD_TARGET" || die "Failed to copy $SSHD_TARGET"
     done
 

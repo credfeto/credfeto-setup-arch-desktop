@@ -140,7 +140,7 @@ remove_old_copies() {
     KEEP_CURRENT="$1"
     KEEP_PREVIOUS="$2"
     for OLD_COPY in "$DEV_SCRIPTS_LIB_DIR"-[0-9]*Z; do
-        case "$(basename "$OLD_COPY")" in
+        case "${OLD_COPY##*/}" in
             "$KEEP_CURRENT" | "$KEEP_PREVIOUS") continue ;;
         esac
 

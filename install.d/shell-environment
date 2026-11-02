@@ -10,7 +10,7 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # so it is world-readable whatever the checkout mode or umask.
 # Usage: install_shell_file <source> <target-dir>
 install_shell_file() {
-    SHELL_FILE_TARGET="$2/$(basename "$1")"
+    SHELL_FILE_TARGET="$2/${1##*/}"
     sudo install -m 0644 "$1" "$SHELL_FILE_TARGET" || die "Failed to install $SHELL_FILE_TARGET"
 }
 
