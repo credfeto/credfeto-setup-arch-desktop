@@ -222,6 +222,8 @@ sudo_unless_writable() {
 # Prints a new versioned folder name for the given link name. Nanoseconds,
 # so two runs within the same second never collide. Fails when the time
 # cannot be read.
+# The stamp's shape is matched digit for digit by the glob in
+# prune_versioned_folders; change the two together.
 # Usage: versioned_folder_name <link-name>
 versioned_folder_name() {
     VERSIONED_STAMP="$(date -u +%Y%m%dT%H%M%S.%NZ)" || return 1
@@ -262,7 +264,10 @@ prune_versioned_folders() {
     PRUNE_KEEP_PREVIOUS="$4"
     # Called only once the link points at a folder that now exists, so the
     # glob always matches at least that and never comes through unexpanded.
-    for PRUNE_OLD in "$PRUNE_LINK"-[0-9]*Z; do
+    # It spells out versioned_folder_name's %Y%m%dT%H%M%S.%NZ stamp, so a
+    # sibling whose own name starts <link>-<digit> (claude-2 beside claude)
+    # never has its folders taken for this link's.
+    for PRUNE_OLD in "$PRUNE_LINK"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9].[0-9]*Z; do
         case "${PRUNE_OLD##*/}" in
             "$PRUNE_KEEP_CURRENT" | "$PRUNE_KEEP_PREVIOUS") continue ;;
         esac
