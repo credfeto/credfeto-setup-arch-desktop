@@ -152,6 +152,8 @@ DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-glob
 # into a reference clone that can be switched or edited. DEV_PUBLISH_DIR is a
 # test seam only, so a test can point it at a temp dir of its own.
 DEV_PUBLISH_DIR="${DEV_PUBLISH_DIR:-/usr/local/share/development}"
+# Hidden, so it never matches a <repo>-<timestamp> snapshot or a <repo> link.
+DEV_PUBLISH_LOCK_FILE="${DEV_PUBLISH_DIR}/.publish.lock"
 
 # Runs a command directly when DEV_PUBLISH_DIR is writable (or can be created),
 # otherwise through sudo.
@@ -161,6 +163,28 @@ dev_publish_sudo() {
     else
         sudo "$@"
     fi
+}
+
+# Takes the publish lock on fd 8. The dev-update lock is per account, and
+# each publish removes the snapshots it does not keep, so two accounts
+# publishing at once could delete the snapshot the other is about to switch
+# to. Non-blocking, so a second run stops at once rather than queueing behind
+# the first. publish_reference_repo releases it before returning, so a run
+# that publishes several repos never waits on itself, and nothing started
+# afterwards (an installer, a build server) inherits a held lock.
+lock_dev_publish_dir() {
+    # touch and chmod keep an existing file's inode, so a run already holding
+    # the lock still excludes this one; chmod, rather than the umask, makes
+    # the file readable by every account. Only ever opened for reading, which
+    # flock allows, so whoever owns it never stops anyone else taking the lock.
+    # Never removed: a run that recreated it would lock a different file from
+    # a run already holding the old one.
+    [ -r "${DEV_PUBLISH_LOCK_FILE}" ] || { dev_publish_sudo touch "${DEV_PUBLISH_LOCK_FILE}" && dev_publish_sudo chmod 0644 "${DEV_PUBLISH_LOCK_FILE}"; } || die "Failed to create ${DEV_PUBLISH_LOCK_FILE}"
+
+    # command, as a failed redirection on a bare exec ends a POSIX shell
+    # before the die can name the lock.
+    command exec 8<"${DEV_PUBLISH_LOCK_FILE}" || die "Failed to open ${DEV_PUBLISH_LOCK_FILE}"
+    flock -n 8 || die "Another publish holds ${DEV_PUBLISH_LOCK_FILE}"
 }
 
 # Publishes the committed HEAD of a reference clone as a new root-owned
@@ -182,6 +206,7 @@ publish_reference_repo() {
     # Explicit rather than umask-dependent, so a user with a strict umask
     # still gets a publish directory every account can read.
     dev_publish_sudo chmod 755 "${DEV_PUBLISH_DIR}" || die "Failed to set permissions on ${DEV_PUBLISH_DIR}"
+    lock_dev_publish_dir
     dev_publish_sudo mkdir "${PUBLISH_SNAPSHOT}" || die "Failed to create ${PUBLISH_SNAPSHOT}"
 
     PUBLISH_ARCHIVE="$(mktemp)" || die "Failed to create a temporary file for ${PUBLISH_REPO}"
@@ -213,6 +238,9 @@ publish_reference_repo() {
         esac
         dev_publish_sudo rm -rf "${PUBLISH_OLD}" || die "Failed to remove the old snapshot ${PUBLISH_OLD}"
     done
+
+    # Closing the descriptor releases the lock.
+    exec 8<&-
 
     success "Published ${PUBLISH_REPO} to ${PUBLISH_LINK}"
 }
