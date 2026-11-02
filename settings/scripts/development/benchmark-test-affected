@@ -34,7 +34,7 @@ ALL_CSPROJ=$(find "$SOLUTION_DIR" -type f -iname "*.csproj" -not -path "*/obj/*"
 BENCH_PROJECTS=""
 while IFS= read -r proj; do
     [ -n "$proj" ] || continue
-    bn=$(basename "$proj")
+    bn="${proj##*/}"
     if printf '%s\n' "$bn" | grep -qiE '(^|[.])bench(mark)?[.]tests?[.]csproj$'; then
         BENCH_PROJECTS="$BENCH_PROJECTS
 $proj"
@@ -82,7 +82,7 @@ if [ -z "$GLOBAL_TOUCHED" ]; then
         [ -n "$f" ] || continue
         case "$f" in
             "$SOLUTION_DIR"/*.props | "$SOLUTION_DIR"/*.targets | "$SOLUTION_DIR"/*.globalconfig | "$SOLUTION_DIR"/*.ruleset | "$SOLUTION_DIR"/*.sln | "$SOLUTION_DIR"/*.slnx)
-                [ "$(dirname "$f")" = "$SOLUTION_DIR" ] && GLOBAL_TOUCHED="$f"
+                [ "${f%/*}" = "$SOLUTION_DIR" ] && GLOBAL_TOUCHED="$f"
                 ;;
         esac
     done <<GLOBAL_EOF
@@ -103,7 +103,7 @@ printf '%s\n' "$BENCH_PROJECTS" | sed '/^$/d' > "$BENCH_FILE" || die "Failed to 
 
 while IFS= read -r proj; do
     [ -f "$proj" ] || continue
-    proj_dir=$(dirname "$proj")
+    proj_dir="${proj%/*}"
     # A project with no ProjectReference makes grep exit 1, which is a valid
     # answer rather than a failure, so its status is not checked.
     REF_TAGS=$(grep -o '<ProjectReference[^>]*>' "$proj" 2>/dev/null)
@@ -179,7 +179,8 @@ while IFS= read -r bench; do
         [ -n "$pair" ] || continue
         case "$pair" in
             "$bench|"*)
-                d=$(dirname "${pair#*|}")
+                d="${pair#*|}"
+                d="${d%/*}"
                 printf '%s\n' "$CHANGED_ABS" | grep -qF "$d/" && AFFECTED=1
                 ;;
         esac

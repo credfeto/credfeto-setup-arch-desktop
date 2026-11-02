@@ -363,6 +363,24 @@ stage_in_bench_solution() {
     [ -z "${output}" ]
 }
 
+@test "benchmark-test-affected lists every benchmark when a build file in the solution folder has a staged change" {
+    make_bench_solution '..\Lib\Lib.csproj'
+    stage_in_bench_solution Shared.props
+
+    run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Foo.Benchmark.Tests/Foo.Benchmark.Tests.csproj" ]
+}
+
+@test "benchmark-test-affected does not treat a build file in a project subfolder as solution-wide" {
+    make_bench_solution '..\Lib\Lib.csproj'
+    stage_in_bench_solution Other/Nested.props
+
+    run "${BENCHMARK_TEST_AFFECTED}" "${SOLUTION}"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
 @test "benchmark-test-affected stops when it cannot record an unresolvable reference" {
     [ "$(id -u)" -ne 0 ] || skip "root can write a read-only file"
     # shellcheck disable=SC2016 # an MSBuild property, not a shell expansion
