@@ -25,6 +25,7 @@ TOOLS="sleet \
        Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
        Credfeto.DotNet.Repo.Tools.Cmd \
        Credfeto.DotNet.Repo.Formatter \
+       Credfeto.Build.Dotnet.Server \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
        powershell \
