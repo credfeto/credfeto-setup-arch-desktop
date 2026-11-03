@@ -229,6 +229,23 @@ seed_fake_output() {
     cat > "${FAKE_BIN_OUTPUT_DIR}/$1"
 }
 
+# Leaves the given git repo mid-merge with the given tracked file in
+# conflict: commits what is staged, changes the file one way on a second
+# branch and another way on the first, then merges the second, which fails.
+# Usage: make_merge_conflict <repo> <path-in-repo>
+make_merge_conflict() {
+    local _git=(git -C "$1" -c user.name=bats -c user.email=bats@example.invalid -c commit.gpgsign=false)
+    "${_git[@]}" commit --quiet --allow-empty -m base
+    "${_git[@]}" checkout --quiet -b conflicting
+    printf 'theirs\n' >> "$1/$2"
+    "${_git[@]}" commit --quiet -am theirs
+    "${_git[@]}" checkout --quiet -
+    printf 'ours\n' >> "$1/$2"
+    "${_git[@]}" commit --quiet -am ours
+    ! "${_git[@]}" merge --quiet conflicting > /dev/null 2>&1
+    [ -n "$(git -C "$1" ls-files --unmerged)" ]
+}
+
 # Replaces git with one that fails when its arguments contain the given
 # text and runs the real git otherwise.
 # Usage: fail_git_for <text>

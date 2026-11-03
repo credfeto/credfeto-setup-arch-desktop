@@ -167,10 +167,15 @@ DEV_REFERENCE_REPOS="credfeto/credfeto-setup-arch-desktop credfeto/credfeto-glob
 # another repository it would list what that repository tracks instead.
 # Called on its own rather than from list_tracked_files, whose callers run
 # it in $(...), where a die only ends that subshell and the caller's own
-# message would follow this one.
+# message would follow this one. Also dies while a merge or rebase has left
+# conflicts: a conflicted file's working-tree content holds conflict
+# markers, which would break a shell or sshd that reads the deployed copy,
+# and git lists such a file once per stage.
 # Usage: require_deploy_checkout <checkout>
 require_deploy_checkout() {
     require_clone_toplevel "$1" "$1 is not a git checkout; run install from a git clone of this repository, as only the files git tracks are deployed"
+    DEPLOY_UNMERGED="$(git -C "$1" ls-files --unmerged)" || die "Failed to check $1 for unresolved merge conflicts"
+    [ -z "$DEPLOY_UNMERGED" ] || die "$1 has unresolved merge conflicts; resolve them or abort the merge, then re-run"
 }
 
 # Prints, relative to the checkout, every file git tracks there that matches

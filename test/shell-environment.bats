@@ -117,6 +117,19 @@ setup_shell_environment_tree() {
     refute_fake_called '^sudo '
 }
 
+@test "shell-environment dies, deploying nothing, while its checkout has unresolved merge conflicts" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    local _conflicted
+    _conflicted="$(cd "${_root}" && git ls-files 'settings/shell-env/*.sh' | head -1)"
+    make_merge_conflict "${_root}" "${_conflicted}"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_root} has unresolved merge conflicts; resolve them or abort the merge, then re-run"* ]]
+    refute_fake_called '^sudo '
+}
+
 @test "shell-environment skips a tracked symlink, warning, and never deploys what it points at" {
     local _root
     _root="$(setup_shell_environment_tree)"
@@ -135,7 +148,7 @@ setup_shell_environment_tree() {
     local _root
     _root="$(setup_shell_environment_tree)"
     setup_fake_sudo pacman
-    fail_git_for ' ls-files '
+    fail_git_for ' ls-files -- '
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to list the shell config files in ${_root}/settings/shell-env"* ]]
