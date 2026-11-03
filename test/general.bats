@@ -254,9 +254,10 @@ EOF
 #   dotnet that logs each call with the DOTNET_ROOT it saw, and for
 #   --list-sdks lists the sdk folders beside it, or nothing when
 #   $FAKE_DOTNET_LIST_NOTHING is set;
-# - install-dotnet-tools and update-dotnet-tools, which the script runs from
-#   its own folder rather than from PATH, are fakes beside a copy of the
-#   script in DOTNET_TEST_SCRIPT_DIR, which run_install_latest_dotnet runs.
+# - install-dotnet-tools and update-dotnet-tools are fakes beside a copy of
+#   the script in DOTNET_TEST_SCRIPT_DIR, which run_install_latest_dotnet
+#   runs; see the comment in install-latest-dotnet on the tool scripts for
+#   why they are found there rather than on PATH.
 #   Each logs its name with the folder it started in, the first PATH entry
 #   and the dotnet that PATH finds, then exits with FAKE_EXIT_<tool> (with
 #   underscores for hyphens), or 0.
@@ -449,10 +450,8 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet sets a umask that leaves the install world-readable" {
-    # tar applies the caller's umask for a non-root user, and cp masks the
-    # source mode again on the way out, so under the 027 umask this repo is
-    # checked out with the whole SDK landed 0750/0640 root:root and
-    # /usr/share/dotnet/dotnet was unrunnable by any ordinary user.
+    # Why 022 is needed: see the comment above the umask in
+    # install-latest-dotnet.
     grep -qE '^umask 022$' "${INSTALL_LATEST_DOTNET}"
 }
 
@@ -470,23 +469,22 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet makes the installed tree readable and traversable by everyone" {
-    # Belt to the umask's braces: this one also covers an archive member the
-    # SDK ships with a restrictive mode of its own.
+    # Covers what the umask cannot: see the comment above this chmod in
+    # install-latest-dotnet.
     # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -qE 'sudo chmod -R a\+rX "\$out_path"' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet verifies the install unprivileged" {
-    # Under sudo this would only prove root can run dotnet, hiding the exact
-    # fault it is there to catch.
+    # Why it runs without sudo: see the comment above LISTED_SDKS in
+    # install-latest-dotnet.
     # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -qE '^LISTED_SDKS="\$\(env -u DOTNET_ROOT "\$NEW_INSTALL_DIR/dotnet" --list-sdks' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet never invokes a bare dotnet from PATH" {
-    # 60_dotnet.sh only adds /usr/share/dotnet to PATH when the directory
-    # already exists, evaluated when the shell started - so on a first install
-    # a bare `dotnet` is not on PATH at all.
+    # A bare dotnet is not on PATH on a first install: see the comment in
+    # install-latest-dotnet on the tool scripts.
     run ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
 }
 

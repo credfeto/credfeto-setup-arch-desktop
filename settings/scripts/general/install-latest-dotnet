@@ -43,8 +43,9 @@ extract_dotnet_package() {
     # Stated here rather than left to the umask set at the top of the script,
     # so the guarantee lives with the code that creates the files, and holds
     # even for an archive member the SDK ships with a restrictive mode of its
-    # own. +X only adds execute where some class already has it, or on a
-    # directory, so a data file cannot become executable.
+    # own, which no umask can widen. +X only adds execute where some class
+    # already has it, or on a directory, so a data file cannot become
+    # executable.
     sudo chmod -R a+rX "$out_path" || say_err "Could not make $out_path readable"
 
     rm -rf "$temp_out_path"
@@ -238,9 +239,10 @@ cleanup() {
         rm -rf "$WORK_DIR" || warn "Could not remove $WORK_DIR"
     fi
 
-    # The link is read as well as the flag: a signal during the rename is only
-    # handled once it has finished, so the flag can still be false with the
-    # live link already pointing at the new install.
+    # The link is read as well as the flag: SWITCHED is set only after the
+    # rename, and a signal waits for the rename to finish (see the comment
+    # above the flags), so the flag can still be false with the live link
+    # already pointing at the new install.
     if [ "$SWITCHED" = false ] && [ "$(readlink "$DOTNET_INSTALL_DIR" 2>/dev/null)" != "$NEW_INSTALL_NAME" ]; then
         if [ "$NEW_INSTALL_CREATED" = true ]; then
             sudo rm -rf "$NEW_INSTALL_DIR" || warn "Could not remove $NEW_INSTALL_DIR"
@@ -317,8 +319,9 @@ INSTALL_SPACE_NEEDED_MB=3072
 # under: as an ordinary user tar applies the umask unless given -p, and cp
 # masks the source mode a second time on the way out (sudo inherits the
 # caller's umask rather than replacing it). Under a 027 umask that installs
-# the whole SDK root-only, so the dotnet this script exists to provide cannot
-# be run by the user it is being installed for.
+# the whole SDK root-only (folders 0750, files 0640, root:root), so the dotnet
+# this script exists to provide cannot be run by the user it is being
+# installed for.
 umask 022
 
 USER_AGENT="DotnetVersionChecker/1.0.0"
@@ -403,7 +406,8 @@ for VERSION in $VERSIONS_TO_INSTALL; do
 done
 
 # Deliberately unprivileged: the point of the install is a dotnet an ordinary
-# user can run, and running this under sudo would only prove root can run it.
+# user can run, and running this under sudo would only prove root can run it,
+# hiding the very fault this check is there to catch.
 # DOTNET_ROOT is cleared so the new dotnet cannot lean on the live install the
 # caller's shell points it at, and the lock is not passed on, so nothing this
 # starts can keep holding it.
@@ -459,10 +463,11 @@ info "Installing and updating dotnet tools"
 cd "$HOME" || die "Could not change to $HOME"
 
 # Both tool scripts call a bare dotnet, which on a first install is not on
-# PATH yet, and otherwise could be an older install that comes first, so the
-# install this run just switched to goes first on PATH for them. They run
-# from beside this script rather than looked up on PATH, so the copies that
-# ship with it run.
+# PATH yet (60_dotnet.sh adds the install to PATH only when it already existed
+# as the shell started), and otherwise could be an older install that comes
+# first, so the install this run just switched to goes first on PATH for them.
+# They run from beside this script rather than looked up on PATH, so the
+# copies that ship with it run.
 PATH="$DOTNET_INSTALL_DIR:$PATH"
 "$SCRIPTDIR/install-dotnet-tools" || die "Could not install the dotnet tools"
 "$SCRIPTDIR/update-dotnet-tools" || die "Could not update the dotnet tools"
