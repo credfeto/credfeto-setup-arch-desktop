@@ -270,7 +270,12 @@ install_dev_scripts() {
     # the signals into an exit to get an unfinished copy removed.
     trap 'exit 1' INT TERM HUP
 
-    # First, as it can wait for another run: everything below reads the
+    # Before the lock, as taking it creates the lock's folder and file: a run
+    # from outside a clone stops with nothing created. It only checks the
+    # checkout's top level, which a pull or switch does not change.
+    require_deploy_checkout "$BASEDIR"
+
+    # Next, as it can wait for another run: everything below reads the
     # checkout or changes something only once the lock is held, so a pull or
     # switch of the checkout during the wait is seen in full.
     lock_dev_scripts_install
@@ -283,7 +288,6 @@ install_dev_scripts() {
         die "$DEV_SCRIPTS_LIB_DIR exists but is not a symlink; move it aside, then re-run"
     fi
 
-    require_deploy_checkout "$BASEDIR"
     COPY_FILES=$(list_copied_files) || die "Failed to list the files to copy from $BASEDIR"
     # An empty copy would leave every installed link dangling once switched to.
     [ -n "$COPY_FILES" ] || die "No tracked files to copy under $BASEDIR"
