@@ -475,13 +475,6 @@ first_line_matching() {
     grep -qE 'sudo chmod -R a\+rX "\$out_path"' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet verifies the install unprivileged" {
-    # Why it runs without sudo: see the comment above LISTED_SDKS in
-    # install-latest-dotnet.
-    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
-    grep -qE '^LISTED_SDKS="\$\(env -u DOTNET_ROOT "\$NEW_INSTALL_DIR/dotnet" --list-sdks' "${INSTALL_LATEST_DOTNET}"
-}
-
 @test "install-latest-dotnet never invokes a bare dotnet from PATH" {
     # A bare dotnet is not on PATH on a first install: see the comment in
     # install-latest-dotnet on the tool scripts.
@@ -554,29 +547,21 @@ EOF
     run ! grep -qE 'rm .*/usr/share/dotnet' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet installs the SDKs into a timestamped folder" {
+@test "install-latest-dotnet stamps the install folder in the UTC format prune_old_installs matches" {
+    # The fake date ignores its format, so no run catches a change to it, and
+    # prune_old_installs only removes names matching
+    # dotnet-(legacy-)?[0-9]{8}T[0-9]{6}Z: any other format would leave every
+    # old install behind.
     # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
     grep -qF 'INSTALL_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qxF 'NEW_INSTALL_NAME="dotnet-$INSTALL_STAMP"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qF 'extract_dotnet_package "$TEMPORARY_FILE" "$NEW_INSTALL_DIR"' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet verifies the new install with DOTNET_ROOT unset before switching to it" {
-    verify_line="$(first_line_matching 'env -u DOTNET_ROOT ')"
-    switch_line="$(first_line_matching '^sudo mv -T ')"
-
-    [ -n "${verify_line}" ]
-    [ -n "${switch_line}" ]
-    [ "${verify_line}" -lt "${switch_line}" ]
-}
-
-@test "install-latest-dotnet switches with mv -T over a relative symlink" {
+@test "install-latest-dotnet makes the switch link with ln -sfn" {
+    # No run reaches ln with a switch link left behind by a run killed before
+    # its rename, which -f replaces and -n stops ln following into the folder
+    # it points at.
     # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
     grep -qF 'sudo ln -sfn "$NEW_INSTALL_NAME" "$DOTNET_SWITCH_LINK"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qF 'sudo mv -T "$DOTNET_SWITCH_LINK" "$DOTNET_INSTALL_DIR"' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet works under /var/tmp, not TMPDIR or /tmp" {
@@ -622,6 +607,8 @@ EOF
     [ -n "${verify_line}" ]
     [ -n "${switch_line}" ]
     [ "${verify_line}" -lt "${switch_line}" ]
+    # Why it runs without sudo: see the comment above LISTED_SDKS in
+    # install-latest-dotnet.
     refute_fake_called '^sudo .*--list-sdks'
     refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
     assert_fake_called '^dotnet tool restore '
