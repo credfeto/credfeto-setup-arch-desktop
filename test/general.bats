@@ -158,7 +158,7 @@ make_wallpapers_clone() {
     refute_fake_called '^dotnet new tool-manifest'
     assert_fake_called '^dotnet tool install --local sleet'
     assert_fake_called '^dotnet tool install --local TSQLLint'
-    assert_fake_called '^dotnet tool install --local Credfeto.Build.Dotnet.Server'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Build\.Dotnet\.Server$'
     assert_fake_called '^dotnet tool install --local ilspycmd'
     [[ "${output}" == *"Done"* ]]
 }
