@@ -489,6 +489,49 @@ first_line_matching() {
     grep -qxF 'VERSIONS_TO_INSTALL="10.0 11.0"' "${INSTALL_LATEST_DOTNET}"
 }
 
+# Replaces find with one that lists everything the real find does but exits 1
+# when listing an extraction folder, as find does when it meets a folder it
+# cannot read part-way through, so only its status shows the list is partial.
+fail_find_listing_extracted_files() {
+    local real_find
+    real_find="$(PATH="${PATH#"${FAKE_BIN_DIR}:"}" type -P find)"
+    replace_fake find <<EOF
+#!/bin/sh
+"${real_find}" "\$@"
+find_status=\$?
+case "\$*" in
+    */extract.*) exit 1 ;;
+esac
+exit "\${find_status}"
+EOF
+}
+
+@test "install-latest-dotnet stops without switching when listing the extracted SDK fails" {
+    seed_previous_dotnet_install
+    fail_find_listing_extracted_files
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not list the files extracted into ${DOTNET_TEST_WORK_ROOT}/dotnet-install."*"/extract."* ]]
+    [[ "${output}" != *"Restoring tools"* ]]
+    assert_failed_run_left_previous_install
+}
+
+@test "install-latest-dotnet stops without switching when copying the files outside the versioned folders fails" {
+    seed_previous_dotnet_install
+    new_install="${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}"
+
+    # Only the dotnet host at the top of the extraction, which is outside
+    # every versioned folder, so the versioned copy before it succeeds.
+    run_install_latest_dotnet FAKE_SUDO_FAIL='^cp -R .*/extract\.[^/ ]+/dotnet '
+    [ "${status}" -eq 1 ]
+    [[ "${output}" != *"Could not copy the versioned SDK folders"* ]]
+    [[ "${output}" == *"Could not copy ${new_install}/dotnet"* ]]
+    [[ "${output}" == *"Could not copy the SDK files into ${new_install}"* ]]
+    [[ "${output}" != *"Restoring tools"* ]]
+    assert_failed_run_left_previous_install
+}
+
 @test "install-latest-dotnet stops, naming the target, when copying the SDK into place fails" {
     seed_previous_dotnet_install
     new_install="${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}"

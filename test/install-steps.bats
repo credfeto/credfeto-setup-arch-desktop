@@ -721,6 +721,76 @@ SSHD_TARGET_DIR="/etc/ssh/sshd_config.d"
     [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo install -m 0644 ${SSHD_SOURCE_DIR}/07_X11Forwarding.conf ${SSHD_TARGET_DIR}/07_X11Forwarding.conf" ]
 }
 
+# Copies harden-ssh, lib/common and settings/sshd into a checkout-shaped tree
+# under the test dir, a git repo with everything in it tracked, as harden-ssh
+# deploys only tracked drop-ins; a file a test adds afterwards stays
+# untracked. Prints the tree's root.
+setup_harden_ssh_tree() {
+    local _root="${BATS_TEST_TMPDIR}/checkout"
+    mkdir -p "${_root}/install.d" "${_root}/lib" "${_root}/settings"
+    cp "${INSTALL_D}/harden-ssh" "${_root}/install.d/"
+    cp "${REPO_DIR}/lib/common" "${_root}/lib/"
+    cp -r "${SSHD_SOURCE_DIR}" "${_root}/settings/"
+    git init --quiet "${_root}"
+    git -C "${_root}" add -A
+    printf '%s\n' "${_root}"
+}
+
+@test "harden-ssh deploys only tracked drop-ins, leaving out an untracked one beside them" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    printf 'PermitRootLogin yes\n' > "${_root}/settings/sshd/99_untracked.conf"
+    run "${_root}/install.d/harden-ssh"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/sshd/13_TCPKeepAlive\\.conf ${SSHD_TARGET_DIR}/13_TCPKeepAlive\\.conf\$"
+    refute_fake_called '99_untracked\.conf'
+}
+
+@test "harden-ssh dies, deploying nothing, when its tree is not a checkout but sits inside another repo" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    rm -rf "${_root}/.git"
+    # An enclosing repo that tracks the whole tree, as a dotfiles repo in
+    # $HOME might; listing through it would deploy what it tracks.
+    git init --quiet "${BATS_TEST_TMPDIR}"
+    git -C "${BATS_TEST_TMPDIR}" add "${_root}"
+    run "${_root}/install.d/harden-ssh"
+    assert_step_died "${_root} is not a git checkout; run install from a git clone of this repository" "SSH hardened"
+    [[ "${output}" != *"Failed to list"* ]]
+    refute_fake_called '^sudo install '
+}
+
+@test "harden-ssh skips a tracked symlink, warning, and never deploys what it points at" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    printf 'PermitRootLogin yes\n' > "${BATS_TEST_TMPDIR}/private.conf"
+    ln -s "${BATS_TEST_TMPDIR}/private.conf" "${_root}/settings/sshd/99_link.conf"
+    git -C "${_root}" add settings/sshd/99_link.conf
+    run "${_root}/install.d/harden-ssh"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Not deploying ${_root}/settings/sshd/99_link.conf: it is a symlink"* ]]
+    refute_fake_called '99_link\.conf'
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/sshd/13_TCPKeepAlive\\.conf "
+}
+
+@test "harden-ssh fails when the sshd drop-ins cannot be listed" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    fail_git_for ' ls-files -- '
+    run "${_root}/install.d/harden-ssh"
+    assert_step_died "Failed to list the sshd drop-ins in ${_root}/settings/sshd" "SSH hardened"
+    refute_fake_called '^sudo install '
+}
+
+@test "harden-ssh fails when settings/sshd holds no tracked drop-in" {
+    local _root
+    _root="$(setup_harden_ssh_tree)"
+    rm "${_root}/settings/sshd"/*.conf
+    run "${_root}/install.d/harden-ssh"
+    assert_step_died "No sshd drop-ins found in ${_root}/settings/sshd" "SSH hardened"
+    refute_fake_called '^sudo install '
+}
+
 @test "harden-ssh stops when installing curl fails and never renders the key server config" {
     run_step harden-ssh FAKE_SUDO_FAIL='^pacman -S '
     assert_step_died "Failed to install curl" "SSH hardened"

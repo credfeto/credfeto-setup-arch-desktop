@@ -10,29 +10,36 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # so it is world-readable whatever the checkout mode or umask.
 # Usage: install_shell_file <source> <target-dir>
 install_shell_file() {
-    SHELL_FILE_TARGET="$2/$(basename "$1")"
+    SHELL_FILE_TARGET="$2/${1##*/}"
     sudo install -m 0644 "$1" "$SHELL_FILE_TARGET" || die "Failed to install $SHELL_FILE_TARGET"
 }
 
-# Deploys every *.sh file in a settings directory into each target directory.
-# Fails when the directory is missing or holds none, which would otherwise
-# report a successful install with nothing deployed.
-# Usage: install_shell_files <source-dir> <target-dir> [<target-dir> ...]
+# Deploys every tracked *.sh file in a settings directory into each target
+# directory; only tracked ones, so an untracked or private file left beside
+# them never reaches a directory every shell sources. Fails when the
+# directory is missing or holds none, which would otherwise report a
+# successful install with nothing deployed. install_shell_environment checks
+# BASEDIR is a checkout before calling this.
+# Usage: install_shell_files <source-dir-in-checkout> <target-dir> [<target-dir> ...]
 install_shell_files() {
     SHELL_FILES_DIR="$1"
     shift
-    SHELL_FILES_FOUND=0
-    for SOURCE in "$SHELL_FILES_DIR"/*.sh; do
-        [ -f "$SOURCE" ] || continue
-        SHELL_FILES_FOUND=1
+    SHELL_FILES=$(list_tracked_files "$BASEDIR" ":(glob)$SHELL_FILES_DIR/*.sh") || die "Failed to list the shell config files in $BASEDIR/$SHELL_FILES_DIR"
+    [ -n "$SHELL_FILES" ] || die "No shell config files found in $BASEDIR/$SHELL_FILES_DIR"
+    while IFS= read -r SOURCE; do
         for TARGET_DIR in "$@"; do
-            install_shell_file "$SOURCE" "$TARGET_DIR"
+            install_shell_file "$BASEDIR/$SOURCE" "$TARGET_DIR"
         done
-    done
-    [ "$SHELL_FILES_FOUND" -eq 1 ] || die "No shell config files found in $SHELL_FILES_DIR"
+    done <<EOF
+$SHELL_FILES
+EOF
 }
 
 install_shell_environment() {
+    # Once, before anything is installed: every file this step deploys comes
+    # from the files git tracks in this checkout.
+    require_deploy_checkout "$BASEDIR"
+
     info "Installing autojump"
     sudo pacman -S --needed --noconfirm autojump || die "Failed to install autojump"
 
@@ -43,12 +50,12 @@ install_shell_environment() {
     # systemd units) and /etc/bash.bashrc.d (which /etc/bash.bashrc sources in
     # every interactive bash shell), so anything that is not bash still sees
     # them.
-    install_shell_files "$BASEDIR/settings/shell-env" /etc/profile.d /etc/bash.bashrc.d
+    install_shell_files settings/shell-env /etc/profile.d /etc/bash.bashrc.d
 
     # Bash-only, not interactive-only: run-dev-update also sources these
     # sections, from its clone, in a non-interactive bash.
     info "Installing bash-only config (bash.bashrc.d)"
-    install_shell_files "$BASEDIR/settings/bash.bashrc.d" /etc/bash.bashrc.d
+    install_shell_files settings/bash.bashrc.d /etc/bash.bashrc.d
 
     if grep -qF "# BEGIN credfeto-setup-arch-desktop bash.bashrc.d" /etc/bash.bashrc 2>/dev/null; then
         info "bash.bashrc.d loader block already present in /etc/bash.bashrc, skipping"

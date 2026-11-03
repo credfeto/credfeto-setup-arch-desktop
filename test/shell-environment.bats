@@ -73,6 +73,8 @@ expected_deployments() {
 
 # Copies shell-environment, lib/common and both settings directories into a
 # checkout-shaped tree under the test dir, so a test can remove files from it.
+# The tree is a git repo with everything in it tracked, as shell-environment
+# deploys only tracked files; a file a test adds afterwards stays untracked.
 # Prints the tree's root.
 setup_shell_environment_tree() {
     local _root="${BATS_TEST_TMPDIR}/checkout"
@@ -80,7 +82,77 @@ setup_shell_environment_tree() {
     cp "${SHELL_ENVIRONMENT}" "${_root}/install.d/"
     cp "${REPO_DIR}/lib/common" "${_root}/lib/"
     cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    git init --quiet "${_root}"
+    git -C "${_root}" add -A
     printf '%s\n' "${_root}"
+}
+
+@test "shell-environment deploys only tracked files, leaving out an untracked one beside them" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    printf 'export SECRET=1\n' > "${_root}/settings/shell-env/99_untracked.sh"
+    printf 'export SECRET=1\n' > "${_root}/settings/bash.bashrc.d/99_untracked.sh"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/shell-env/[^ ]+\\.sh /etc/profile\\.d/"
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/bash.bashrc.d/[^ ]+\\.sh /etc/bash\\.bashrc\\.d/"
+    refute_fake_called '99_untracked\.sh'
+}
+
+@test "shell-environment dies, deploying nothing, when its tree is not a checkout but sits inside another repo" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    rm -rf "${_root}/.git"
+    # An enclosing repo that tracks the whole tree, as a dotfiles repo in
+    # $HOME might; listing through it would deploy what it tracks.
+    git init --quiet "${BATS_TEST_TMPDIR}"
+    git -C "${BATS_TEST_TMPDIR}" add "${_root}"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_root} is not a git checkout; run install from a git clone of this repository"* ]]
+    [[ "${output}" != *"Failed to list"* ]]
+    # Checked before anything at all is installed, not just the files.
+    refute_fake_called '^sudo '
+}
+
+@test "shell-environment dies, deploying nothing, while its checkout has unresolved merge conflicts" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    local _conflicted
+    _conflicted="$(cd "${_root}" && git ls-files 'settings/shell-env/*.sh' | head -1)"
+    make_merge_conflict "${_root}" "${_conflicted}"
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${_root} has unresolved merge conflicts; resolve them or abort the merge, then re-run"* ]]
+    refute_fake_called '^sudo '
+}
+
+@test "shell-environment skips a tracked symlink, warning, and never deploys what it points at" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    printf 'export SECRET=1\n' > "${BATS_TEST_TMPDIR}/private.sh"
+    ln -s "${BATS_TEST_TMPDIR}/private.sh" "${_root}/settings/shell-env/99_link.sh"
+    git -C "${_root}" add settings/shell-env/99_link.sh
+    setup_fake_sudo pacman
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Not deploying ${_root}/settings/shell-env/99_link.sh: it is a symlink"* ]]
+    refute_fake_called '99_link\.sh'
+    assert_fake_called "^sudo install -m 0644 ${_root}/settings/shell-env/[^ ]+\\.sh /etc/profile\\.d/"
+}
+
+@test "shell-environment fails when the shell config files cannot be listed" {
+    local _root
+    _root="$(setup_shell_environment_tree)"
+    setup_fake_sudo pacman
+    fail_git_for ' ls-files -- '
+    run "${_root}/install.d/shell-environment"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to list the shell config files in ${_root}/settings/shell-env"* ]]
+    refute_fake_called '^sudo install -m '
 }
 
 @test "shell-environment fails when settings/shell-env holds no files to deploy" {

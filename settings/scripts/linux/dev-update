@@ -96,9 +96,9 @@ dev_update() {
     run_published_installer credfeto-orchestrator install-claude-hooks
 
     # From the reference clone just brought to main, not through PATH, whose
-    # /usr/local/bin link may still point into a working checkout; and from
-    # $HOME so the home tool manifest is updated, not one belonging to
-    # whichever repo a manual run happens to be started from.
+    # /usr/local/bin link may still resolve to a copy installed from a working
+    # checkout; and from $HOME so the home tool manifest is updated, not one
+    # belonging to whichever repo a manual run happens to be started from.
     info "Updating dotnet tools..."
     (cd "${HOME}" && run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools) || die "Failed to update dotnet tools"
 
