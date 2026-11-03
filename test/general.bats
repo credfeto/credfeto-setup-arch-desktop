@@ -158,8 +158,22 @@ make_wallpapers_clone() {
     refute_fake_called '^dotnet new tool-manifest'
     assert_fake_called '^dotnet tool install --local sleet$'
     assert_fake_called '^dotnet tool install --local TSQLLint$'
+    assert_fake_called '^dotnet tool install --local FunFair\.BuildCheck$'
+    assert_fake_called '^dotnet tool install --local FunFair\.BuildVersion$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Changelog\.Cmd$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Push$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Update$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.DotNet\.Code\.Analysis\.Overrides\.Cmd$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.DotNet\.Repo\.Tools\.Cmd$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.DotNet\.Repo\.Formatter$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Build\.Dotnet\.Server$'
+    assert_fake_called '^dotnet tool install --local FunFair\.Content\.Packager\.Cmd$'
+    assert_fake_called '^dotnet tool install --local FunFair\.Content\.PackageSigner\.Cmd$'
+    assert_fake_called '^dotnet tool install --local powershell$'
+    assert_fake_called '^dotnet tool install --local dotnet-script$'
+    assert_fake_called '^dotnet tool install --local dotnet-reportgenerator-globaltool$'
     assert_fake_called '^dotnet tool install --local ilspycmd$'
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 17 ]
     [[ "${output}" == *"Done"* ]]
 }
 
