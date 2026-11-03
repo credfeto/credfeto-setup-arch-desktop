@@ -194,6 +194,11 @@ run_dev_scripts_against_fake_repo() {
     [[ "${output}" != *"Failed to list"* ]]
     [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
     [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+    # Stopped before the run lock, so neither the lock file nor the folder
+    # holding it was made.
+    [ ! -e "$(dev_scripts_lock_file)" ]
+    [ ! -e "$(dirname "${DEV_SCRIPTS_LIB_DIR}")" ]
+    refute_fake_called '^sudo '
 }
 
 @test "dev-scripts dies on a basename collision across source directories" {
