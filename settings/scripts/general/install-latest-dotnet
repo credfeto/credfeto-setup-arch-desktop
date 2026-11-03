@@ -291,7 +291,6 @@ DOTNET_WORK_ROOT="${DOTNET_WORK_ROOT:-/var/tmp}"
 DOTNET_INSTALL_DIR="$DOTNET_INSTALL_ROOT/dotnet"
 DOTNET_SWITCH_LINK="$DOTNET_INSTALL_ROOT/dotnet.tmp-link"
 DOTNET="$DOTNET_INSTALL_DIR/dotnet"
-DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"
 # One lock for every account, beside the system-wide install it guards, so a
 # run from one account cannot prune a folder another account's run is still
 # building. It is only ever opened for reading, which flock allows, so whoever
@@ -450,16 +449,21 @@ prune_old_installs "$PREVIOUS_INSTALL_NAME"
 # keep holding it once this run has ended.
 exec 9<&-
 
-info "Install/update powershell"
+info "Installing and updating dotnet tools"
 
-# Every --local call needs a tool manifest in the current directory or an
-# ancestor of it. Anchored to $HOME, as install-dotnet-tools does, so the step
-# acts on the user's own manifest rather than on whichever directory the
-# script happened to be launched from.
+# The --local calls in install-dotnet-tools and update-dotnet-tools use the
+# tool manifest found from the directory they start in, while
+# install-dotnet-tools only ever creates and checks for one in $HOME. Started
+# from $HOME, every call acts on the user's own manifest rather than on one
+# found from whichever directory this script happened to be launched from.
 cd "$HOME" || die "Could not change to $HOME"
-[ -f "$DOTNET_TOOL_MANIFEST" ] || "$DOTNET" new tool-manifest || die "Could not create $DOTNET_TOOL_MANIFEST"
 
-"$DOTNET" tool update --local PowerShell || "$DOTNET" tool install --local PowerShell || die "Could not install PowerShell"
+# Run from beside this script rather than looked up on PATH, so the copies
+# that ship with it run. Both call a bare dotnet, which on a first install is
+# not on PATH yet, and otherwise could be an older install that comes first,
+# so the install this run just switched to goes first on PATH for them.
+PATH="$DOTNET_INSTALL_DIR:$PATH" "$SCRIPTDIR/install-dotnet-tools" || die "Could not install the dotnet tools"
+PATH="$DOTNET_INSTALL_DIR:$PATH" "$SCRIPTDIR/update-dotnet-tools" || die "Could not update the dotnet tools"
 
 info "Restoring tools"
 "$DOTNET" tool restore || die "Could not restore dotnet tools"
