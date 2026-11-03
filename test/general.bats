@@ -156,10 +156,10 @@ make_wallpapers_clone() {
     run "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 0 ]
     refute_fake_called '^dotnet new tool-manifest'
-    assert_fake_called '^dotnet tool install --local sleet'
-    assert_fake_called '^dotnet tool install --local TSQLLint'
+    assert_fake_called '^dotnet tool install --local sleet$'
+    assert_fake_called '^dotnet tool install --local TSQLLint$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Build\.Dotnet\.Server$'
-    assert_fake_called '^dotnet tool install --local ilspycmd'
+    assert_fake_called '^dotnet tool install --local ilspycmd$'
     [[ "${output}" == *"Done"* ]]
 }
 
@@ -183,9 +183,9 @@ EOF
 
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
-    assert_fake_called '^dotnet tool uninstall --global globaltool'
-    assert_fake_called '^dotnet tool install --local globaltool'
-    assert_fake_called '^dotnet tool update --local localtool'
+    assert_fake_called '^dotnet tool uninstall --global globaltool$'
+    assert_fake_called '^dotnet tool install --local globaltool$'
+    assert_fake_called '^dotnet tool update --local localtool$'
 }
 
 # ── install-latest-dotnet ────────────────────────────────────────────────────
