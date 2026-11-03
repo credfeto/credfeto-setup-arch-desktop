@@ -458,12 +458,14 @@ info "Installing and updating dotnet tools"
 # found from whichever directory this script happened to be launched from.
 cd "$HOME" || die "Could not change to $HOME"
 
-# Run from beside this script rather than looked up on PATH, so the copies
-# that ship with it run. Both call a bare dotnet, which on a first install is
-# not on PATH yet, and otherwise could be an older install that comes first,
-# so the install this run just switched to goes first on PATH for them.
-PATH="$DOTNET_INSTALL_DIR:$PATH" "$SCRIPTDIR/install-dotnet-tools" || die "Could not install the dotnet tools"
-PATH="$DOTNET_INSTALL_DIR:$PATH" "$SCRIPTDIR/update-dotnet-tools" || die "Could not update the dotnet tools"
+# Both tool scripts call a bare dotnet, which on a first install is not on
+# PATH yet, and otherwise could be an older install that comes first, so the
+# install this run just switched to goes first on PATH for them. They run
+# from beside this script rather than looked up on PATH, so the copies that
+# ship with it run.
+PATH="$DOTNET_INSTALL_DIR:$PATH"
+"$SCRIPTDIR/install-dotnet-tools" || die "Could not install the dotnet tools"
+"$SCRIPTDIR/update-dotnet-tools" || die "Could not update the dotnet tools"
 
 info "Restoring tools"
 "$DOTNET" tool restore || die "Could not restore dotnet tools"
