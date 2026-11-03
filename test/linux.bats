@@ -251,8 +251,10 @@ run_clone_reference_repo() {
 #   enclosing repo;
 # - `git -C <path> rev-parse HEAD^{tree}` exits with
 #   FAKE_EXIT_git_rev_parse_tree when that is set and non-zero, and
-#   otherwise prints FAKE_GIT_TREE (default tree-0) as every clone's tree;
-# - `git -C <path> archive --format=tar -o <file> HEAD` exits with
+#   otherwise prints as every clone's tree the contents of FAKE_GIT_TREE_FILE
+#   when that is set, so a test can move HEAD during a run, or else
+#   FAKE_GIT_TREE (default tree-0);
+# - `git -C <path> archive --format=tar -o <file> <tree-ish>` exits with
 #   FAKE_EXIT_git_archive when that is set and non-zero, and otherwise
 #   writes a tar of everything in <path> to <file>.
 setup_fake_git() {
@@ -286,7 +288,11 @@ if [ "\$1" = "-C" ]; then
         rev-parse)
             if [ "\$4" = "HEAD^{tree}" ]; then
                 [ "\${FAKE_EXIT_git_rev_parse_tree:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git_rev_parse_tree}"
-                printf '%s\n' "\${FAKE_GIT_TREE:-tree-0}"
+                if [ -n "\${FAKE_GIT_TREE_FILE:-}" ]; then
+                    cat "\${FAKE_GIT_TREE_FILE}"
+                else
+                    printf '%s\n' "\${FAKE_GIT_TREE:-tree-0}"
+                fi
             elif [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
                 dirname "\$(readlink -f "\$2")"
             else
@@ -323,7 +329,7 @@ refute_destructive_git() {
 expected_published_step() {
     printf '%s\n' \
         "git -C ${HOME}/work/reference/$1 rev-parse HEAD^{tree}" \
-        "git -C ${HOME}/work/reference/$1 archive --format=tar -o ARCHIVE HEAD" \
+        "git -C ${HOME}/work/reference/$1 archive --format=tar -o ARCHIVE tree-0" \
         "sudo chown -R root:root ${DEV_PUBLISH_DIR}/$1-SNAPSHOT" \
         "$1/$2 --system"
 }
@@ -331,7 +337,7 @@ expected_published_step() {
 # Replaces the temporary archive path and the snapshot timestamps in the
 # lines read from stdin, which differ from run to run.
 mask_publish_names() {
-    sed -E -e 's/ -o [^ ]+ HEAD$/ -o ARCHIVE HEAD/' -e 's/-[0-9]{8}T[0-9]{6}\.[0-9]+Z$/-SNAPSHOT/'
+    sed -E -e 's/ -o [^ ]+ ([^ ]+)$/ -o ARCHIVE \1/' -e 's/-[0-9]{8}T[0-9]{6}\.[0-9]+Z$/-SNAPSHOT/'
 }
 
 # Lists the snapshot directories published for the given repo, oldest first.
@@ -741,7 +747,7 @@ EOF
     for _repo in credfeto-global-pre-commit claude credfeto-ai-skills credfeto-orchestrator; do
         [ -L "${DEV_PUBLISH_DIR}/${_repo}" ]
         [[ "$(readlink "${DEV_PUBLISH_DIR}/${_repo}")" =~ ^${_repo}-[0-9]{8}T[0-9]{6}\.[0-9]+Z$ ]]
-        assert_fake_called "^git -C ${HOME}/work/reference/${_repo} archive --format=tar -o [^ ]+ HEAD\$"
+        assert_fake_called "^git -C ${HOME}/work/reference/${_repo} archive --format=tar -o [^ ]+ tree-0\$"
         assert_fake_called "^sudo chown -R root:root ${DEV_PUBLISH_DIR}/${_repo}-[0-9]{8}T[0-9]{6}\\.[0-9]+Z\$"
     done
     [ ! -e "${DEV_PUBLISH_DIR}/credfeto-setup-arch-desktop" ]
@@ -1058,6 +1064,42 @@ lock_down_publish_dir_with_lock() {
     run env FAKE_GIT_TREE=tree-a "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
     [ "$(cat "${DEV_PUBLISH_DIR}/claude/.published-tree")" = "tree-a" ]
+}
+
+@test "dev-update archives the tree it records, not HEAD" {
+    setup_dev_update_fixture
+    run env FAKE_GIT_TREE=tree-a "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^git -C ${HOME}/work/reference/claude archive --format=tar -o [^ ]+ tree-a\$"
+    refute_fake_called '^git -C .* archive .* HEAD$'
+}
+
+@test "dev-update publishes the tree it read even when HEAD moves while it waits for the publish lock" {
+    setup_dev_update_fixture
+    local _tree_file="${BATS_TEST_TMPDIR}/clone-tree"
+    printf 'tree-before\n' > "${_tree_file}"
+    mkdir -p "${DEV_PUBLISH_DIR}"
+    : > "$(publish_lock_file)"
+    hold_lock_in_background "$(publish_lock_file)" 3
+    # Moves every clone's HEAD as soon as the first publish has read its
+    # tree, while that publish waits for the lock.
+    (
+        _tries=0
+        until grep -q 'credfeto-global-pre-commit rev-parse HEAD\^{tree}$' "${FAKE_BIN_LOG}" 2>/dev/null || [ "${_tries}" -ge 100 ]; do
+            _tries=$((_tries + 1))
+            sleep 0.1
+        done
+        printf 'tree-after\n' > "${_tree_file}"
+    ) > /dev/null 2>&1 3>&- &
+    local _mover=$!
+
+    run env FAKE_GIT_TREE_FILE="${_tree_file}" RUN_LOCK_WAIT_SECONDS=30 "${LINUX_DIR}/dev-update"
+    wait "${_mover}"
+    wait "${LOCK_HOLDER_PID}"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${DEV_PUBLISH_DIR}/credfeto-global-pre-commit/.published-tree")" = "tree-before" ]
+    assert_fake_called "^git -C ${HOME}/work/reference/credfeto-global-pre-commit archive --format=tar -o [^ ]+ tree-before\$"
+    refute_fake_called '^git -C .* archive .* HEAD$'
 }
 
 @test "dev-update keeps a snapshot that already holds the clone's committed tree, and still runs its installer" {

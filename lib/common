@@ -350,7 +350,8 @@ remove_unswitched_snapshot() {
 
 # Publishes the committed HEAD of a reference clone as a new root-owned
 # snapshot and switches ${DEV_PUBLISH_DIR}/<repo> to it. git archive takes
-# HEAD only, so untracked or ignored files in the clone are never published.
+# only the tree of HEAD, read once, so untracked or ignored files in the
+# clone are never published.
 # The snapshot the link pointed at before is kept, so anything still running
 # from it is not pulled out from under it; any older one is removed. When
 # the link already holds the clone's committed tree, nothing is published.
@@ -411,7 +412,9 @@ publish_reference_repo() {
     dev_publish_sudo mkdir "${PUBLISH_SNAPSHOT}" || die "Failed to create ${PUBLISH_SNAPSHOT}"
 
     PUBLISH_ARCHIVE="$(mktemp)" || die "Failed to create a temporary file for ${PUBLISH_REPO}"
-    if ! git -C "${PUBLISH_CLONE}" archive --format=tar -o "${PUBLISH_ARCHIVE}" HEAD; then
+    # The tree read before the lock, not HEAD: the clone can move on while
+    # this run waits, and the snapshot must hold exactly the tree it records.
+    if ! git -C "${PUBLISH_CLONE}" archive --format=tar -o "${PUBLISH_ARCHIVE}" "${PUBLISH_TREE}"; then
         rm -f "${PUBLISH_ARCHIVE}"
         die "Failed to archive ${PUBLISH_CLONE}"
     fi
