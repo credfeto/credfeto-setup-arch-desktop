@@ -209,6 +209,27 @@ DOTNET_TEST_NEW_INSTALL="dotnet-${DOTNET_TEST_STAMP}"
 # The install folder seed_previous_dotnet_install points the live link at.
 DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 
+# Lays out the copy of install-latest-dotnet and its tool-script fakes that
+# setup_dotnet_install_fakes describes. A copy rather than a link, as the
+# script finds its folder by resolving links to itself.
+setup_install_latest_dotnet_copy() {
+    local tree="${BATS_TEST_TMPDIR}/repo"
+    local tool varname
+    DOTNET_TEST_SCRIPT_DIR="${tree}/settings/scripts/general"
+    mkdir -p "${DOTNET_TEST_SCRIPT_DIR}" "${tree}/lib"
+    cp "${INSTALL_LATEST_DOTNET}" "${DOTNET_TEST_SCRIPT_DIR}/install-latest-dotnet"
+    ln -sfn "${REPO_DIR}/lib/common" "${tree}/lib/common"
+
+    for tool in install-dotnet-tools update-dotnet-tools; do
+        varname="FAKE_EXIT_${tool//-/_}"
+        write_fake_script "${DOTNET_TEST_SCRIPT_DIR}/${tool}" "${tool}" <<EOF
+#!/bin/sh
+printf '%s PWD=%s PATH_FIRST=%s dotnet=%s\n' "${tool}" "\${PWD}" "\${PATH%%:*}" "\$(command -v dotnet)" >> "\${FAKE_BIN_LOG}"
+exit "\${${varname}:-0}"
+EOF
+    done
+}
+
 # Makes the fakes an end-to-end run needs, and the install and work roots it
 # runs against (DOTNET_TEST_WORK_ROOT is exported for the fake mktemp):
 # - sudo runs what it is given as the test user, after logging it, unless the
@@ -232,13 +253,21 @@ DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 # - tar turns that file into a minimal SDK: a versioned sdk folder and a
 #   dotnet that logs each call with the DOTNET_ROOT it saw, and for
 #   --list-sdks lists the sdk folders beside it, or nothing when
-#   $FAKE_DOTNET_LIST_NOTHING is set.
+#   $FAKE_DOTNET_LIST_NOTHING is set;
+# - install-dotnet-tools and update-dotnet-tools are fakes beside a copy of
+#   the script in DOTNET_TEST_SCRIPT_DIR, which run_install_latest_dotnet
+#   runs; see the comment in install-latest-dotnet on the tool scripts for
+#   why they are found there rather than on PATH.
+#   Each logs its name with the folder it started in, the first PATH entry
+#   and the dotnet that PATH finds, then exits with FAKE_EXIT_<tool> (with
+#   underscores for hyphens), or 0.
 setup_dotnet_install_fakes() {
     DOTNET_TEST_INSTALL_ROOT="${BATS_TEST_TMPDIR}/share"
     export DOTNET_TEST_WORK_ROOT="${BATS_TEST_TMPDIR}/vartmp"
     DOTNET_TEST_LOCK_FILE="${DOTNET_TEST_INSTALL_ROOT}/dotnet-install.lock"
     mkdir -p "${DOTNET_TEST_INSTALL_ROOT}" "${DOTNET_TEST_WORK_ROOT}"
     setup_fake_bin
+    setup_install_latest_dotnet_copy
 
     replace_fake sudo <<'EOF'
 #!/bin/sh
@@ -371,12 +400,13 @@ chmod 755 "${out}/dotnet"
 EOF
 }
 
-# Runs install-latest-dotnet against the test's install and work folders, with DOTNET_ROOT set as a login shell would set it. Leading
-# VAR=value arguments are passed on to env.
+# Runs the copy of install-latest-dotnet setup_dotnet_install_fakes made
+# against the test's install and work folders, with DOTNET_ROOT set as a login
+# shell would set it. Leading VAR=value arguments are passed on to env.
 # Usage: run_install_latest_dotnet [<VAR=value> ...]
 run_install_latest_dotnet() {
     run env DOTNET_INSTALL_ROOT="${DOTNET_TEST_INSTALL_ROOT}" DOTNET_WORK_ROOT="${DOTNET_TEST_WORK_ROOT}" \
-        DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${INSTALL_LATEST_DOTNET}"
+        DOTNET_ROOT="${DOTNET_TEST_INSTALL_ROOT}/dotnet" "$@" "${DOTNET_TEST_SCRIPT_DIR}/install-latest-dotnet"
 }
 
 # Seeds the previous install folder holding a marker file, and points the live
@@ -420,10 +450,8 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet sets a umask that leaves the install world-readable" {
-    # tar applies the caller's umask for a non-root user, and cp masks the
-    # source mode again on the way out, so under the 027 umask this repo is
-    # checked out with the whole SDK landed 0750/0640 root:root and
-    # /usr/share/dotnet/dotnet was unrunnable by any ordinary user.
+    # Why 022 is needed: see the comment above the umask in
+    # install-latest-dotnet.
     grep -qE '^umask 022$' "${INSTALL_LATEST_DOTNET}"
 }
 
@@ -441,47 +469,16 @@ first_line_matching() {
 }
 
 @test "install-latest-dotnet makes the installed tree readable and traversable by everyone" {
-    # Belt to the umask's braces: this one also covers an archive member the
-    # SDK ships with a restrictive mode of its own.
+    # Covers what the umask cannot: see the comment above this chmod in
+    # install-latest-dotnet.
     # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
     grep -qE 'sudo chmod -R a\+rX "\$out_path"' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet verifies the install unprivileged" {
-    # Under sudo this would only prove root can run dotnet, hiding the exact
-    # fault it is there to catch.
-    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
-    grep -qE '^LISTED_SDKS="\$\(env -u DOTNET_ROOT "\$NEW_INSTALL_DIR/dotnet" --list-sdks' "${INSTALL_LATEST_DOTNET}"
-}
-
 @test "install-latest-dotnet never invokes a bare dotnet from PATH" {
-    # 60_dotnet.sh only adds /usr/share/dotnet to PATH when the directory
-    # already exists, evaluated when the shell started - so on a first install
-    # a bare `dotnet` is not on PATH at all.
+    # A bare dotnet is not on PATH on a first install: see the comment in
+    # install-latest-dotnet on the tool scripts.
     run ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
-}
-
-@test "install-latest-dotnet ensures a tool manifest before any --local call" {
-    # dotnet tool update/install/restore --local all need a manifest in the
-    # current directory or an ancestor; there is none by default.
-    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
-    manifest_line="$(first_line_matching '\[ -f "\$DOTNET_TOOL_MANIFEST" \]')"
-    # shellcheck disable=SC2016 # regex escape for a literal $, not a shell expansion
-    local_line="$(first_line_matching '"\$DOTNET" tool [a-z]+ --local')"
-
-    [ -n "${manifest_line}" ]
-    [ -n "${local_line}" ]
-    [ "${manifest_line}" -lt "${local_line}" ]
-}
-
-@test "install-latest-dotnet checks for the tool manifest where dotnet new tool-manifest writes it" {
-    # Run from $HOME, `dotnet new tool-manifest` writes $HOME/dotnet-tools.json,
-    # the same file install-dotnet-tools uses. Checking anywhere else misses an
-    # existing manifest, and the create step then refuses to overwrite it.
-    # shellcheck disable=SC2016 # literal $HOME in the script source, not a shell expansion
-    grep -qxF 'DOTNET_TOOL_MANIFEST="$HOME/dotnet-tools.json"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $HOME in the script source, not a shell expansion
-    grep -qF '[ -f "$HOME/dotnet-tools.json" ]' "${GENERAL_DIR}/install-dotnet-tools"
 }
 
 @test "install-latest-dotnet installs only the 10.0 and 11.0 SDKs" {
@@ -550,29 +547,21 @@ EOF
     run ! grep -qE 'rm .*/usr/share/dotnet' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet installs the SDKs into a timestamped folder" {
+@test "install-latest-dotnet stamps the install folder in the UTC format prune_old_installs matches" {
+    # The fake date ignores its format, so no run catches a change to it, and
+    # prune_old_installs only removes names matching
+    # dotnet-(legacy-)?[0-9]{8}T[0-9]{6}Z: any other format would leave every
+    # old install behind.
     # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
     grep -qF 'INSTALL_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qxF 'NEW_INSTALL_NAME="dotnet-$INSTALL_STAMP"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qF 'extract_dotnet_package "$TEMPORARY_FILE" "$NEW_INSTALL_DIR"' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet verifies the new install with DOTNET_ROOT unset before switching to it" {
-    verify_line="$(first_line_matching 'env -u DOTNET_ROOT ')"
-    switch_line="$(first_line_matching '^sudo mv -T ')"
-
-    [ -n "${verify_line}" ]
-    [ -n "${switch_line}" ]
-    [ "${verify_line}" -lt "${switch_line}" ]
-}
-
-@test "install-latest-dotnet switches with mv -T over a relative symlink" {
+@test "install-latest-dotnet makes the switch link with ln -sfn" {
+    # No run reaches ln with a switch link left behind by a run killed before
+    # its rename, which -f replaces and -n stops ln following into the folder
+    # it points at.
     # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
     grep -qF 'sudo ln -sfn "$NEW_INSTALL_NAME" "$DOTNET_SWITCH_LINK"' "${INSTALL_LATEST_DOTNET}"
-    # shellcheck disable=SC2016 # literal $ in the script source, not a shell expansion
-    grep -qF 'sudo mv -T "$DOTNET_SWITCH_LINK" "$DOTNET_INSTALL_DIR"' "${INSTALL_LATEST_DOTNET}"
 }
 
 @test "install-latest-dotnet works under /var/tmp, not TMPDIR or /tmp" {
@@ -618,9 +607,62 @@ EOF
     [ -n "${verify_line}" ]
     [ -n "${switch_line}" ]
     [ "${verify_line}" -lt "${switch_line}" ]
+    # Why it runs without sudo: see the comment above LISTED_SDKS in
+    # install-latest-dotnet.
     refute_fake_called '^sudo .*--list-sdks'
     refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
     assert_fake_called '^dotnet tool restore '
+}
+
+@test "install-latest-dotnet installs then updates the dotnet tools from HOME with the new install first on PATH" {
+    seed_previous_dotnet_install
+    live="${DOTNET_TEST_INSTALL_ROOT}/dotnet"
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 0 ]
+
+    switch_line="$(log_line_of '^sudo mv -T .*/dotnet\.tmp-link ')"
+    install_line="$(log_line_of "^install-dotnet-tools PWD=${HOME} PATH_FIRST=${live} dotnet=${live}/dotnet$")"
+    update_line="$(log_line_of "^update-dotnet-tools PWD=${HOME} PATH_FIRST=${live} dotnet=${live}/dotnet$")"
+    restore_line="$(log_line_of '^dotnet tool restore ')"
+    [ -n "${switch_line}" ]
+    [ -n "${install_line}" ]
+    [ -n "${update_line}" ]
+    [ -n "${restore_line}" ]
+    [ "${switch_line}" -lt "${install_line}" ]
+    [ "${install_line}" -lt "${update_line}" ]
+    [ "${update_line}" -lt "${restore_line}" ]
+    # install-dotnet-tools lists PowerShell with the other tools, and
+    # update-dotnet-tools updates every local tool, so a tool step of its own
+    # here would only install or update a tool a second time.
+    refute_fake_called '^dotnet tool (install|update) '
+    refute_fake_called '[Pp][Oo][Ww][Ee][Rr][Ss][Hh][Ee][Ll][Ll]'
+}
+
+@test "install-latest-dotnet stops, naming the step, when installing the dotnet tools fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_EXIT_install_dotnet_tools=1
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not install the dotnet tools"* ]]
+    [[ "${output}" != *"Done"* ]]
+    assert_fake_called '^install-dotnet-tools '
+    refute_fake_called '^update-dotnet-tools '
+    refute_fake_called '^dotnet tool restore '
+}
+
+@test "install-latest-dotnet stops, naming the step, when updating the dotnet tools fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_EXIT_update_dotnet_tools=1
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not update the dotnet tools"* ]]
+    [[ "${output}" != *"Done"* ]]
+    assert_fake_called '^install-dotnet-tools '
+    assert_fake_called '^update-dotnet-tools '
+    refute_fake_called '^dotnet tool restore '
 }
 
 # Seeds the live path as the real folder earlier versions of the script
