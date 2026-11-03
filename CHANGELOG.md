@@ -27,7 +27,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a network-online command that reports whether NetworkManager or systemd-networkd has a working connection
 - Added a user systemd timer that runs dev-update from the ~/work/reference clone shortly after login and then every 30 minutes, skipping quietly when offline
 - Added a required CI check that runs the bats shell test suite on every pull request to main and fails when any test fails, is skipped or does not run
-- Install the Credfeto.Build.Dotnet.Server dotnet tool from install-dotnet-tools
+- Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
