@@ -209,10 +209,9 @@ DOTNET_TEST_NEW_INSTALL="dotnet-${DOTNET_TEST_STAMP}"
 # The install folder seed_previous_dotnet_install points the live link at.
 DOTNET_TEST_PREVIOUS_INSTALL="dotnet-20260101T000000Z"
 
-# Copies install-latest-dotnet into a tree laid out as the repository is,
-# with the real lib/common it sources, and fakes of the tool scripts it runs
-# from its own folder, as setup_dotnet_install_fakes describes. A copy rather
-# than a link, as the script finds its folder by resolving links to itself.
+# Lays out the copy of install-latest-dotnet and its tool-script fakes that
+# setup_dotnet_install_fakes describes. A copy rather than a link, as the
+# script finds its folder by resolving links to itself.
 setup_install_latest_dotnet_copy() {
     local tree="${BATS_TEST_TMPDIR}/repo"
     local tool varname
