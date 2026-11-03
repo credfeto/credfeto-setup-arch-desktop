@@ -245,14 +245,15 @@ DECOY_SETTINGS_SEEN='git -C "${BATS_TEST_TMPDIR}" config --get-regexp "^decoy\\.
     local _xdg="${BATS_TEST_TMPDIR}/xdg"
     write_decoy_git_config "${HOME}/.gitconfig" home
     write_decoy_git_config "${_xdg}/git/config" xdg
+    local -x XDG_CONFIG_HOME="${_xdg}"
 
     # Precondition: git reads both when it is not told where its config is.
-    XDG_CONFIG_HOME="${_xdg}" run env -u GIT_CONFIG_GLOBAL git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    run env -u GIT_CONFIG_GLOBAL git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
     [ "${status}" -eq 0 ]
     [ "${output}" = "decoy.xdg seen
 decoy.home seen" ]
 
-    XDG_CONFIG_HOME="${_xdg}" run git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
+    run git -C "${BATS_TEST_TMPDIR}" config --get-regexp '^decoy\.'
     [ "${status}" -eq 1 ]
     [ -z "${output}" ]
 }
