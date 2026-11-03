@@ -776,7 +776,7 @@ setup_harden_ssh_tree() {
 @test "harden-ssh fails when the sshd drop-ins cannot be listed" {
     local _root
     _root="$(setup_harden_ssh_tree)"
-    fail_git_for ' ls-files '
+    fail_git_for ' ls-files -- '
     run "${_root}/install.d/harden-ssh"
     assert_step_died "Failed to list the sshd drop-ins in ${_root}/settings/sshd" "SSH hardened"
     refute_fake_called '^sudo install '

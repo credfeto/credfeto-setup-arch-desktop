@@ -201,6 +201,31 @@ run_dev_scripts_against_fake_repo() {
     refute_fake_called '^sudo '
 }
 
+@test "dev-scripts dies, changing nothing, while the checkout has unresolved merge conflicts" {
+    add_fake_dev_script
+    prepare_fake_repo
+    make_merge_conflict "${FAKE_SCRIPTS_REPO}" settings/scripts/db/dbtool
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"${FAKE_SCRIPTS_REPO} has unresolved merge conflicts; resolve them or abort the merge, then re-run"* ]]
+    [[ "${output}" != *"Duplicate script name"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+    [ ! -e "$(dev_scripts_lock_file)" ]
+    [ -z "$(ls -A "${DEV_SCRIPTS_BIN_DIR}")" ]
+}
+
+@test "dev-scripts dies when the checkout cannot be checked for merge conflicts" {
+    add_fake_dev_script
+    prepare_fake_repo
+    fail_git_for ' ls-files --unmerged'
+
+    run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to check ${FAKE_SCRIPTS_REPO} for unresolved merge conflicts"* ]]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}" ]
+}
+
 @test "dev-scripts dies on a basename collision across source directories" {
     mkdir -p "${FAKE_SCRIPTS_REPO}/settings/scripts/db" "${FAKE_SCRIPTS_REPO}/settings/scripts/development"
     printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/settings/scripts/db/dup"
@@ -931,7 +956,7 @@ EOF
 
 @test "dev-scripts fails when the files to copy cannot be listed" {
     add_fake_dev_script
-    fail_git_for ' ls-files '
+    fail_git_for ' ls-files -- '
 
     run_dev_scripts_against_fake_repo
     [ "${status}" -eq 1 ]
