@@ -488,13 +488,6 @@ first_line_matching() {
     run ! grep -qE '(^|\|\||&&|;)[[:space:]]*dotnet[[:space:]]' "${INSTALL_LATEST_DOTNET}"
 }
 
-@test "install-latest-dotnet leaves every tool, PowerShell included, to the tool scripts" {
-    # install-dotnet-tools lists PowerShell with the other tools, and
-    # update-dotnet-tools updates every local tool, so a step of its own here
-    # would only install or update PowerShell a second time.
-    run ! grep -qiE 'powershell|--local' <(grep -vE '^[[:space:]]*#' "${INSTALL_LATEST_DOTNET}")
-}
-
 @test "install-latest-dotnet installs only the 10.0 and 11.0 SDKs" {
     [ "$(grep -c '^VERSIONS_TO_INSTALL=' "${INSTALL_LATEST_DOTNET}")" -eq 1 ]
     grep -qxF 'VERSIONS_TO_INSTALL="10.0 11.0"' "${INSTALL_LATEST_DOTNET}"
@@ -654,7 +647,11 @@ EOF
     [ "${switch_line}" -lt "${install_line}" ]
     [ "${install_line}" -lt "${update_line}" ]
     [ "${update_line}" -lt "${restore_line}" ]
-    refute_fake_called '[Pp]ower[Ss]hell'
+    # install-dotnet-tools lists PowerShell with the other tools, and
+    # update-dotnet-tools updates every local tool, so a tool step of its own
+    # here would only install or update a tool a second time.
+    refute_fake_called '^dotnet tool (install|update) '
+    refute_fake_called '[Pp][Oo][Ww][Ee][Rr][Ss][Hh][Ee][Ll][Ll]'
 }
 
 @test "install-latest-dotnet stops, naming the step, when installing the dotnet tools fails" {
