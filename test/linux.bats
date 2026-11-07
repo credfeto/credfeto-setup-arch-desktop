@@ -1529,8 +1529,17 @@ setup_dev_install_fixture() {
     setup_fake_bin flatpak
     run "${LINUX_DIR}/install-fp"
     [ "${status}" -eq 0 ]
-    assert_fake_called '^flatpak install -y com\.brave\.Browser'
-    assert_fake_called '^flatpak install -y com\.ktechpit\.whatsie'
+    assert_fake_called '^flatpak install -y com\.brave\.Browser$'
+    assert_fake_called '^flatpak install -y org\.mozilla\.firefox$'
+    assert_fake_called '^flatpak install -y com\.opera\.Opera$'
+    assert_fake_called '^flatpak install -y com\.discordapp\.Discord$'
+    assert_fake_called '^flatpak install -y com\.spotify\.Client$'
+    assert_fake_called '^flatpak install -y com\.todoist\.Todoist$'
+    assert_fake_called '^flatpak install -y com\.bitwarden\.desktop$'
+    assert_fake_called '^flatpak install -y org\.mozilla\.Thunderbird$'
+    assert_fake_called '^flatpak install -y com\.github\.iwalton3\.jellyfin-media-player$'
+    assert_fake_called '^flatpak install -y com\.ktechpit\.whatsie$'
+    [ "$(grep -c '^flatpak install -y ' "${FAKE_BIN_LOG}")" -eq 10 ]
     [[ "${output}" == *"All flatpak packages installed"* ]]
 }
 
