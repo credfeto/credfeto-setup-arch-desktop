@@ -67,7 +67,7 @@ setup_run_dev_update_tree() {
     printf 'PATH=%s\n' "\${PATH}"
     printf 'BUN_INSTALL=%s\n' "\${BUN_INSTALL:-}"
     printf 'NVM_DIR=%s\n' "\${NVM_DIR:-}"
-} > "${RECORDED_ENV}"
+} > ${RECORDED_ENV@Q}
 exit 3
 EOF
     chmod +x "${_root}/settings/scripts/linux/dev-update"
