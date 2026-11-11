@@ -265,8 +265,8 @@ setup_fake_git() {
 printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 [ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
 if [ "\$1" = "clone" ]; then
-    if [ -d "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" ]; then
-        cp -R "${FAKE_CLONE_SOURCE}/\$(basename "\$3")" "\$3"
+    if [ -d ${FAKE_CLONE_SOURCE@Q}/"\$(basename "\$3")" ]; then
+        cp -R ${FAKE_CLONE_SOURCE@Q}/"\$(basename "\$3")" "\$3"
     else
         mkdir -p "\$3"
     fi
@@ -447,7 +447,7 @@ setup_dev_update_fixture() {
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
 # accepts --system
-"${LINUX_DIR}/dev-update" > "${BATS_TEST_TMPDIR}/nested.out" 2>&1
+${LINUX_DIR@Q}/dev-update > ${BATS_TEST_TMPDIR@Q}/nested.out 2>&1
 printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
 
@@ -574,7 +574,7 @@ EOF
 #!/bin/sh
 printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 if [ "\$2" = "start" ]; then
-    if flock -n "${XDG_RUNTIME_DIR}/dev-update.lock" true; then
+    if flock -n ${XDG_RUNTIME_DIR@Q}/dev-update.lock true; then
         printf 'lock free at timer start\n' >> "\${FAKE_BIN_LOG}"
     else
         printf 'lock held at timer start\n' >> "\${FAKE_BIN_LOG}"
@@ -1629,7 +1629,7 @@ setup_fake_tmux() {
     replace_fake tmux <<EOF
 #!/bin/sh
 printf 'tmux %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
-if [ "\$1" = "has-session" ] && [ ! -f "${BATS_TEST_TMPDIR}/session-exists" ]; then
+if [ "\$1" = "has-session" ] && [ ! -f ${BATS_TEST_TMPDIR@Q}/session-exists ]; then
     exit 1
 fi
 exit 0
@@ -1682,4 +1682,17 @@ EOF
     run "${LINUX_DIR}/tmux-here"
 
     [ "$(grep '^tmux attach-session' "${FAKE_BIN_LOG}" | sort -u | wc -l)" -eq 2 ]
+}
+
+@test "a fake reads its marker file under a temporary directory whose name holds a quote, a dollar and a backslash" {
+    local BATS_TEST_TMPDIR="${BATS_TEST_TMPDIR}/odd\"\$name\\dir"
+    mkdir -p "${BATS_TEST_TMPDIR}/proj"
+    setup_fake_tmux
+    touch "${BATS_TEST_TMPDIR}/session-exists"
+    cd "${BATS_TEST_TMPDIR}/proj"
+
+    run "${LINUX_DIR}/tmux-here"
+    [ "${status}" -eq 0 ]
+    refute_fake_called 'new-session'
+    assert_fake_called '^tmux attach-session -t =proj-[0-9]+$'
 }

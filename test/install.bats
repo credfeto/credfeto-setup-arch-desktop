@@ -52,8 +52,8 @@ setup() {
         _name="$(basename "${_step}")"
         cat > "${INSTALL_TREE}/install.d/${_name}" <<EOF
 #!/bin/sh
-printf '%s\n' "${_name}" >> "${STEP_LOG}"
-[ "\${FAILING_STEP:-}" != "${_name}" ]
+printf '%s\n' ${_name@Q} >> ${STEP_LOG@Q}
+[ "\${FAILING_STEP:-}" != ${_name@Q} ]
 EOF
         chmod +x "${INSTALL_TREE}/install.d/${_name}"
     done
