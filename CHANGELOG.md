@@ -88,6 +88,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Shell environment, sshd drop-ins and dev-scripts refuse to deploy unless run from the top of a git clone, printing one clear error before anything is installed instead of a second misleading one, and never deploy files that an enclosing repository tracks; outside a clone nothing is created under /usr/local, including dev-scripts' lock
 - dev-update keeps the published snapshot when the committed tree has not changed, so a process started from a snapshot is no longer cut off after two runs and nothing is rebuilt when the tree is unchanged; the archive is exactly the tree recorded for the snapshot, even if HEAD moves while publish waits for its lock
 - Shell environment, sshd drop-ins and dev-scripts refuse to deploy from a checkout with unresolved merge conflicts, so conflict markers are never copied into /etc or the scripts copy and a duplicate-script error no longer misleads
+- Set the .NET environment (DOTNET_ROOT, DOTNET_* settings, PATH) for all users and every session type, not just interactive bash (#106)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
