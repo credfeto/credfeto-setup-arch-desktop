@@ -923,7 +923,7 @@ run_with_lock_step_failing() {
 #!/bin/sh
 "${_real_mv}" "\$@" || exit
 case "\$*" in
-    "-T "*"${DEV_SCRIPTS_LIB_DIR}") kill -TERM "\${PPID}" ;;
+    "-T "*${DEV_SCRIPTS_LIB_DIR@Q}) kill -TERM "\${PPID}" ;;
 esac
 exit 0
 EOF

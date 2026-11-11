@@ -377,8 +377,9 @@ run_section_shell() {
 # bash_completion that leaves the label in nvm_completion_loaded.
 # Usage: write_fake_nvm <dir> <label>
 write_fake_nvm() {
+    local _loads="${BATS_TEST_TMPDIR}/nvm-loads"
     mkdir -p "$1"
-    printf 'echo %s >> "%s"\n' "$2" "${BATS_TEST_TMPDIR}/nvm-loads" > "$1/nvm.sh"
+    printf 'echo %s >> %s\n' "$2" "${_loads@Q}" > "$1/nvm.sh"
     printf 'nvm_completion_loaded=%s\n' "$2" > "$1/bash_completion"
 }
 
