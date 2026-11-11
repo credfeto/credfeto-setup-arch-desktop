@@ -1,0 +1,69 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+# shellcheck source=../../../lib/dotnet-environment disable=SC1091
+. "$BASEDIR/lib/dotnet-environment"
+
+# Removes what install-latest-dotnet installs: the .NET environment every
+# session gets, the live link and every install folder beside it. Never runs
+# dotnet, and leaves each user's own ~/.dotnet alone.
+
+refuse_ai_agent uninstall-dotnet
+
+# Overridable so the tests can run against folders of their own; the default
+# is the real location, as in install-latest-dotnet.
+DOTNET_INSTALL_ROOT="${DOTNET_INSTALL_ROOT:-/usr/share}"
+DOTNET_INSTALL_DIR="$DOTNET_INSTALL_ROOT/dotnet"
+DOTNET_SWITCH_LINK="$DOTNET_INSTALL_ROOT/dotnet.tmp-link"
+# install-latest-dotnet's run lock, so this never removes an install that run
+# is still building. Kept, as that script never expects it to go.
+LOCK_FILE="$DOTNET_INSTALL_ROOT/dotnet-install.lock"
+
+# Runs a command directly when the install root is writable, otherwise
+# through sudo.
+as_install_root_owner() {
+    sudo_unless_writable "$DOTNET_INSTALL_ROOT" "$@"
+}
+
+create_lock_file as_install_root_owner "$LOCK_FILE"
+exec 9<"$LOCK_FILE" || die "Failed to open $LOCK_FILE"
+flock -n 9 || die "An install-latest-dotnet run holds $LOCK_FILE; re-run once it has finished"
+
+# The environment first, so no session started from now on points at an SDK
+# that is about to go. Read by remove_dotnet_env.
+# shellcheck disable=SC2034
+DOTNET_ENV_SDK_DIR="$DOTNET_INSTALL_DIR"
+remove_dotnet_env
+
+if [ -L "$DOTNET_INSTALL_DIR" ]; then
+    as_install_root_owner rm -f "$DOTNET_INSTALL_DIR" || die "Failed to remove $DOTNET_INSTALL_DIR"
+elif [ -d "$DOTNET_INSTALL_DIR" ]; then
+    # The folder versions of install-latest-dotnet before the link installed
+    # into.
+    info "Removing $DOTNET_INSTALL_DIR"
+    as_install_root_owner rm -rf "$DOTNET_INSTALL_DIR" || die "Failed to remove $DOTNET_INSTALL_DIR"
+elif [ -e "$DOTNET_INSTALL_DIR" ]; then
+    die "$DOTNET_INSTALL_DIR is neither a folder nor a link; remove it by hand, then re-run"
+fi
+
+if [ -L "$DOTNET_SWITCH_LINK" ]; then
+    as_install_root_owner rm -f "$DOTNET_SWITCH_LINK" || die "Failed to remove $DOTNET_SWITCH_LINK"
+fi
+
+# Only the names install-latest-dotnet gives its install folders (its
+# date -u +%Y%m%dT%H%M%SZ stamp), so nothing else under the install root is
+# touched. A pattern that matches nothing comes through as itself, which is
+# not a folder.
+for INSTALL_FOLDER in \
+    "$DOTNET_INSTALL_ROOT"/dotnet-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z \
+    "$DOTNET_INSTALL_ROOT"/dotnet-legacy-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z; do
+    [ -d "$INSTALL_FOLDER" ] && [ ! -L "$INSTALL_FOLDER" ] || continue
+    info "Removing $INSTALL_FOLDER"
+    as_install_root_owner rm -rf "$INSTALL_FOLDER" || die "Failed to remove $INSTALL_FOLDER"
+done
+
+success ".NET removed"

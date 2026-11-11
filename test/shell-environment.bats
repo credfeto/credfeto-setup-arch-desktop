@@ -692,15 +692,6 @@ run_section_twice() {
     run_section_shell "${@:3}" non-interactive 'PATH="$3"; . "$1/45_path-helpers.sh"; . "$2"; . "$2"; printf "%s\n" "$PATH"' "$1" "$2"
 }
 
-# Sources the copy of 60_dotnet.sh in $2 twice, after the PATH helpers it
-# calls, and prints DOTNET_ROOT as the shell declares it, or "unset".
-# shellcheck disable=SC2016
-DOTNET_ROOT_AFTER_SECTION_SCRIPT='
-. "$1/45_path-helpers.sh"
-. "$2"
-. "$2"
-declare -p DOTNET_ROOT 2> /dev/null || echo unset'
-
 # Calls the named helper from 45_path-helpers.sh with a directory, starting
 # from the given PATH, and leaves the resulting PATH in $output.
 # Usage: run_path_helper <helper> <starting-path> <dir>
@@ -865,29 +856,6 @@ run_go_section_with_fake_go() {
     run_section_shell PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" non-interactive '. "$1/45_path-helpers.sh"; before="$(compgen -v)"; . "$1/55_go.sh"; diff <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)'
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
-}
-
-@test "60_dotnet.sh adds DOTNET_ROOT to PATH once however often it is sourced" {
-    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _section
-    mkdir -p "${_dotnet}"
-    _section="$(dotnet_section_reading "${_dotnet}")"
-    run_section_twice "${_section}" /usr/bin:/bin
-    [ "${status}" -eq 0 ]
-    [ "${output}" = "/usr/bin:/bin:${_dotnet}" ]
-    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
-    [ "${status}" -eq 0 ]
-    [ "${output}" = "declare -x DOTNET_ROOT=\"${_dotnet}\"" ]
-}
-
-@test "60_dotnet.sh leaves PATH alone and sets no DOTNET_ROOT when .NET is not installed" {
-    local _section
-    _section="$(dotnet_section_reading "${BATS_TEST_TMPDIR}/no-dotnet")"
-    run_section_twice "${_section}" /usr/bin:/bin
-    [ "${status}" -eq 0 ]
-    [ "${output}" = '/usr/bin:/bin' ]
-    run_section_shell non-interactive "${DOTNET_ROOT_AFTER_SECTION_SCRIPT}" "${_section}"
-    [ "${status}" -eq 0 ]
-    [ "${output}" = unset ]
 }
 
 @test "75_bun.sh puts bun first on PATH once however often it is sourced" {

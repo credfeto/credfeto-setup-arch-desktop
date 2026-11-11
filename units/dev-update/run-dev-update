@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # Entry point for dev-update.service. The unit runs this through `sh -l`,
-# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, NVM_DIR, ...), but not
-# /etc/bash.bashrc.d, which only interactive bash shells read. This script is
-# bash, whatever /bin/sh is, because those sections are bash-only. Every
-# section of this clone's bash.bashrc.d is sourced, in the same filename order
-# as the /etc/bash.bashrc loader, so dev-update's steps find the same tools on
-# PATH (nvm's node, Go, bun, dotnet, ...) as an interactive shell does, and a
-# new tool section reaches them without being listed here. Whatever else the
-# sections export (EDITOR, NODE_OPTIONS, the dotnet settings, ...) reaches
-# dev-update with it.
+# which reads /etc/profile.d (NUGET_PACKAGES, GNUPGHOME, NVM_DIR, the .NET
+# environment and dotnet on PATH, ...), but not /etc/bash.bashrc.d, which only
+# interactive bash shells read. This script is bash, whatever /bin/sh is,
+# because those sections are bash-only. Every section of this clone's
+# bash.bashrc.d is sourced, in the same filename order as the /etc/bash.bashrc
+# loader, so dev-update's steps find the same tools on PATH (nvm's node, Go,
+# bun, ...) as an interactive shell does, and a new tool section reaches them
+# without being listed here. Whatever else the sections export (EDITOR,
+# NODE_OPTIONS, ...) reaches dev-update with it.
 
 # The sections are sourced into this shell, so they share its variables.
 # Everything that decides what is sourced and what is started is therefore

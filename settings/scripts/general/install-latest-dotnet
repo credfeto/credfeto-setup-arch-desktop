@@ -453,6 +453,11 @@ prune_old_installs "$PREVIOUS_INSTALL_NAME"
 # keep holding it once this run has ended.
 exec 9<&-
 
+# Only now the switch has succeeded, so a failed install never points every
+# session at an SDK that is not there. Run from beside this script, as the
+# tool scripts are, so the copy that ships with it runs.
+DOTNET_ENV_SDK_DIR="$DOTNET_INSTALL_DIR" "$BASEDIR/install.d/dotnet-environment" || die "Could not install the .NET environment"
+
 info "Installing and updating dotnet tools"
 
 # The --local calls in install-dotnet-tools and update-dotnet-tools use the
@@ -463,9 +468,9 @@ info "Installing and updating dotnet tools"
 cd "$HOME" || die "Could not change to $HOME"
 
 # Both tool scripts call a bare dotnet, which on a first install is not on
-# PATH yet (60_dotnet.sh adds the install to PATH only when it already existed
-# as the shell started), and otherwise could be an older install that comes
-# first, so the install this run just switched to goes first on PATH for them.
+# PATH yet (the .NET environment just installed reaches only sessions started
+# from now on), and otherwise could be an older install that comes first, so
+# the install this run just switched to goes first on PATH for them.
 # They run from beside this script rather than looked up on PATH, so the
 # copies that ship with it run.
 PATH="$DOTNET_INSTALL_DIR:$PATH"

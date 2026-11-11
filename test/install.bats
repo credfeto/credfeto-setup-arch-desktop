@@ -23,6 +23,7 @@ EXPECTED_STEPS=(
     enable-services
     shell-prompt
     shell-environment
+    dotnet-environment
     configure-flatpak
     git-environment
     dev-scripts

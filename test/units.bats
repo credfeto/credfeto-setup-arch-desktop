@@ -65,8 +65,7 @@ setup_run_dev_update_tree() {
 #!/bin/sh
 {
     printf 'PATH=%s\n' "\${PATH}"
-    printf 'DOTNET_NOLOGO=%s\n' "\${DOTNET_NOLOGO:-}"
-    printf 'DOTNET_ROOT=%s\n' "\${DOTNET_ROOT:-}"
+    printf 'BUN_INSTALL=%s\n' "\${BUN_INSTALL:-}"
     printf 'NVM_DIR=%s\n' "\${NVM_DIR:-}"
 } > "${RECORDED_ENV}"
 exit 3
@@ -86,13 +85,11 @@ recorded_path_has() {
 
 @test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
     local _section
-    local _dotnet="${BATS_TEST_TMPDIR}/dotnet" _gopath="${BATS_TEST_TMPDIR}/go-default"
+    local _gopath="${BATS_TEST_TMPDIR}/go-default"
     setup_run_dev_update_tree
-    mkdir -p "${HOME}/.bun/bin" "${_dotnet}"
-    # .NET, nvm and Go are stand-ins, so what each section does when its tool
-    # is there is checked whether or not the machine running the suite has it.
-    _section="$(dotnet_section_reading "${_dotnet}")"
-    cp "${_section}" "${CLONE_SECTIONS_DIR}/60_dotnet.sh"
+    mkdir -p "${HOME}/.bun/bin"
+    # nvm and Go are stand-ins, so what each section does when its tool is
+    # there is checked whether or not the machine running the suite has it.
     _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
     cp "${_section}" "${CLONE_SECTIONS_DIR}/70_nvm.sh"
     setup_fake_bin go
@@ -113,9 +110,7 @@ recorded_path_has() {
     # ahead of /usr/bin. That is deliberate: it is the order every interactive
     # shell has, and timer runs are meant to find the same tools.
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${RECORDED_ENV}"
-    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
-    grep -qx "DOTNET_ROOT=${_dotnet}" "${RECORDED_ENV}"
-    recorded_path_has "${_dotnet}"
+    grep -qx "BUN_INSTALL=${HOME}/.bun" "${RECORDED_ENV}"
     # run_with_clean_tool_env clears GOPATH, so the entry is the answer the
     # fake go gave, not one a real go or the caller's GOPATH would give.
     assert_fake_called '^go env GOPATH$'
@@ -157,14 +152,15 @@ EOF
     [ "${status}" -eq 3 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
-    # Set by 60_dotnet.sh and 75_bun.sh, which sort after the stub.
-    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
+    # Set by 75_bun.sh, which sorts after the stub.
+    grep -qx "BUN_INSTALL=${HOME}/.bun" "${RECORDED_ENV}"
     grep -qx "PATH=${HOME}/.bun/bin:.*" "${RECORDED_ENV}"
 }
 
 @test "run-dev-update reports a section that assigns any of its read-only names, runs the rest of that section and the later ones, and still starts its own dev-update" {
     local _name
     setup_run_dev_update_tree
+    mkdir -p "${HOME}/.bun/bin"
     # Every name the wrapper keeps read-only, then a statement of the
     # section's own, which only runs if none of the failed assignments above
     # it ended the section.
@@ -182,9 +178,9 @@ EOF
         [[ "${stderr}" == *"RUN_DEV_UPDATE_${_name}: readonly variable"* ]]
     done
     recorded_path_has /units-test/after-clobber
-    # Set by 60_dotnet.sh, which sorts after the stub, so the list of
-    # sections was not replaced either.
-    grep -qx 'DOTNET_NOLOGO=true' "${RECORDED_ENV}"
+    # Set by 75_bun.sh, which sorts after the stub, so the list of sections
+    # was not replaced either.
+    grep -qx "BUN_INSTALL=${HOME}/.bun" "${RECORDED_ENV}"
 }
 
 @test "run-dev-update fails without starting dev-update when bash.bashrc.d holds no sections or is missing" {

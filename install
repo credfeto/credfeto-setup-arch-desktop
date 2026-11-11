@@ -28,6 +28,7 @@ for STEP in \
     enable-services \
     shell-prompt \
     shell-environment \
+    dotnet-environment \
     configure-flatpak \
     git-environment \
     dev-scripts; do

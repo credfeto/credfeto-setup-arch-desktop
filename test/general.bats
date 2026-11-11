@@ -231,9 +231,19 @@ setup_install_latest_dotnet_copy() {
     local tree="${BATS_TEST_TMPDIR}/repo"
     local tool varname
     DOTNET_TEST_SCRIPT_DIR="${tree}/settings/scripts/general"
-    mkdir -p "${DOTNET_TEST_SCRIPT_DIR}" "${tree}/lib"
+    mkdir -p "${DOTNET_TEST_SCRIPT_DIR}" "${tree}/lib" "${tree}/install.d"
     cp "${INSTALL_LATEST_DOTNET}" "${DOTNET_TEST_SCRIPT_DIR}/install-latest-dotnet"
     ln -sfn "${REPO_DIR}/lib/common" "${tree}/lib/common"
+
+    # The .NET environment step writes under /etc, so the copy gets a fake
+    # that logs the SDK it was given, then exits with
+    # FAKE_EXIT_dotnet_environment, or 0. Its own suite is
+    # dotnet-environment.bats.
+    write_fake_script "${tree}/install.d/dotnet-environment" dotnet-environment <<'EOF'
+#!/bin/sh
+printf 'dotnet-environment DOTNET_ENV_SDK_DIR=%s\n' "${DOTNET_ENV_SDK_DIR-unset}" >> "${FAKE_BIN_LOG}"
+exit "${FAKE_EXIT_dotnet_environment:-0}"
+EOF
 
     for tool in install-dotnet-tools update-dotnet-tools; do
         varname="FAKE_EXIT_${tool//-/_}"
@@ -678,6 +688,43 @@ EOF
     assert_fake_called '^install-dotnet-tools '
     assert_fake_called '^update-dotnet-tools '
     refute_fake_called '^dotnet tool restore '
+}
+
+@test "install-latest-dotnet installs the .NET environment for the live path once it has switched to the new install" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 0 ]
+
+    switch_line="$(log_line_of '^sudo mv -T .*/dotnet\.tmp-link ')"
+    environment_line="$(log_line_of "^dotnet-environment DOTNET_ENV_SDK_DIR=${DOTNET_TEST_INSTALL_ROOT}/dotnet$")"
+    install_line="$(log_line_of '^install-dotnet-tools ')"
+    [ -n "${switch_line}" ]
+    [ -n "${environment_line}" ]
+    [ -n "${install_line}" ]
+    [ "${switch_line}" -lt "${environment_line}" ]
+    [ "${environment_line}" -lt "${install_line}" ]
+    [ "$(grep -c '^dotnet-environment ' "${FAKE_BIN_LOG}")" -eq 1 ]
+}
+
+@test "install-latest-dotnet leaves the .NET environment alone when the install fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_CURL_FAIL_DOWNLOAD=1
+    [ "${status}" -eq 1 ]
+    assert_failed_run_left_previous_install
+    refute_fake_called '^dotnet-environment '
+}
+
+@test "install-latest-dotnet stops, naming the step, when installing the .NET environment fails" {
+    seed_previous_dotnet_install
+
+    run_install_latest_dotnet FAKE_EXIT_dotnet_environment=1
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not install the .NET environment"* ]]
+    [[ "${output}" != *"Done"* ]]
+    assert_fake_called '^dotnet-environment '
+    refute_fake_called '^install-dotnet-tools '
 }
 
 # Seeds the live path as the real folder earlier versions of the script
