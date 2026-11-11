@@ -502,7 +502,7 @@ section_line_reading() {
 # system directory as a whole path component (not touching a letter, digit,
 # ".", "_" or "-", nor a "/" or "}" before it) that is either outside quotes,
 # alone or followed by more of a path, or a whole double-quoted word, such as
-# "/usr/share/dotnet"; in a comment it is replaced as plain text. Anything
+# "/usr/share/nvm"; in a comment it is replaced as plain text. Anything
 # else fails, with a message on stderr naming the section, the line and the
 # reason: the system directory inside a single- or double-quoted string in
 # any other way, as part of a longer name, or straight after a backslash.
@@ -567,12 +567,4 @@ EOF
 autojump_section_reading() {
     section_reading 77_autojump.sh /usr/share/autojump "$1" \
         "[ -f ${1@Q}/autojump.sh ]" ". ${1@Q}/autojump.sh"
-}
-
-# Writes the copy of 60_dotnet.sh that looks for .NET in the given directory:
-# its existence test and the DOTNET_ROOT it exports.
-# Usage: dotnet_section_reading <dotnet-dir>
-dotnet_section_reading() {
-    section_reading 60_dotnet.sh /usr/share/dotnet "$1" \
-        "[ -d ${1@Q} ]" "export DOTNET_ROOT=${1@Q}"
 }

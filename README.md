@@ -63,7 +63,7 @@ An installer that does not support `--system` stops the run with an error naming
 
 The units in `~/.config/systemd/user/` are symlinks into the `credfeto-setup-arch-desktop` reference clone. If that clone is deleted, a tick that fires while the units are still loaded is skipped quietly, but after the next `systemctl --user daemon-reload` or login the units no longer load and the timer stops firing. Nothing restores the clone on its own, so re-run `dev-install` to clone it again and relink the units.
 
-The service runs `dev-update` through a login shell (`/bin/sh -lc`), because the user manager does not read `/etc/profile.d`. That shell is the POSIX `sh` rather than bash, so a timer run reads `~/.profile` and never `~/.bash_profile` or `~/.bashrc`. The `units/dev-update/run-dev-update` wrapper, which is a bash script, first sources every `settings/bash.bashrc.d` section from the reference clone, which a non-interactive shell never reads. Timer runs therefore get the tool environment of an interactive shell, from two places. The `/etc/profile.d` variables, such as `NUGET_PACKAGES`, `GNUPGHOME` and `NVM_DIR`, are the ones `install` last deployed. The tool setup, such as nvm's Node.js, Go, bun and dotnet on `PATH`, comes from the reference clone's sections, so the two can differ until `install` is run again after the clone has moved on. `PATH` has the same order as in an interactive shell, where `~/.bun/bin` and nvm's Node.js directory come ahead of `/usr/bin`.
+The service runs `dev-update` through a login shell (`/bin/sh -lc`), because the user manager does not read `/etc/profile.d`. That shell is the POSIX `sh` rather than bash, so a timer run reads `~/.profile` and never `~/.bash_profile` or `~/.bashrc`. The `units/dev-update/run-dev-update` wrapper, which is a bash script, first sources every `settings/bash.bashrc.d` section from the reference clone, which a non-interactive shell never reads. Timer runs therefore get the tool environment of an interactive shell, from two places. The `/etc/profile.d` variables, such as `NUGET_PACKAGES`, `GNUPGHOME`, `NVM_DIR` and the [.NET environment](#net-environment), are the ones `install` or `install-latest-dotnet` last deployed. The tool setup, such as nvm's Node.js, Go and bun on `PATH`, comes from the reference clone's sections, so the two can differ until `install` is run again after the clone has moved on. `PATH` has the same order as in an interactive shell, where `~/.bun/bin` and nvm's Node.js directory come ahead of `/usr/bin`.
 
 Timer runs clone and fast-forward the reference clones over SSH. `SSH_AUTH_SOCK` points at the user `ssh-agent.socket` that `install` enables, so the agent must hold the key.
 
@@ -81,6 +81,19 @@ journalctl --user -u dev-update.service
 ### update
 
 The interactive `update` shell function updates system packages, then runs `install` from `~/work/reference/credfeto-setup-arch-desktop` when that clone exists, otherwise from `~/work/personal/credfeto-setup-arch-desktop`.
+
+### .NET environment
+
+`settings/dotnet-env/dotnet.conf` is the only place the .NET environment is defined: `DOTNET_ROOT` and the other `DOTNET_*` settings, one `NAME=value` per line. Values may hold only letters, digits and `. _ / : + -`. Edit that list, then re-run `install-latest-dotnet` (or `install.d/dotnet-environment`) to apply it; never edit the generated files, which the next run overwrites. Once `install-latest-dotnet` has switched to a new SDK, and only then, it generates from the list, so every kind of session gets the same values:
+
+- `/etc/environment.d/60-dotnet.conf`, for systemd user sessions and the units they start, such as `systemd-run --user` and user timers. It appends the SDK to `PATH` (`PATH=$PATH:/usr/share/dotnet`).
+- `/etc/profile.d/60_dotnet.sh` and `/etc/bash.bashrc.d/60_dotnet.sh`, for login shells and every interactive bash. They export the values and add the SDK and `$HOME/.dotnet/tools`, where `dotnet tool install --global` puts tools, to `PATH`, each once.
+- A block between `# BEGIN credfeto-setup-arch-desktop dotnet` and `# END credfeto-setup-arch-desktop dotnet` in `/etc/security/pam_env.conf`, for SSH and console logins, with one `NAME DEFAULT=value` line per setting. A re-run replaces the block, so there is only ever one. pam_env cannot append to `PATH`, so the block has no `PATH` line.
+- A `/usr/local/bin/dotnet` link to the SDK's `dotnet`, so anything with a minimal `PATH`, such as cron or an SSH command, finds it. Something other than a link already at that path is left alone, with a warning.
+
+`install` runs `install.d/dotnet-environment` too, which does the same for the SDK at `/usr/share/dotnet` and does nothing when no SDK is installed there. The files reach only sessions started after they were written, so log out and back in after the first install.
+
+`uninstall-dotnet` removes all of the above (the link only while it points at this SDK), then the SDK's live link and every install folder `install-latest-dotnet` made. It never runs `dotnet` and leaves each user's `~/.dotnet` alone. It refuses to run inside a Claude Code session, and stops when an `install-latest-dotnet` run holds its lock.
 
 ## Changelog
 

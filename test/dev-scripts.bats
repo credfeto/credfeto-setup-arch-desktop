@@ -84,6 +84,24 @@ run_dev_scripts_against_fake_repo() {
     run "${FAKE_SCRIPTS_REPO}/install.d/dev-scripts"
 }
 
+@test "dev-scripts copies the .NET environment step and its list, for install-latest-dotnet, but no other install step" {
+    add_fake_dev_script
+    mkdir -p "${FAKE_SCRIPTS_REPO}/install.d" "${FAKE_SCRIPTS_REPO}/settings/dotnet-env"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/install.d/dotnet-environment"
+    printf '#!/bin/sh\nexit 0\n' > "${FAKE_SCRIPTS_REPO}/install.d/other-step"
+    chmod +x "${FAKE_SCRIPTS_REPO}/install.d/dotnet-environment" "${FAKE_SCRIPTS_REPO}/install.d/other-step"
+    printf 'DOTNET_ROOT=/usr/share/dotnet\n' > "${FAKE_SCRIPTS_REPO}/settings/dotnet-env/dotnet.conf"
+
+    run_dev_scripts_against_fake_repo
+    [ "${status}" -eq 0 ]
+    [ -x "${DEV_SCRIPTS_LIB_DIR}/install.d/dotnet-environment" ]
+    [ "$(cat "${DEV_SCRIPTS_LIB_DIR}/settings/dotnet-env/dotnet.conf")" = "DOTNET_ROOT=/usr/share/dotnet" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/install.d/other-step" ]
+    [ ! -e "${DEV_SCRIPTS_LIB_DIR}/install.d/dev-scripts" ]
+    # Copied, not linked: only settings/scripts/ is linked into the bin dir.
+    [ ! -e "${DEV_SCRIPTS_BIN_DIR}/dotnet-environment" ]
+}
+
 @test "dev-scripts copies only tracked files, leaving out untracked and ignored ones" {
     add_fake_dev_script
     printf 'secret.conf\n' > "${FAKE_SCRIPTS_REPO}/.gitignore"

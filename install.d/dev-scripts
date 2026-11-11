@@ -30,9 +30,10 @@ dev_scripts_lib_sudo() {
 # Prints, relative to BASEDIR, every tracked file under lib/ and the source
 # directories that is still in the working tree, one per line. The copy is
 # world-readable, so it takes only what git tracks: an untracked, ignored or
-# private file beside the scripts never reaches it.
+# private file beside the scripts never reaches it. The .NET environment step
+# and its list come too, as install-latest-dotnet runs the step from the copy.
 list_copied_files() {
-    set -- lib
+    set -- lib install.d/dotnet-environment settings/dotnet-env
     for DIR in $DEV_SCRIPTS_SOURCE_DIRS; do
         set -- "$@" "settings/scripts/$DIR"
     done

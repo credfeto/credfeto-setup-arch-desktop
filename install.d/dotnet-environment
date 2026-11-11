@@ -1,0 +1,22 @@
+#! /bin/sh
+
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$SCRIPTDIR")"
+
+# shellcheck source=../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+# shellcheck source=../lib/dotnet-environment disable=SC1091
+. "$BASEDIR/lib/dotnet-environment"
+
+# Gives every kind of session (systemd user sessions, SSH and console logins,
+# login and interactive shells) the .NET environment in
+# settings/dotnet-env/dotnet.conf, when the SDK is installed. Also run by
+# install-latest-dotnet, from the copy dev-scripts deploys, once it has
+# switched to a new SDK, so it reads only the list and lib/, never git.
+install_dotnet_environment() {
+    install_dotnet_env
+
+    success ".NET environment up to date"
+}
+
+install_dotnet_environment
