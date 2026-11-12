@@ -447,15 +447,14 @@ publish_reference_repo() {
     success "Published ${PUBLISH_REPO} to ${PUBLISH_LINK}"
 }
 
-# Runs a system-wide installer from its published snapshot with --system. An
-# installer that does not mention --system would install per user instead, so
-# it fails the run rather than being run without it.
+# Runs a system-wide installer from its published snapshot with --system.
+# The installer is judged only by its exit code, so it must either install
+# system-wide for --system or exit non-zero.
 # Usage: run_published_step <repo>/<path-in-repo>
 run_published_step() {
     STEP="${DEV_PUBLISH_DIR}/$1"
 
     [ -x "${STEP}" ] || die "Not found or not executable: ${STEP}"
-    grep -q -e '--system' "${STEP}" || die "${STEP} does not support --system"
 
     info "Running ${STEP} --system..."
     "${STEP}" --system || die "Failed to run ${STEP}"

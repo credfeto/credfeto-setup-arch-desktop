@@ -72,15 +72,13 @@ EOF
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
-# to the fake log and exits with the given code. It names --system, as a
-# published installer must for dev-update to run it.
+# to the fake log and exits with the given code.
 # Usage: make_logging_stub <root> <relpath> [<exit-code>]
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-# accepts --system
 printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
@@ -448,7 +446,6 @@ setup_dev_update_fixture() {
     # A second dev-update started from inside a step must find the lock held.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
-# accepts --system
 ${LINUX_DIR@Q}/dev-update > ${BATS_TEST_TMPDIR@Q}/nested.out 2>&1
 printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
@@ -467,7 +464,6 @@ EOF
     # inherited lock fd would keep the lock held after dev-update ends.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
-# accepts --system
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
         *dev-update.lock) printf 'lock fd inherited\n' >> "\${FAKE_BIN_LOG}" ;;
@@ -689,8 +685,9 @@ EOF
 }
 
 @test "dev-update treats every install step failing as fatal" {
-    local _failing
-    for _failing in "${DEV_UPDATE_STEPS[@]}"; do
+    local _index _failing _later
+    for _index in "${!DEV_UPDATE_STEPS[@]}"; do
+        _failing="${DEV_UPDATE_STEPS[_index]}"
         setup_dev_update_fixture
         make_logging_stub "${HOME}/work/reference" "${_failing}" 3
 
@@ -701,6 +698,9 @@ EOF
         else
             [[ "${output}" == *"Failed to run ${DEV_PUBLISH_DIR}/${_failing}"* ]]
         fi
+        for _later in "${DEV_UPDATE_STEPS[@]:_index+1}"; do
+            refute_fake_called "^${_later//./\\.} "
+        done
         refute_fake_called '^update-dotnet-tools'
         refute_fake_called '^systemctl --user start '
 
@@ -718,25 +718,24 @@ EOF
         [ "${status}" -eq 1 ]
         [[ "${output}" == *"Not found or not executable: ${DEV_PUBLISH_DIR}/claude/install"* ]]
         refute_fake_called '^credfeto-ai-skills/install'
+        refute_fake_called '^update-dotnet-tools'
+        refute_fake_called '^systemctl --user start '
 
         rm -rf "${HOME}/work/reference" "${DEV_PUBLISH_DIR}"
     done
 }
 
-@test "dev-update dies if a published installer does not support --system, and runs nothing after it" {
+@test "dev-update runs a published installer with --system even when its text never mentions --system" {
     setup_dev_update_fixture
-    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<'EOF'
-#!/bin/sh
-printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
-EOF
-
     run "${LINUX_DIR}/dev-update"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
+    assert_fake_called '^credfeto-orchestrator/install-claude-hooks --system$'
+    assert_fake_called '^update-dotnet-tools '
+
+    # The published copy dev-update ran, not the reference clone, is the one whose text must lack --system.
+    run grep -q -e '--system' "${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks"
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"${DEV_PUBLISH_DIR}/claude/install does not support --system"* ]]
-    refute_fake_called '^claude/install'
-    refute_fake_called '^credfeto-ai-skills/install'
-    refute_fake_called '^update-dotnet-tools'
-    refute_fake_called '^systemctl --user start '
 }
 
 @test "dev-update runs each system installer from its published snapshot, not the reference clone" {

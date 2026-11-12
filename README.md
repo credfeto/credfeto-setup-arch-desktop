@@ -47,15 +47,13 @@ Both `dev-install` and `dev-update` switch each reference clone to `main` and fa
 - `credfeto-ai-skills/install --system`
 - `credfeto-orchestrator/install-claude-hooks --system`
 
-Each `--system` installer runs from a published snapshot of its repository rather than from the reference clone, as described under [Published snapshots](#published-snapshots). It then runs `update-dotnet-tools` from the `credfeto-setup-arch-desktop` reference clone, with `$HOME` as the working directory, and, once the whole run has succeeded and released its lock, starts `dev-update.timer` (a no-op when it is already running). A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully. `dev-install` runs `dev-update --fail-if-running`, which makes that case an error instead.
+Each `--system` installer runs from a published snapshot of its repository rather than from the reference clone, as described under [Published snapshots](#published-snapshots). Each installer is judged only by its exit code, so it must either install system-wide for `--system` or exit non-zero. `dev-update` then runs `update-dotnet-tools` from the `credfeto-setup-arch-desktop` reference clone, with `$HOME` as the working directory, and, once the whole run has succeeded and released its lock, starts `dev-update.timer` (a no-op when it is already running). A lock in `$XDG_RUNTIME_DIR/dev-update.lock` stops a manual run and a timer run overlapping; the second one reports that `dev-update` is already running and exits successfully. `dev-install` runs `dev-update --fail-if-running`, which makes that case an error instead.
 
 ### Published snapshots
 
 Before running a repository's `--system` installer, `dev-update` publishes that repository to `/usr/local/share/development`, so that what the installer sets up system-wide never points into a reference clone. Set `DEV_PUBLISH_DIR` to publish somewhere else.
 
 When the clone's committed `HEAD` has changed since the current snapshot was made, the publish exports it with `git archive` into a new directory named `<repo>-<UTC timestamp>Z`, so untracked and uncommitted files are never published. Each snapshot records the git tree it was made from in a hidden `.published-tree` file at its root; when the clone's committed tree matches the current snapshot's, the publish keeps that snapshot, makes and removes nothing, and the installer runs from it as before. The snapshot is owned by `root:root`, with directories at mode 755 and files writable only by root. The `<repo>` symlink is then switched to the new snapshot in one atomic rename, so an installer never sees a half-written tree. The previous snapshot is kept, so anything still using it keeps working, and any older ones are removed. A lock file in the publish directory, `.publish.lock`, stops two accounts publishing at the same time: the second run says it is waiting and waits up to 5 minutes for the first to finish, then stops with an error naming the lock if it is still held.
-
-An installer that does not support `--system` stops the run with an error naming it.
 
 ### dev-update timer
 
