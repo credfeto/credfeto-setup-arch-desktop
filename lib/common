@@ -448,6 +448,8 @@ publish_reference_repo() {
 }
 
 # Runs a system-wide installer from its published snapshot with --system.
+# The installer is judged only by its exit code, so it must either install
+# system-wide for --system or exit non-zero.
 # Usage: run_published_step <repo>/<path-in-repo>
 run_published_step() {
     STEP="${DEV_PUBLISH_DIR}/$1"
