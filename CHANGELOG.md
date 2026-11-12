@@ -91,6 +91,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Shell environment, sshd drop-ins and dev-scripts refuse to deploy from a checkout with unresolved merge conflicts, so conflict markers are never copied into /etc or the scripts copy and a duplicate-script error no longer misleads
 - Set the .NET environment (DOTNET_ROOT, DOTNET_* settings, PATH) for all users and every session type, not just interactive bash (#106)
 - pacman-sync: add PrivateTmp=yes so checkupdates cannot use a pre-created predictable /tmp/checkup-db-0 directory
+- TBD - to be finalized after review
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
