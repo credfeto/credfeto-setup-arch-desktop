@@ -718,6 +718,8 @@ EOF
         [ "${status}" -eq 1 ]
         [[ "${output}" == *"Not found or not executable: ${DEV_PUBLISH_DIR}/claude/install"* ]]
         refute_fake_called '^credfeto-ai-skills/install'
+        refute_fake_called '^update-dotnet-tools'
+        refute_fake_called '^systemctl --user start '
 
         rm -rf "${HOME}/work/reference" "${DEV_PUBLISH_DIR}"
     done
