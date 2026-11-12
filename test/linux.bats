@@ -72,15 +72,13 @@ EOF
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
-# to the fake log and exits with the given code. It names --system, as a
-# published installer must for dev-update to run it.
+# to the fake log and exits with the given code.
 # Usage: make_logging_stub <root> <relpath> [<exit-code>]
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-# accepts --system
 printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
@@ -448,7 +446,6 @@ setup_dev_update_fixture() {
     # A second dev-update started from inside a step must find the lock held.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
-# accepts --system
 ${LINUX_DIR@Q}/dev-update > ${BATS_TEST_TMPDIR@Q}/nested.out 2>&1
 printf 'nested dev-update exited %s\n' "\$?" >> "\${FAKE_BIN_LOG}"
 EOF
@@ -467,7 +464,6 @@ EOF
     # inherited lock fd would keep the lock held after dev-update ends.
     write_fake_script "${HOME}/work/reference/claude/install" claude/install <<EOF
 #!/bin/sh
-# accepts --system
 for _fd in /proc/\$\$/fd/*; do
     case "\$(readlink "\${_fd}")" in
         *dev-update.lock) printf 'lock fd inherited\n' >> "\${FAKE_BIN_LOG}" ;;
@@ -723,20 +719,21 @@ EOF
     done
 }
 
-@test "dev-update dies if a published installer does not support --system, and runs nothing after it" {
+@test "dev-update runs a published installer with --system even when its text never mentions --system" {
     setup_dev_update_fixture
-    write_fake_script "${HOME}/work/reference/claude/install" claude/install <<'EOF'
+    local _installer="${HOME}/work/reference/credfeto-orchestrator/install-claude-hooks"
+    write_fake_script "${_installer}" credfeto-orchestrator/install-claude-hooks <<'EOF'
 #!/bin/sh
-printf 'claude/install ran\n' >> "${FAKE_BIN_LOG}"
+printf 'install-claude-hooks ran with: %s\n' "$*" >> "${FAKE_BIN_LOG}"
 EOF
+    run grep -q -e '--system' "${_installer}"
+    [ "${status}" -eq 1 ]
 
     run "${LINUX_DIR}/dev-update"
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == *"${DEV_PUBLISH_DIR}/claude/install does not support --system"* ]]
-    refute_fake_called '^claude/install'
-    refute_fake_called '^credfeto-ai-skills/install'
-    refute_fake_called '^update-dotnet-tools'
-    refute_fake_called '^systemctl --user start '
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
+    grep -qxF "install-claude-hooks ran with: --system" "${FAKE_BIN_LOG}"
+    assert_fake_called '^update-dotnet-tools '
 }
 
 @test "dev-update runs each system installer from its published snapshot, not the reference clone" {

@@ -55,8 +55,6 @@ Before running a repository's `--system` installer, `dev-update` publishes that 
 
 When the clone's committed `HEAD` has changed since the current snapshot was made, the publish exports it with `git archive` into a new directory named `<repo>-<UTC timestamp>Z`, so untracked and uncommitted files are never published. Each snapshot records the git tree it was made from in a hidden `.published-tree` file at its root; when the clone's committed tree matches the current snapshot's, the publish keeps that snapshot, makes and removes nothing, and the installer runs from it as before. The snapshot is owned by `root:root`, with directories at mode 755 and files writable only by root. The `<repo>` symlink is then switched to the new snapshot in one atomic rename, so an installer never sees a half-written tree. The previous snapshot is kept, so anything still using it keeps working, and any older ones are removed. A lock file in the publish directory, `.publish.lock`, stops two accounts publishing at the same time: the second run says it is waiting and waits up to 5 minutes for the first to finish, then stops with an error naming the lock if it is still held.
 
-An installer that does not support `--system` stops the run with an error naming it.
-
 ### dev-update timer
 
 `dev-update.timer` starts the service 15 seconds after the user manager starts, then every 30 minutes, each with up to 5 minutes of random delay. The service's `ExecCondition=` runs `network-online` from the reference clone, so an offline tick is skipped quietly rather than marking the unit failed.
