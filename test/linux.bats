@@ -917,7 +917,7 @@ lock_down_publish_dir() {
     setup_dev_update_fixture
     mkdir -p "${DEV_PUBLISH_DIR}"
     : > "$(publish_lock_file)"
-    hold_lock_in_background "$(publish_lock_file)" 2
+    hold_lock_in_background "$(publish_lock_file)" 10
 
     run env RUN_LOCK_WAIT_SECONDS=30 "${LINUX_DIR}/dev-update"
     wait "${LOCK_HOLDER_PID}"
@@ -1080,7 +1080,7 @@ lock_down_publish_dir_with_lock() {
     printf 'tree-before\n' > "${_tree_file}"
     mkdir -p "${DEV_PUBLISH_DIR}"
     : > "$(publish_lock_file)"
-    hold_lock_in_background "$(publish_lock_file)" 3
+    hold_lock_in_background "$(publish_lock_file)" 10
     # Moves every clone's HEAD as soon as the first publish has read its
     # tree, while that publish waits for the lock.
     (

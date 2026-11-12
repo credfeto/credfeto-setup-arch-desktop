@@ -745,6 +745,21 @@ seed_legacy_dotnet_install() {
     refute_fake_called "^sudo rm .*${DOTNET_TEST_INSTALL_ROOT}/dotnet( |$)"
 }
 
+# The global pre-commit hook resolves dotnet with readlink -f and requires the
+# live path to be a symlink to the new timestamped install, so that contract
+# is pinned here, on the installer side (#110).
+@test "install-latest-dotnet leaves the live path a relative symlink to the new install and keeps the previous install as dotnet-legacy-stamp" {
+    seed_legacy_dotnet_install
+
+    run_install_latest_dotnet
+    [ "${status}" -eq 0 ]
+    [ -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet" ]
+    [ "$(readlink "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "${DOTNET_TEST_NEW_INSTALL}" ]
+    [ "$(readlink -f "${DOTNET_TEST_INSTALL_ROOT}/dotnet")" = "$(readlink -f "${DOTNET_TEST_INSTALL_ROOT}/${DOTNET_TEST_NEW_INSTALL}")" ]
+    [ -d "${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}" ]
+    [ ! -L "${DOTNET_TEST_INSTALL_ROOT}/dotnet-legacy-${DOTNET_TEST_STAMP}" ]
+}
+
 # Succeeds when the folder seed_legacy_dotnet_install made is back at the live
 # path, untouched, with nothing of the failed run left beside it but the run
 # lock, which is kept for the next run.
