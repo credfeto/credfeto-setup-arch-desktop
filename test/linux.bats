@@ -262,6 +262,12 @@ setup_fake_git() {
     mkdir -p "${FAKE_CLONE_SOURCE}"
     replace_fake git <<EOF
 #!/bin/sh
+# Read before the call is logged, so a test that moves HEAD once it sees
+# the call in the log cannot change the tree this call prints.
+_tree="\${FAKE_GIT_TREE:-tree-0}"
+if [ -n "\${FAKE_GIT_TREE_FILE:-}" ]; then
+    _tree="\$(cat "\${FAKE_GIT_TREE_FILE}")"
+fi
 printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 [ "\${FAKE_EXIT_git:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git}"
 if [ "\$1" = "clone" ]; then
@@ -288,11 +294,7 @@ if [ "\$1" = "-C" ]; then
         rev-parse)
             if [ "\$4" = "HEAD^{tree}" ]; then
                 [ "\${FAKE_EXIT_git_rev_parse_tree:-0}" -eq 0 ] || exit "\${FAKE_EXIT_git_rev_parse_tree}"
-                if [ -n "\${FAKE_GIT_TREE_FILE:-}" ]; then
-                    cat "\${FAKE_GIT_TREE_FILE}"
-                else
-                    printf '%s\n' "\${FAKE_GIT_TREE:-tree-0}"
-                fi
+                printf '%s\n' "\${_tree}"
             elif [ "\$(basename "\$2")" = "\${FAKE_GIT_NOT_TOPLEVEL:-}" ]; then
                 dirname "\$(readlink -f "\$2")"
             else
