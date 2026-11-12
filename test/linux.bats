@@ -721,18 +721,13 @@ EOF
 
 @test "dev-update runs a published installer with --system even when its text never mentions --system" {
     setup_dev_update_fixture
-    local _installer="${HOME}/work/reference/credfeto-orchestrator/install-claude-hooks"
-    write_fake_script "${_installer}" credfeto-orchestrator/install-claude-hooks <<'EOF'
-#!/bin/sh
-printf 'install-claude-hooks ran with: %s\n' "$*" >> "${FAKE_BIN_LOG}"
-EOF
-    run grep -q -e '--system' "${_installer}"
+    run grep -q -e '--system' "${HOME}/work/reference/credfeto-orchestrator/install-claude-hooks"
     [ "${status}" -eq 1 ]
 
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
-    grep -qxF "install-claude-hooks ran with: --system" "${FAKE_BIN_LOG}"
+    assert_fake_called '^credfeto-orchestrator/install-claude-hooks --system$'
     assert_fake_called '^update-dotnet-tools '
 }
 
