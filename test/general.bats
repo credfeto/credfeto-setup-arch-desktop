@@ -1060,7 +1060,7 @@ assert_stopped_at_run_lock() {
 #!/bin/sh
 printf 'chmod %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
 for arg in "\$@"; do
-    [ "\${arg}" = "${DOTNET_TEST_LOCK_FILE}" ] && exit 0
+    [ "\${arg}" = ${DOTNET_TEST_LOCK_FILE@Q} ] && exit 0
 done
 exec "${real_chmod}" "\$@"
 EOF
