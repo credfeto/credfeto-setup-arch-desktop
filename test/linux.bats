@@ -685,8 +685,9 @@ EOF
 }
 
 @test "dev-update treats every install step failing as fatal" {
-    local _failing
-    for _failing in "${DEV_UPDATE_STEPS[@]}"; do
+    local _index _failing _later
+    for _index in "${!DEV_UPDATE_STEPS[@]}"; do
+        _failing="${DEV_UPDATE_STEPS[_index]}"
         setup_dev_update_fixture
         make_logging_stub "${HOME}/work/reference" "${_failing}" 3
 
@@ -697,6 +698,9 @@ EOF
         else
             [[ "${output}" == *"Failed to run ${DEV_PUBLISH_DIR}/${_failing}"* ]]
         fi
+        for _later in "${DEV_UPDATE_STEPS[@]:_index+1}"; do
+            refute_fake_called "^${_later//./\\.} "
+        done
         refute_fake_called '^update-dotnet-tools'
         refute_fake_called '^systemctl --user start '
 
