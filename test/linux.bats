@@ -721,14 +721,15 @@ EOF
 
 @test "dev-update runs a published installer with --system even when its text never mentions --system" {
     setup_dev_update_fixture
-    run grep -q -e '--system' "${HOME}/work/reference/credfeto-orchestrator/install-claude-hooks"
-    [ "${status}" -eq 1 ]
-
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
     assert_fake_called '^credfeto-orchestrator/install-claude-hooks --system$'
     assert_fake_called '^update-dotnet-tools '
+
+    # The published copy dev-update ran, not the reference clone, is the one whose text must lack --system.
+    run grep -q -e '--system' "${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks"
+    [ "${status}" -eq 1 ]
 }
 
 @test "dev-update runs each system installer from its published snapshot, not the reference clone" {
