@@ -355,6 +355,12 @@ EOF
     [ "$(grep -c '^SuccessExitStatus=' "${_service}")" -eq 1 ]
 }
 
+@test "pacman-sync.service gives checkupdates a private /tmp so its predictable root database path cannot be planted" {
+    local _service="${REPO_DIR}/units/pacman-sync/pacman-sync.service"
+    grep -qx 'PrivateTmp=yes' "${_service}"
+    [ "$(grep -c '^PrivateTmp=' "${_service}")" -eq 1 ]
+}
+
 # ── auto-update units ────────────────────────────────────────────────────────
 
 @test "auto-update units install copies both units and enables the timer" {
