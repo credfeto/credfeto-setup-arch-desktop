@@ -161,6 +161,7 @@ make_wallpapers_clone() {
     assert_fake_called '^dotnet tool install --local FunFair\.BuildCheck$'
     assert_fake_called '^dotnet tool install --local FunFair\.BuildVersion$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Changelog\.Cmd$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Changelog\.Mcp$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Push$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Update$'
     assert_fake_called '^dotnet tool install --local Credfeto\.DotNet\.Code\.Analysis\.Overrides\.Cmd$'
@@ -169,11 +170,11 @@ make_wallpapers_clone() {
     assert_fake_called '^dotnet tool install --local Credfeto\.Build\.Dotnet\.Server$'
     assert_fake_called '^dotnet tool install --local FunFair\.Content\.Packager\.Cmd$'
     assert_fake_called '^dotnet tool install --local FunFair\.Content\.PackageSigner\.Cmd$'
-    assert_fake_called '^dotnet tool install --local powershell$'
     assert_fake_called '^dotnet tool install --local dotnet-script$'
     assert_fake_called '^dotnet tool install --local dotnet-reportgenerator-globaltool$'
     assert_fake_called '^dotnet tool install --local ilspycmd$'
-    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 17 ]
+    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage$'
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
     [[ "${output}" == *"Done"* ]]
 }
 
@@ -659,9 +660,9 @@ EOF
     [ "${switch_line}" -lt "${install_line}" ]
     [ "${install_line}" -lt "${update_line}" ]
     [ "${update_line}" -lt "${restore_line}" ]
-    # install-dotnet-tools lists PowerShell with the other tools, and
-    # update-dotnet-tools updates every local tool, so a tool step of its own
-    # here would only install or update a tool a second time.
+    # install-dotnet-tools installs the dotnet tools and update-dotnet-tools
+    # updates every local tool, so a tool step of its own here would only
+    # install or update a tool a second time.
     refute_fake_called '^dotnet tool (install|update) '
     refute_fake_called '[Pp][Oo][Ww][Ee][Rr][Ss][Hh][Ee][Ll][Ll]'
 }
