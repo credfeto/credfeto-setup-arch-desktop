@@ -29,6 +29,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a required CI check that runs the bats shell test suite on every pull request to main and fails when any test fails, is skipped or does not run
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
+- install-dotnet-tools installs Credfeto.Changelog.Mcp, so the changelog MCP server is available on new setups, and microsoft.sqlpackage, for building and deploying SQL database projects
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -107,11 +108,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-latest-dotnet now installs and updates all the dotnet tools through install-dotnet-tools and update-dotnet-tools instead of only PowerShell, which also moves any global dotnet tools into the $HOME tool manifest; a tool that fails to install no longer stops the run
 - Quoted temporary-directory paths in generated bats fake and stub scripts
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
-- install-dotnet-tools now installs Credfeto.Changelog.Mcp and microsoft.sqlpackage and no longer installs PowerShell
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
 - Removed dead ~/work/personal/scripts/* PATH entries from the shell environment config; that directory was never populated and the repo's own dev-scripts are already installed onto PATH via /usr/local/bin
+- install-dotnet-tools no longer installs PowerShell as a dotnet tool, so new setups no longer get a tool nothing in them uses
 ### Deployment Changes
 
 <!--
