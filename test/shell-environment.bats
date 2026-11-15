@@ -20,7 +20,7 @@ setup() {
 # deployment it made (each `install` other than the directory creation) to
 # ${BATS_TEST_TMPDIR}/deployments, one "<mode> <source> <target>" line each.
 run_shell_environment() {
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${SHELL_ENVIRONMENT}"
     [ "${status}" -eq 0 ]
     grep '^sudo install ' "${FAKE_BIN_LOG}" | grep -v '^sudo install -d ' | sed -E 's/^sudo install -m ([^ ]+) /\1 /' > "${BATS_TEST_TMPDIR}/deployments"
@@ -81,7 +81,7 @@ setup_shell_environment_tree() {
     mkdir -p "${_root}/install.d" "${_root}/lib" "${_root}/settings"
     cp "${SHELL_ENVIRONMENT}" "${_root}/install.d/"
     cp "${REPO_DIR}/lib/common" "${_root}/lib/"
-    cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${_root}/settings/"
+    cp -r "${REPO_DIR}/settings/shell-env" "${REPO_DIR}/settings/bash.bashrc.d" "${REPO_DIR}/settings/user-tmpfiles.d" "${_root}/settings/"
     git init --quiet "${_root}"
     git -C "${_root}" add -A
     printf '%s\n' "${_root}"
@@ -92,7 +92,7 @@ setup_shell_environment_tree() {
     _root="$(setup_shell_environment_tree)"
     printf 'export SECRET=1\n' > "${_root}/settings/shell-env/99_untracked.sh"
     printf 'export SECRET=1\n' > "${_root}/settings/bash.bashrc.d/99_untracked.sh"
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 0 ]
     assert_fake_called "^sudo install -m 0644 ${_root}/settings/shell-env/[^ ]+\\.sh /etc/profile\\.d/"
@@ -108,7 +108,7 @@ setup_shell_environment_tree() {
     # $HOME might; listing through it would deploy what it tracks.
     git init --quiet "${BATS_TEST_TMPDIR}"
     git -C "${BATS_TEST_TMPDIR}" add "${_root}"
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"${_root} is not a git checkout; run install from a git clone of this repository"* ]]
@@ -123,7 +123,7 @@ setup_shell_environment_tree() {
     local _conflicted
     _conflicted="$(cd "${_root}" && git ls-files 'settings/shell-env/*.sh' | head -1)"
     make_merge_conflict "${_root}" "${_conflicted}"
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"${_root} has unresolved merge conflicts; resolve them or abort the merge, then re-run"* ]]
@@ -136,7 +136,7 @@ setup_shell_environment_tree() {
     printf 'export SECRET=1\n' > "${BATS_TEST_TMPDIR}/private.sh"
     ln -s "${BATS_TEST_TMPDIR}/private.sh" "${_root}/settings/shell-env/99_link.sh"
     git -C "${_root}" add settings/shell-env/99_link.sh
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Not deploying ${_root}/settings/shell-env/99_link.sh: it is a symlink"* ]]
@@ -147,7 +147,7 @@ setup_shell_environment_tree() {
 @test "shell-environment fails when the shell config files cannot be listed" {
     local _root
     _root="$(setup_shell_environment_tree)"
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     fail_git_for ' ls-files -- '
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
@@ -159,7 +159,7 @@ setup_shell_environment_tree() {
     local _root
     _root="$(setup_shell_environment_tree)"
     rm "${_root}/settings/shell-env"/*.sh
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"No shell config files found in ${_root}/settings/shell-env"* ]]
@@ -170,10 +170,71 @@ setup_shell_environment_tree() {
     local _root
     _root="$(setup_shell_environment_tree)"
     rm -r "${_root}/settings/bash.bashrc.d"
-    setup_fake_sudo pacman
+    setup_fake_sudo pacman systemctl
     run "${_root}/install.d/shell-environment"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"No shell config files found in ${_root}/settings/bash.bashrc.d"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+}
+
+# ── Claude Code temp file age-out ────────────────────────────────────────────
+# The rule goes under the user's home, which setup points at the test's
+# temporary directory, so install runs for real and the result is read back.
+
+@test "the Claude Code tmpfiles rule ages out files under the runtime dir's claude-<uid> after 3 days" {
+    [ "$(cat "${REPO_DIR}/settings/user-tmpfiles.d/claude.conf")" = 'e %t/claude-%U - - - 3d' ]
+}
+
+@test "shell-environment deploys the Claude Code tmpfiles rule as 0644, whatever the umask and the mode of a rule already there" {
+    local _rule="${HOME}/.config/user-tmpfiles.d/claude.conf"
+    mkdir -p "${_rule%/*}"
+    printf 'stale\n' > "${_rule}"
+    chmod 0600 "${_rule}"
+    umask 027
+    run_shell_environment
+    [ "$(stat -c '%a' "${_rule}")" = 644 ]
+    cmp -s "${REPO_DIR}/settings/user-tmpfiles.d/claude.conf" "${_rule}"
+}
+
+@test "shell-environment creates the user-tmpfiles.d directory for the Claude Code tmpfiles rule when it is missing" {
+    local _rule="${HOME}/.config/user-tmpfiles.d/claude.conf"
+    [ ! -e "${HOME}/.config" ]
+    run_shell_environment
+    cmp -s "${REPO_DIR}/settings/user-tmpfiles.d/claude.conf" "${_rule}"
+}
+
+@test "shell-environment enables the user's systemd-tmpfiles-clean timer, after deploying the rule it applies" {
+    # The fake systemctl logs whether the rule was there when it was called.
+    replace_fake systemctl <<EOF
+#!/bin/sh
+[ -f "${HOME}/.config/user-tmpfiles.d/claude.conf" ] && echo 'rule deployed' >> "\${FAKE_BIN_LOG}"
+printf 'systemctl %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+EOF
+    setup_fake_sudo pacman
+    run "${SHELL_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -A1 '^rule deployed$' "${FAKE_BIN_LOG}" | tail -1)" = 'systemctl --user enable --now systemd-tmpfiles-clean.timer' ]
+    assert_fake_called '^systemctl --user enable --now systemd-tmpfiles-clean\.timer$'
+    [[ "${output}" == *"Shell environment installed"* ]]
+}
+
+@test "shell-environment dies, naming the rule, when the Claude Code tmpfiles rule cannot be deployed" {
+    # A file where the directory should be makes install fail.
+    mkdir -p "${HOME}/.config"
+    : > "${HOME}/.config/user-tmpfiles.d"
+    setup_fake_sudo pacman systemctl
+    run "${SHELL_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to install ${HOME}/.config/user-tmpfiles.d/claude.conf"* ]]
+    [[ "${output}" != *"Shell environment installed"* ]]
+    refute_fake_called '^systemctl '
+}
+
+@test "shell-environment dies when the systemd-tmpfiles-clean timer cannot be enabled" {
+    setup_fake_sudo pacman systemctl
+    run env FAKE_EXIT_systemctl=1 "${SHELL_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to enable systemd-tmpfiles-clean.timer"* ]]
     [[ "${output}" != *"Shell environment installed"* ]]
 }
 
