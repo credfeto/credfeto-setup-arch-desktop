@@ -426,6 +426,21 @@ EOF
     refute_fake_called 'pacman-sync'
 }
 
+@test "enable-services links the network-online helper pacman-sync.service runs before installing or enabling pacman-sync" {
+    run_step enable-services
+    [ "${status}" -eq 0 ]
+    local _link='^sudo ln -sf '"${REPO_DIR}"'/settings/scripts/linux/network-online /usr/local/bin/network-online$'
+    assert_fake_called "${_link}"
+    [ "$(log_line_of "${_link}")" -lt "$(log_line_of 'pacman-sync\.service')" ]
+    [ "$(log_line_of "${_link}")" -lt "$(log_line_of '^sudo systemctl enable --now pacman-sync\.timer$')" ]
+}
+
+@test "enable-services stops when linking the network-online helper fails and never installs or enables pacman-sync" {
+    run_step enable-services FAKE_SUDO_FAIL='^ln -sf .* /usr/local/bin/network-online$'
+    assert_step_died "Failed to link /usr/local/bin/network-online" "Services enabled"
+    refute_fake_called 'pacman-sync'
+}
+
 @test "enable-services stops when enabling the ssh-agent user service fails" {
     run_step enable-services FAKE_EXIT_systemctl=1
     assert_step_died "Failed to enable the ssh-agent user service" "Services enabled"

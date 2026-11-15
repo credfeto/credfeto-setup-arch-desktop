@@ -28,6 +28,10 @@ enable_services() {
     # checkupdates (run by pacman-sync.service) exits 1 without fakeroot, which
     # pacman-contrib only lists as an optional dependency.
     sudo pacman -S --needed --noconfirm fakeroot || die "Failed to install fakeroot"
+    # Linked rather than copied, as the helper finds lib/common relative to its
+    # resolved path. Without it, pacman-sync.service's ExecCondition= exits 203
+    # and every run is skipped unseen.
+    sudo ln -sf "$BASEDIR/settings/scripts/linux/network-online" /usr/local/bin/network-online || die "Failed to link /usr/local/bin/network-online"
     sudo install -m 0644 "$BASEDIR/units/pacman-sync/pacman-sync.service" /etc/systemd/system/pacman-sync.service || die "Failed to copy pacman-sync.service to /etc/systemd/system"
     sudo install -m 0644 "$BASEDIR/units/pacman-sync/pacman-sync.timer" /etc/systemd/system/pacman-sync.timer || die "Failed to copy pacman-sync.timer to /etc/systemd/system"
     sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
