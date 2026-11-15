@@ -29,7 +29,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a required CI check that runs the bats shell test suite on every pull request to main and fails when any test fails, is skipped or does not run
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
-- Age out Claude Code temp files under the XDG runtime directory (claude-<uid>) after 3 days via a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer
+- Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
