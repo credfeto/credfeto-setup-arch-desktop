@@ -20,6 +20,7 @@ TOOLS="sleet \
        FunFair.BuildCheck \
        FunFair.BuildVersion \
        Credfeto.Changelog.Cmd \
+       Credfeto.Changelog.Mcp \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
        Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
@@ -28,10 +29,10 @@ TOOLS="sleet \
        Credfeto.Build.Dotnet.Server \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
-       powershell \
        dotnet-script \
        dotnet-reportgenerator-globaltool \
-       ilspycmd"
+       ilspycmd \
+       microsoft.sqlpackage"
 
 for TOOL in $TOOLS; do
    info "Installing $TOOL"
