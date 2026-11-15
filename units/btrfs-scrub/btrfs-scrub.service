@@ -22,7 +22,6 @@ ProtectHostname=true
 PrivateNetwork=true
 PrivateTmp=true
 MemoryDenyWriteExecute=true
-NoNewPrivileges=true
 RestrictRealtime=true
 ProtectProc=invisible
 
