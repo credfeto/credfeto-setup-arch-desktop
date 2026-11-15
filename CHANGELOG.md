@@ -30,7 +30,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
-- install-dotnet-tools installs Credfeto.Changelog.Mcp, so the changelog MCP server is available on new setups, and microsoft.sqlpackage, for building and deploying SQL database projects
+- install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
