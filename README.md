@@ -15,7 +15,7 @@ dev-install
 
 ## Installation
 
-Run `install` from a checkout of this repository, as your normal user in a logged-in session (desktop, console or SSH login), not through `sudo` or `su`. It calls `sudo` itself where it needs to, and it needs your systemd user manager to enable the `ssh-agent` user service. It checks both before changing anything: run as root, or where `systemctl --user` cannot reach the user manager, it stops at once with a message saying which. It then runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which copies the files git tracks under `lib/` and `settings/scripts/` into a root-owned, world-readable folder, `/usr/local/lib/credfeto-setup-arch-desktop`, and symlinks every script in that copy into `/usr/local/bin`, so every account can run them without reading your home folder. Untracked and ignored files are never copied. Editing a script in the checkout does not change the installed copy until `install` (or `install.d/dev-scripts`) is run again; an uncommitted edit to a tracked file is copied as it stands. A run that finds any tracked file added, removed, edited or with its execute bit changed makes a new copy and switches to it in one step, keeping the previous copy and deleting older ones; a run that finds nothing changed keeps the current copy and only checks the links, so a long-running script is never left without its copy by repeated timer runs. A lock file beside the copy, `/usr/local/lib/.credfeto-setup-arch-desktop.lock`, stops two runs (a manual one, or another account's timer run) installing at the same time: the second run says it is waiting and waits up to 5 minutes for the first to finish, then stops with an error naming the lock if it is still held.
+Run `install` from a checkout of this repository, as your normal user in a logged-in session (desktop, console or SSH login), not through `sudo` or `su`. It calls `sudo` itself where it needs to, and it needs your systemd user manager to enable the `ssh-agent` user service and the `systemd-tmpfiles-clean` user timer. It checks both before changing anything: run as root, or where `systemctl --user` cannot reach the user manager, it stops at once with a message saying which. It then runs each step under `install.d/` in turn, including `install.d/dev-scripts`, which copies the files git tracks under `lib/` and `settings/scripts/` into a root-owned, world-readable folder, `/usr/local/lib/credfeto-setup-arch-desktop`, and symlinks every script in that copy into `/usr/local/bin`, so every account can run them without reading your home folder. Untracked and ignored files are never copied. Editing a script in the checkout does not change the installed copy until `install` (or `install.d/dev-scripts`) is run again; an uncommitted edit to a tracked file is copied as it stands. A run that finds any tracked file added, removed, edited or with its execute bit changed makes a new copy and switches to it in one step, keeping the previous copy and deleting older ones; a run that finds nothing changed keeps the current copy and only checks the links, so a long-running script is never left without its copy by repeated timer runs. A lock file beside the copy, `/usr/local/lib/.credfeto-setup-arch-desktop.lock`, stops two runs (a manual one, or another account's timer run) installing at the same time: the second run says it is waiting and waits up to 5 minutes for the first to finish, then stops with an error naming the lock if it is still held.
 
 Then run `dev-install` once, outside a Claude Code session, with the network up and `dotnet` on `PATH`, under the same user and session rules as `install`, which it checks before cloning anything. It:
 
@@ -70,6 +70,14 @@ Timer runs have no terminal, so the `sudo` calls in `dev-scripts`, the `cfwf` co
 ```sh
 systemctl --user list-timers dev-update.timer
 journalctl --user -u dev-update.service
+```
+
+### Temporary files
+
+The shell environment points `TMP`, `TMPDIR`, `TEMP`, `TEMPDIR` and `CLAUDE_CODE_TMPDIR` at `$XDG_RUNTIME_DIR` when they are not already set. That directory is only emptied when your last session ends, so `install` also deploys `settings/user-tmpfiles.d/claude.conf` to `~/.config/user-tmpfiles.d/claude.conf` and enables your `systemd-tmpfiles-clean.timer`. The timer runs daily and removes any file under `$XDG_RUNTIME_DIR/claude-<uid>` that has not been used for 3 days. The age is checked per file, so a file a running Claude Code session is still using is kept. To clean up straight away:
+
+```sh
+systemd-tmpfiles --user --clean
 ```
 
 ### network-online
