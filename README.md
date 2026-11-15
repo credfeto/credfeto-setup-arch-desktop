@@ -33,7 +33,7 @@ Any other failure stops `dev-install`.
 
 ### Reference clones
 
-The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. `dev-update` reinstalls the `/usr/local/bin` scripts from the reference clone, making a new root-owned copy of its tracked files whenever they have changed, and the systemd units run `dev-update` and `network-online` straight from the `credfeto-setup-arch-desktop` reference clone, so the timer never runs code that is mid-change in a working checkout. The symlinks remain for running the scripts by hand.
+The clones in `~/work/reference/` are reference data, kept separate from working checkouts in `~/work/personal/`, which `dev-update` never touches. `dev-update` reinstalls the `/usr/local/bin` scripts from the reference clone, making a new root-owned copy of its tracked files whenever they have changed, and the `dev-update` units run `dev-update` and `network-online` straight from the `credfeto-setup-arch-desktop` reference clone, so the timer never runs code that is mid-change in a working checkout. The symlinks remain for running the scripts by hand.
 
 Both `dev-install` and `dev-update` switch each reference clone to `main` and fast-forward it with `git pull --ff-only`. A clone with uncommitted changes, one that cannot be switched to `main`, or one whose `main` has diverged from its upstream stops the run with an error naming the clone. A directory under `~/work/reference/` that is not itself a git clone also stops the run with an error naming it, because git would otherwise act on whichever repository encloses it. Neither script ever forces, resets or stashes a clone, so fix the clone by hand and re-run.
 
@@ -75,6 +75,10 @@ journalctl --user -u dev-update.service
 ### network-online
 
 `network-online` exits 0 when online and 1 when offline, under either NetworkManager or systemd-networkd, and 255 when neither is active.
+
+### pacman-sync
+
+`install.d/enable-services` installs the system `pacman-sync.timer`, which runs `pacman-sync.service` to download, but not install, pending package updates with `checkupdates --download`. The service's `ExecCondition=` runs `/usr/local/bin/network-online`, so a tick that fires while offline is skipped quietly rather than marking the unit failed; with neither NetworkManager nor systemd-networkd active the unit still fails. `enable-services` links `/usr/local/bin/network-online` to the helper in the checkout it runs from before it installs or enables the units, and stops if that fails. A full `install` then runs `install.d/dev-scripts`, which relinks it to the root-owned installed copy.
 
 ### update
 

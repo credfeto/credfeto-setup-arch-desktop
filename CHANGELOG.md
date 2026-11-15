@@ -93,6 +93,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pacman-sync: add PrivateTmp=yes so checkupdates cannot use a pre-created predictable /tmp/checkup-db-0 directory
 - dev-update no longer refuses a published installer whose text does not mention --system; installers are judged only by their exit code (#124)
 - auto-update.service now has Wants=network-online.target alongside After=network-online.target, so it actually pulls in network-online.target and waits for the network to come up
+- pacman-sync no longer runs while the machine is offline, so its package update check no longer fails with network errors when there is no connection (#97)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently

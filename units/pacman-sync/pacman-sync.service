@@ -14,6 +14,10 @@ CPUSchedulingPolicy=idle
 # path /tmp/checkup-db-0, so give it a private /tmp no other user can plant.
 PrivateTmp=yes
 
+# network-online.target does not check real connectivity on timer runs, so an
+# offline tick would fail checkupdates; network-online exits 1 then, which
+# skips the run quietly.
+ExecCondition=/usr/local/bin/network-online
 ExecStart=/usr/bin/checkupdates --download
 # checkupdates exits 2 when there are no updates, which is not a failure.
 # Exit 1 still is, so real errors continue to mark the unit failed.

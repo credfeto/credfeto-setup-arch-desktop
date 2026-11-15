@@ -361,6 +361,12 @@ EOF
     [ "$(grep -c '^PrivateTmp=' "${_service}")" -eq 1 ]
 }
 
+@test "pacman-sync.service is skipped when offline through the network-online helper enable-services links" {
+    local _service="${REPO_DIR}/units/pacman-sync/pacman-sync.service"
+    grep -qx 'ExecCondition=/usr/local/bin/network-online' "${_service}"
+    [ "$(grep -c '^ExecCondition=' "${_service}")" -eq 1 ]
+}
+
 # ── auto-update units ────────────────────────────────────────────────────────
 
 @test "auto-update units install copies both units and enables the timer" {
