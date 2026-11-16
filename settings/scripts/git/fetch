@@ -53,6 +53,27 @@ skip_repo() {
 "
 }
 
+# Prints the absolute path of the given file inside the repo's git directory,
+# which git reports relative to the repo unless it lives outside the work tree.
+# Usage: git_path <repo> <name>
+git_path() {
+    git_path_repo=$1
+    git_path_name=$(git -C "$git_path_repo" rev-parse --git-path "$2") || return 1
+    case "$git_path_name" in
+        /*) printf '%s\n' "$git_path_name" ;;
+        *) printf '%s\n' "$git_path_repo/$git_path_name" ;;
+    esac
+}
+
+# A rebase the user paused, or a git am, must be left for them to finish:
+# rebasing again would fail, and the abort that follows would throw it away.
+# A git directory whose state cannot be read counts as one in progress.
+rebase_in_progress() {
+    rebase_merge_dir=$(git_path "$1" rebase-merge) || return 0
+    rebase_apply_dir=$(git_path "$1" rebase-apply) || return 0
+    [ -e "$rebase_merge_dir" ] || [ -e "$rebase_apply_dir" ]
+}
+
 # Leaves no rebase in progress when it fails, so the caller can skip the repo.
 rebase_or_abort() {
     rebase_dir=$1
@@ -86,11 +107,7 @@ ensure_codegraph_index() {
 # rebasing the repo.
 exclude_codegraph_index() {
     exclude_repo=$1
-    exclude_file=$(git -C "$exclude_repo" rev-parse --git-path info/exclude) || return 1
-    case "$exclude_file" in
-        /*) ;;
-        *) exclude_file="$exclude_repo/$exclude_file" ;;
-    esac
+    exclude_file=$(git_path "$exclude_repo" info/exclude) || return 1
     mkdir -p "$(dirname "$exclude_file")" || return 1
     if [ -f "$exclude_file" ] && grep -qxF '.codegraph/' "$exclude_file"
     then
@@ -119,6 +136,10 @@ do
   git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not update remote refs" "Could not update remote refs for ${CURRENT_DIR}"; continue; }
 
   REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
+
+  # Checked once before either rebase, and before switching branches, since
+  # the switch would also move the user off the commit their rebase stopped at.
+  rebase_in_progress "$CURRENT_DIR" && { skip_repo "$CURRENT_DIR" "rebase in progress" "Rebase already in progress in ${CURRENT_DIR}"; continue; }
 
   if [ -z "$REPO_STATUS" ]
   then

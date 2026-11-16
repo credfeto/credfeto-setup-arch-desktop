@@ -92,6 +92,15 @@ assert_skipped_repo_a() {
     [[ "${output}" != *"Done with"* ]]
 }
 
+# Asserts the last fetch skipped repo-a because a rebase was already in
+# progress, without starting or aborting a rebase there.
+assert_skipped_rebase_in_progress() {
+    assert_skipped_repo_a "rebase in progress" || return 1
+    [[ "${output}" == *"Rebase already in progress in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
+    refute_fake_called ' rebase( |$)' || return 1
+    refute_fake_called 'rebase --abort'
+}
+
 # Runs fetch over a single clone whose git fails the given arguments, and
 # asserts it skipped the clone for the given reason without finishing it.
 # Usage: assert_fetch_skips_when_git_fails <git-arguments> <reason>
@@ -250,6 +259,40 @@ EOF
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
     assert_fake_called ' rebase$'
     refute_fake_called 'rebase --abort'
+}
+
+@test "fetch skips a clean repo with a rebase in progress on a branch with an upstream, without aborting it" {
+    make_bare_remote_and_clone repo-a
+    mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.git/rebase-apply"
+    log_git_failing no-such-subcommand
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_rebase_in_progress
+}
+
+@test "fetch skips a repo whose rebase state cannot be read, without rebasing it" {
+    make_bare_remote_and_clone repo-a
+    fail_git_for "rev-parse --git-path rebase-merge"
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_repo_a "rebase in progress"
+}
+
+@test "fetch --switch-to-main leaves an interactive rebase paused on edit where it stopped" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a" _stopped_at
+    make_clone_on_feature_branch repo-a
+    git -C "${_clone}" commit --quiet --allow-empty -m "feature work"
+    GIT_SEQUENCE_EDITOR="sed -i 's/^pick/edit/'" git -C "${_clone}" rebase --quiet -i HEAD~1 > /dev/null 2>&1
+    [ -d "${_clone}/.git/rebase-merge" ]
+    [ -z "$(git -C "${_clone}" status --porcelain)" ]
+    _stopped_at="$(git -C "${_clone}" rev-parse HEAD)"
+    log_git_failing no-such-subcommand
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    assert_skipped_rebase_in_progress
+    refute_fake_called 'checkout'
+    [ -d "${_clone}/.git/rebase-merge" ]
+    [ "$(git -C "${_clone}" rev-parse HEAD)" = "${_stopped_at}" ]
 }
 
 @test "fetch --switch-to-main skips a repo that cannot switch to the default branch" {
