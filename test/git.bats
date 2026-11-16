@@ -342,6 +342,25 @@ EOF
     [[ "${output}" != *"Done with"* ]]
 }
 
+@test "fetch initialises codegraph on the run after it could not exclude the index" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    fail_git_for "rev-parse --git-path info/exclude"
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
+    refute_fake_called '^codegraph'
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    rm "${FAKE_BIN_DIR}/git"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+    [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
+}
+
 @test "fetch initialises codegraph in every repo when init reads its stdin" {
     make_bare_remote_and_clone repo-a
     make_bare_remote_and_clone repo-b
@@ -382,6 +401,7 @@ EOF
     [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
     [[ "${output}" != *"Done with"* ]]
     assert_fake_called '^codegraph init '
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
 }
 
 @test "fetch does not initialise codegraph when codegraph is not installed" {

@@ -66,9 +66,11 @@ ensure_codegraph_index() {
         return 0
     fi
     info "Initialising codegraph for ${index_dir}..."
+    # Excluding first means a failed exclude leaves no .codegraph behind, so
+    # the next run tries again instead of finding an index it never excluded.
+    exclude_codegraph_index "$index_dir" || return 1
     # The repo loop reads its list from stdin, which init must not consume.
-    (cd "$index_dir" && codegraph init < /dev/null) || return 1
-    exclude_codegraph_index "$index_dir"
+    (cd "$index_dir" && codegraph init < /dev/null)
 }
 
 # The index is never committed, and an untracked .codegraph/ would make the
