@@ -281,6 +281,18 @@ EOF
     [[ "${output}" == *"Done"* ]]
 }
 
+@test "update-dotnet-tools counts a tool that is both global and local once when all its operations succeed" {
+    fake_dotnet_logging_pwd
+    # Done prints no counts, so an unrelated tool's failed update makes the
+    # counts visible; localtool's uninstall and update both succeed.
+    run env FAKE_DOTNET_GLOBAL_TOOLS=localtool FAKE_DOTNET_LOCAL_TOOLS='localtool othertool' \
+        FAKE_DOTNET_FAIL='^tool update --local othertool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool uninstall --global localtool PWD='
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: othertool"* ]]
+}
+
 @test "update-dotnet-tools matches a global tool id against the local tools as a literal string, not a regex" {
     fake_dotnet_logging_pwd
     run env FAKE_DOTNET_GLOBAL_TOOLS=a.b FAKE_DOTNET_LOCAL_TOOLS=axb "${GENERAL_DIR}/update-dotnet-tools"
