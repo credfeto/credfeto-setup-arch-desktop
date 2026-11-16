@@ -1,20 +1,50 @@
 #!/bin/sh
 
+# Overridable so a test can point them at a temp dir and a fake of its own;
+# default to the real locations NetworkManager's dispatcher runs against.
+TIMESYNCD_CONF_DIR="${TIMESYNCD_CONF_DIR:-/etc/systemd/timesyncd.conf.d}"
+TIMESYNCD_SYSTEMCTL="${TIMESYNCD_SYSTEMCTL:-systemctl}"
+
+die() {
+	if [ -t 2 ]; then
+		printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+	else
+		printf '\n✗ %s\n' "$*" >&2
+	fi
+	exit 1
+}
+
+restart_timesyncd() {
+	"$TIMESYNCD_SYSTEMCTL" restart systemd-timesyncd.service || die "Failed to restart systemd-timesyncd.service"
+}
+
+# The temp name does not end in .conf, so timesyncd never reads a half-written
+# file. mktemp creates it 0600, and timesyncd reads its drop-ins as the
+# unprivileged systemd-timesync user, hence the explicit chmod.
+write_drop_in() {
+	drop_in="$1"
+	temp_file="$(mktemp "${drop_in}.XXXXXX")" || die "Failed to create a temporary file for ${drop_in}"
+	if ! printf '[Time]\nNTP=%s\n' "$DHCP4_NTP_SERVERS" >"$temp_file" ||
+		! chmod 0644 "$temp_file" ||
+		! mv -f "$temp_file" "$drop_in"; then
+		rm -f "$temp_file"
+		die "Failed to write ${drop_in}"
+	fi
+}
+
 [ -z "$CONNECTION_UUID" ] && exit 0
 ACTION="$2"
+DROP_IN="${TIMESYNCD_CONF_DIR}/${CONNECTION_UUID}.conf"
 
 case $ACTION in
 up | dhcp4-change | dhcp6-change)
 	[ -n "$DHCP4_NTP_SERVERS" ] || exit 0
-	mkdir -p /etc/systemd/timesyncd.conf.d
-	cat <<-THE_END >"/etc/systemd/timesyncd.conf.d/${CONNECTION_UUID}.conf"
-		[Time]
-		NTP=$DHCP4_NTP_SERVERS
-	THE_END
-	systemctl restart systemd-timesyncd.service
+	mkdir -p "$TIMESYNCD_CONF_DIR" || die "Failed to create ${TIMESYNCD_CONF_DIR}"
+	write_drop_in "$DROP_IN"
+	restart_timesyncd
 	;;
 down)
-	rm -f "/etc/systemd/timesyncd.conf.d/${CONNECTION_UUID}.conf"
-	systemctl restart systemd-timesyncd.service
+	rm -f "$DROP_IN" || die "Failed to remove ${DROP_IN}"
+	restart_timesyncd
 	;;
 esac
