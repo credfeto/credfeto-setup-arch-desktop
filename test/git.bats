@@ -13,15 +13,24 @@ setup() {
     remove_codegraph_from_path
 }
 
-# Takes every directory holding a codegraph out of PATH, so fetch cannot
-# find the codegraph of whoever runs the suite and index the scratch repos
-# with it. A test that wants one puts a fake on PATH afterwards. Fails when
-# codegraph can still be found, or git can no longer be.
+# Takes codegraph off PATH, so fetch cannot find the codegraph of whoever
+# runs the suite and index the scratch repos with it. Each PATH directory
+# holding a codegraph is swapped for a per-test directory of symlinks to
+# everything else in it, so a codegraph installed beside git (in /usr/bin,
+# say) does not take git with it. A test that wants one puts a fake on PATH
+# afterwards. Fails when codegraph can still be found, or git can no longer
+# be.
 remove_codegraph_from_path() {
-    local _dir _kept="" _entries
+    local _dir _source _shadow _kept="" _entries
     IFS=: read -r -a _entries <<< "${PATH}"
     for _dir in "${_entries[@]}"; do
-        [ -x "${_dir:-.}/codegraph" ] && continue
+        if [ -x "${_dir:-.}/codegraph" ]; then
+            _source="$(cd "${_dir:-.}" && pwd)" || return 1
+            _shadow="$(mktemp -d "${BATS_TEST_TMPDIR}/path-without-codegraph.XXXXXX")" || return 1
+            ln -s "${_source}"/* "${_shadow}/" || return 1
+            rm -f "${_shadow}/codegraph"
+            _dir="${_shadow}"
+        fi
         _kept="${_kept:+${_kept}:}${_dir}"
     done
     export PATH="${_kept}"
@@ -553,6 +562,21 @@ EOF
     [[ "${output}" != *"Initialising codegraph"* ]]
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+}
+
+@test "the suite keeps git on PATH when codegraph is installed in the same directory as git" {
+    local _bin="${BATS_TEST_TMPDIR}/shared-bin"
+    mkdir -p "${_bin}"
+    ln -s "$(dirname "$(command -v git)")"/* "${_bin}/"
+    rm -f "${_bin}/codegraph"
+    printf '#!/bin/sh\nexit 0\n' > "${_bin}/codegraph"
+    chmod +x "${_bin}/codegraph"
+    export PATH="${_bin}:${PATH}"
+    hash -r
+    remove_codegraph_from_path
+    [ -z "$(command -v codegraph)" ]
+    [[ "$(command -v git)" == "${BATS_TEST_TMPDIR}/path-without-codegraph."*/git ]]
+    git --version
 }
 
 # ── optimise-git ─────────────────────────────────────────────────────────────
