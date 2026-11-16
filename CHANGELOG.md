@@ -104,6 +104,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update-dotnet-tools now stops with an error when it cannot list the local or global dotnet tools, installs each global tool locally before uninstalling the global copy and keeps the global copy when the local install fails, so a tool is never left installed nowhere, counts every failed install, uninstall or update, and prints Done only when nothing failed, otherwise reports the counts and the failed tool names and exits with an error, so dev-update and install-latest-dotnet no longer report success after a failure (#139)
 - Fixed the Flatpak app launcher in login matching installed app ids as patterns, where the dots in an id such as com.brave.Browser could match a different installed app, so the wrong app could be launched
 - fetch --switch-to-main now switches a repo whose current branch cannot be read to the default branch, instead of skipping the repo
+- Reload firewalld after configure-network adds permanent firewall rules so they take effect immediately (#61)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
