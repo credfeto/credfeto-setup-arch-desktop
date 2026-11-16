@@ -281,6 +281,15 @@ EOF
     [[ "${output}" == *"Done"* ]]
 }
 
+@test "update-dotnet-tools matches a global tool id against the local tools as a literal string, not a regex" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_GLOBAL_TOOLS=a.b FAKE_DOTNET_LOCAL_TOOLS=axb "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^dotnet tool install --local a\.b PWD='
+    assert_fake_called '^dotnet tool uninstall --global a\.b PWD='
+    [[ "${output}" != *"a.b is already installed locally"* ]]
+}
+
 @test "update-dotnet-tools reports a global tool that is already installed locally as failed when it cannot uninstall it" {
     fake_dotnet_logging_pwd
     run env FAKE_DOTNET_GLOBAL_TOOLS=localtool FAKE_DOTNET_FAIL='^tool uninstall --global localtool$' "${GENERAL_DIR}/update-dotnet-tools"

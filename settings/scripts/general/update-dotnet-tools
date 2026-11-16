@@ -30,7 +30,7 @@ FAILED_TOOLS=""
 # the tool installed nowhere.
 for package in $global_packages
 do
-  if echo "$local_packages" | grep -qx "$package"; then
+  if echo "$local_packages" | grep -qxF "$package"; then
     info "$package is already installed locally"
   else
     info "Installing $package locally..."
