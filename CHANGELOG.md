@@ -30,7 +30,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
-- TBD - to be finalized after review
+- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, and keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -97,6 +97,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - auto-update.service now has Wants=network-online.target alongside After=network-online.target, so it actually pulls in network-online.target and waits for the network to come up
 - pacman-sync no longer runs while the machine is offline, so its package update check no longer fails with network errors when there is no connection (#97)
 - Made the NetworkManager timesyncd dispatcher hook check every command, exit non-zero with a stderr message on failure and write its drop-in atomically
+- fetch --switch-to-main now switches a repo whose current branch cannot be read to the default branch, instead of skipping the repo
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -112,6 +113,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-latest-dotnet now installs and updates all the dotnet tools through install-dotnet-tools and update-dotnet-tools instead of only PowerShell, which also moves any global dotnet tools into the $HOME tool manifest; a tool that fails to install no longer stops the run
 - Quoted temporary-directory paths in generated bats fake and stub scripts
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
+- fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, and only aborts a rebase after it has failed
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
