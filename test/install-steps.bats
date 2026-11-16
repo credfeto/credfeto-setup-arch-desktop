@@ -358,6 +358,23 @@ EOF
     refute_fake_called 'enable --now firewalld'
 }
 
+@test "configure-network reloads firewalld once after adding the permanent rules" {
+    run_step configure-network
+    [ "${status}" -eq 0 ]
+    local _last_rule _reload
+    _last_rule="$(log_line_of '^sudo firewall-cmd --permanent --add-rich-rule=.*172\.16\.0\.0/20')"
+    _reload="$(log_line_of '^sudo firewall-cmd --reload$')"
+    [ -n "${_last_rule}" ]
+    [ -n "${_reload}" ]
+    [ "${_last_rule}" -lt "${_reload}" ]
+    [ "$(grep -c -E '^sudo firewall-cmd --reload$' "${FAKE_BIN_LOG}")" -eq 1 ]
+}
+
+@test "configure-network stops when reloading firewalld fails" {
+    run_step configure-network FAKE_SUDO_FAIL='^firewall-cmd --reload$'
+    assert_step_died "Failed to reload firewalld" "Network configured"
+}
+
 # ── dash ─────────────────────────────────────────────────────────────────────
 
 @test "dash installs dash, dashbinsh and checkbashisms" {
