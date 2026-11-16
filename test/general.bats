@@ -137,8 +137,8 @@ make_wallpapers_clone() {
 
 # ── install-dotnet-tools ───────────────────────────────────────────────────
 
-# Fake dotnet that logs each call with the folder it ran from, for the tests
-# that check the install and update scripts act on the HOME tool manifest.
+# Fake dotnet that logs each call with the folder it ran from, so tests can
+# check the install and update scripts act on the HOME tool manifest.
 # `tool list` prints one local and one global tool for update-dotnet-tools.
 fake_dotnet_logging_pwd() {
     replace_fake dotnet <<'EOF'
@@ -264,26 +264,12 @@ EOF
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
-case "$1 $2" in
-    "tool list")
-        if [ "$3" = "--local" ]; then
-            printf 'Package Id      Version\n-----------------------\nlocaltool       1.0.0\n'
-        elif [ "$3" = "--global" ]; then
-            printf 'Package Id      Version\n-----------------------\nglobaltool      1.0.0\n'
-        fi
-        ;;
-esac
-exit 0
-EOF
-
+    fake_dotnet_logging_pwd
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
-    assert_fake_called '^dotnet tool uninstall --global globaltool$'
-    assert_fake_called '^dotnet tool install --local globaltool$'
-    assert_fake_called '^dotnet tool update --local localtool$'
+    assert_fake_called '^dotnet tool uninstall --global globaltool PWD='
+    assert_fake_called '^dotnet tool install --local globaltool PWD='
+    assert_fake_called '^dotnet tool update --local localtool PWD='
 }
 
 @test "update-dotnet-tools runs every local list, install and update from HOME when started from another folder" {
