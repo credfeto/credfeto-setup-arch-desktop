@@ -30,7 +30,7 @@ CANDIDATE_APPS="com.brave.Browser \
 INSTALLED_APPS=$(flatpak list --app --columns=application)
 
 for APP in $CANDIDATE_APPS; do
-  if echo "$INSTALLED_APPS" | grep -qx "$APP"; then
+  if echo "$INSTALLED_APPS" | grep -qxF "$APP"; then
     info "Launching ${APP}..."
     if [ "$APP" = "com.brave.Browser" ]; then
       flatpak run com.brave.Browser --enable-feature=UseOzonePlatform --ozone-platform=wayland &
