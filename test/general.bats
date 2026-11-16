@@ -212,21 +212,12 @@ EOF
 }
 
 @test "install-dotnet-tools attempts every tool and reports the counts and the failed tools when some installs fail" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
-case "$*" in
-    "tool install --local sleet"|"tool install --local ilspycmd")
-        exit 1
-        ;;
-esac
-exit 0
-EOF
+    fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
-    run "${GENERAL_DIR}/install-dotnet-tools"
+    run env FAKE_DOTNET_FAIL='^tool install --local (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
-    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage$'
+    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage PWD='
     [[ "${output}" == *"16 succeeded, 2 failed: sleet ilspycmd"* ]]
     [[ "${output}" != *"Done"* ]]
 }
