@@ -169,19 +169,6 @@ exit 0
 EOF
 }
 
-@test "install-dotnet-tools creates a tool manifest when absent, then installs every tool" {
-    setup_fake_bin dotnet
-    run "${GENERAL_DIR}/install-dotnet-tools"
-    [ "${status}" -eq 1 ]
-    # No tool manifest exists and the fake `dotnet new tool-manifest` is a
-    # no-op that doesn't create dotnet-tools.json, so the script's own
-    # `[ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"` guard
-    # fires - this is the genuine behaviour with any non-functional stub,
-    # so it's asserted directly rather than papered over.
-    assert_fake_called '^dotnet new tool-manifest'
-    [[ "${output}" == *"No tool manifest"* ]]
-}
-
 @test "install-dotnet-tools installs every tool once a manifest exists" {
     setup_fake_bin dotnet
     printf '{}' > "${HOME}/dotnet-tools.json"
@@ -248,8 +235,11 @@ EOF
     mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
     run "${GENERAL_DIR}/install-dotnet-tools"
-    # The fake `dotnet new tool-manifest` creates no manifest, so the
-    # script's "No tool manifest" guard stops it once the call is made.
+    # No tool manifest exists and the fake `dotnet new tool-manifest` is a
+    # no-op that doesn't create dotnet-tools.json, so the script's own
+    # `[ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"` guard
+    # fires - this is the genuine behaviour with any non-functional stub,
+    # so it's asserted directly rather than papered over.
     [ "${status}" -eq 1 ]
     assert_fake_called "^dotnet new tool-manifest PWD=${HOME}\$"
     [[ "${output}" == *"No tool manifest"* ]]
