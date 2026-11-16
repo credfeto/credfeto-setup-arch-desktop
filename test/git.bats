@@ -10,6 +10,51 @@ setup() {
     mkdir -p "${HOME}"
     export GIT_AUTHOR_NAME="Test" GIT_AUTHOR_EMAIL="test@example.com"
     export GIT_COMMITTER_NAME="Test" GIT_COMMITTER_EMAIL="test@example.com"
+    remove_codegraph_from_path
+}
+
+# Takes every directory holding a codegraph out of PATH, so fetch cannot
+# find the codegraph of whoever runs the suite and index the scratch repos
+# with it. A test that wants one puts a fake on PATH afterwards. Fails when
+# codegraph can still be found, or git can no longer be.
+remove_codegraph_from_path() {
+    local _dir _kept="" _entries
+    IFS=: read -r -a _entries <<< "${PATH}"
+    for _dir in "${_entries[@]}"; do
+        [ -x "${_dir:-.}/codegraph" ] && continue
+        _kept="${_kept:+${_kept}:}${_dir}"
+    done
+    export PATH="${_kept}"
+    hash -r
+    ! command -v codegraph > /dev/null && command -v git > /dev/null
+}
+
+# Puts a fake codegraph on PATH that logs its arguments and the directory it
+# ran in to $FAKE_BIN_LOG, and exits with FAKE_EXIT_codegraph (0 when unset).
+# A successful init leaves the .codegraph/.gitignore the real one writes,
+# which ignores the index but not itself.
+setup_fake_codegraph() {
+    ensure_fake_bin_dir
+    : > "${FAKE_BIN_LOG}"
+    replace_fake codegraph <<'EOF'
+#!/bin/sh
+printf 'codegraph %s (in %s)\n' "$*" "$(pwd)" >> "${FAKE_BIN_LOG}"
+if [ "${FAKE_EXIT_codegraph:-0}" -eq 0 ] && [ "$1" = init ]; then
+    mkdir -p .codegraph
+    printf '*\n!.gitignore\n' > .codegraph/.gitignore
+fi
+exit "${FAKE_EXIT_codegraph:-0}"
+EOF
+}
+
+# Prints how many lines of the repo's info/exclude are exactly .codegraph/.
+# Usage: codegraph_exclude_count <repo>
+codegraph_exclude_count() {
+    if [ ! -e "$1/.git/info/exclude" ]; then
+        echo 0
+        return
+    fi
+    grep -cxF '.codegraph/' "$1/.git/info/exclude" || true
 }
 
 make_bare_remote_and_clone() {
@@ -227,6 +272,127 @@ EOF
     [[ "${output}" == *"Pending changes in working folder. Skipping switch to ${DEFAULT_BRANCH_NAME}."* ]]
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
     [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" symbolic-ref --short HEAD)" = "feature" ]
+}
+
+@test "fetch initialises codegraph in a repo without a .codegraph index and still counts it as fetched" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Initialising codegraph for ${BATS_TEST_TMPDIR}/repos/repo-a..."* ]]
+    [[ "${output}" == *"Done with ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+    [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
+}
+
+@test "fetch does not list .codegraph/ twice when info/exclude already excludes it" {
+    make_bare_remote_and_clone repo-a
+    mkdir -p "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
+    printf '%s\n' '# kept' '.codegraph/' > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    assert_fake_called '^codegraph init '
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+    grep -qxF '# kept' "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+}
+
+@test "fetch adds .codegraph/ on its own line when info/exclude does not end in a newline" {
+    make_bare_remote_and_clone repo-a
+    mkdir -p "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
+    printf '%s' '# no newline' > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+    grep -qxF '# no newline' "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
+}
+
+@test "fetch still rebases a repo on the run after it initialised codegraph there" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Initialising codegraph for ${BATS_TEST_TMPDIR}/repos/repo-a..."* ]]
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Pending changes"* ]]
+    [[ "${output}" == *"No pending changes in working folder. Rebasing..."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+}
+
+@test "fetch skips a repo whose codegraph index cannot be excluded" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    fail_git_for "rev-parse --git-path info/exclude"
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
+    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
+    [[ "${output}" != *"Done with"* ]]
+}
+
+@test "fetch initialises codegraph in every repo when init reads its stdin" {
+    make_bare_remote_and_clone repo-a
+    make_bare_remote_and_clone repo-b
+    replace_fake codegraph <<'EOF'
+#!/bin/sh
+cat > /dev/null
+printf 'codegraph %s (in %s)\n' "$*" "$(pwd)" >> "${FAKE_BIN_LOG}"
+EOF
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"2 repo(s) fetched, 0 repo(s) skipped"* ]]
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-b)" "${FAKE_BIN_LOG}"
+}
+
+@test "fetch does not initialise codegraph in a repo that already has a .codegraph index" {
+    make_bare_remote_and_clone repo-a
+    mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [[ "${output}" != *"Initialising codegraph"* ]]
+    refute_fake_called '^codegraph'
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
+}
+
+@test "fetch skips a repo whose codegraph init fails" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    FAKE_EXIT_codegraph=1 run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not initialise codegraph for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
+    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
+    [[ "${output}" != *"Done with"* ]]
+    assert_fake_called '^codegraph init '
+}
+
+@test "fetch does not initialise codegraph when codegraph is not installed" {
+    make_bare_remote_and_clone repo-a
+    [ -z "$(command -v codegraph)" ]
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Initialising codegraph"* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
 
 # ── optimise-git ─────────────────────────────────────────────────────────────

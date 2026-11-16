@@ -53,6 +53,46 @@ skip_repo() {
 "
 }
 
+CODEGRAPH_AVAILABLE=0
+if command -v codegraph > /dev/null 2>&1
+then
+    CODEGRAPH_AVAILABLE=1
+fi
+
+ensure_codegraph_index() {
+    index_dir=$1
+    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || [ -e "$index_dir/.codegraph" ]
+    then
+        return 0
+    fi
+    info "Initialising codegraph for ${index_dir}..."
+    # The repo loop reads its list from stdin, which init must not consume.
+    (cd "$index_dir" && codegraph init < /dev/null) || return 1
+    exclude_codegraph_index "$index_dir"
+}
+
+# The index is never committed, and an untracked .codegraph/ would make the
+# working folder look as if it had pending changes, so later runs would stop
+# rebasing the repo.
+exclude_codegraph_index() {
+    exclude_repo=$1
+    exclude_file=$(git -C "$exclude_repo" rev-parse --git-path info/exclude) || return 1
+    case "$exclude_file" in
+        /*) ;;
+        *) exclude_file="$exclude_repo/$exclude_file" ;;
+    esac
+    mkdir -p "$(dirname "$exclude_file")" || return 1
+    if [ -f "$exclude_file" ] && grep -qxF '.codegraph/' "$exclude_file"
+    then
+        return 0
+    fi
+    if [ -s "$exclude_file" ] && [ -n "$(tail -c 1 "$exclude_file")" ]
+    then
+        printf '\n' >> "$exclude_file" || return 1
+    fi
+    printf '%s\n' '.codegraph/' >> "$exclude_file"
+}
+
 while IFS= read -r line
 do
   CURRENT_DIR=$line
@@ -125,6 +165,8 @@ do
       fi
     fi
   fi
+
+  ensure_codegraph_index "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue; }
 
   FETCHED_COUNT=$((FETCHED_COUNT + 1))
   success "Done with ${CURRENT_DIR}"
