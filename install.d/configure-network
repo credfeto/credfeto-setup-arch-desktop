@@ -61,6 +61,7 @@ configure_network() {
     sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.0.0/8" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 10.0.0.0/8"
     sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.0.0/16" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 192.168.0.0/16"
     sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="172.16.0.0/20" port protocol="tcp" port="22" accept' || die "Failed to allow ssh from 172.16.0.0/20"
+    sudo firewall-cmd --reload || die "Failed to reload firewalld"
 
     success "Network configured"
 }
