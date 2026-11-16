@@ -39,9 +39,21 @@ TOOLS="sleet \
        ilspycmd \
        microsoft.sqlpackage"
 
+# Every tool is attempted even after one fails, so a single bad package
+# does not leave the rest uninstalled; the failures are reported together.
+SUCCEEDED=0
+FAILED=0
+FAILED_TOOLS=""
 for TOOL in $TOOLS; do
    info "Installing $TOOL"
-   dotnet tool install --local "$TOOL"
+   if dotnet tool install --local "$TOOL"; then
+      SUCCEEDED=$((SUCCEEDED + 1))
+   else
+      FAILED=$((FAILED + 1))
+      FAILED_TOOLS="$FAILED_TOOLS $TOOL"
+   fi
 done
+
+[ "$FAILED" -eq 0 ] || die "$SUCCEEDED succeeded, $FAILED failed:$FAILED_TOOLS"
 
 success "Done"
