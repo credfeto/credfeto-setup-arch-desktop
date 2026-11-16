@@ -460,11 +460,11 @@ DOTNET_ENV_SDK_DIR="$DOTNET_INSTALL_DIR" "$BASEDIR/install.d/dotnet-environment"
 
 info "Installing and updating dotnet tools"
 
-# The --local calls in install-dotnet-tools and update-dotnet-tools use the
-# tool manifest found from the directory they start in, while
-# install-dotnet-tools only ever creates and checks for one in $HOME. Started
-# from $HOME, every call acts on the user's own manifest rather than on one
-# found from whichever directory this script happened to be launched from.
+# The tool restore at the end uses the tool manifest found from the current
+# directory, so it has to run from $HOME, where install-dotnet-tools keeps
+# the manifest, rather than restore one found from whichever directory this
+# script happened to be launched from. The tool scripts change to $HOME
+# themselves, so this is for the restore alone.
 cd "$HOME" || die "Could not change to $HOME"
 
 # Both tool scripts call a bare dotnet, which on a first install is not on
