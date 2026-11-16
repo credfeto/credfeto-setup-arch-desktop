@@ -246,19 +246,34 @@ make_merge_conflict() {
     [ -n "$(git -C "$1" ls-files --unmerged)" ]
 }
 
-# Replaces git with one that fails when its arguments contain the given
-# text and runs the real git otherwise.
-# Usage: fail_git_for <text>
-fail_git_for() {
-    local _real_git
+# Replaces git with one that logs each call to $FAKE_BIN_LOG as
+# "git <arguments>", fails when its arguments, with a space added at each
+# end, contain the given text, and runs the real git otherwise. With no text
+# it fails nothing, so a test only gets the log. The added spaces let text
+# such as " rebase " match a whole argument, which " rev-parse --git-path
+# rebase-merge " does not contain. A rebase --abort always runs the real
+# git, so failing " rebase " fails only the rebase itself.
+# Usage: fake_git [<text>]
+fake_git() {
+    local _real_git _fail_case=""
     _real_git="$(command -v git)"
+    [ -z "${1:-}" ] || _fail_case="    *\"$1\"*) exit 1 ;;"
     replace_fake git <<EOF
 #!/bin/sh
-case "\$*" in
-    *"$1"*) exit 1 ;;
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+case " \$* " in
+    *" rebase --abort ") ;;
+${_fail_case}
 esac
 exec "${_real_git}" "\$@"
 EOF
+}
+
+# Replaces git with the fake_git that fails when its arguments contain the
+# given text.
+# Usage: fail_git_for <text>
+fail_git_for() {
+    fake_git "$1"
 }
 
 # Holds a flock on the given file from a background process for the given

@@ -129,27 +129,6 @@ assert_skipped_before_codegraph_init() {
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
 
-# Replaces git with one that logs each call to $FAKE_BIN_LOG, fails when the
-# given word is one of its arguments, and runs the real git otherwise.
-# A rebase --abort always runs the real git, so failing "rebase" fails only
-# the rebase itself.
-# Usage: log_git_failing <subcommand>
-log_git_failing() {
-    local _real_git
-    _real_git="$(command -v git)"
-    ensure_fake_bin_dir
-    : > "${FAKE_BIN_LOG}"
-    replace_fake git <<EOF
-#!/bin/sh
-printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
-case " \$* " in
-    *" rebase --abort ") ;;
-    *" $1 "*) exit 1 ;;
-esac
-exec "${_real_git}" "\$@"
-EOF
-}
-
 ORIGINAL_GLOBAL_JSON='{"sdk":{"version":"11.0.0","allowPrerelease":true}}'
 
 # Runs update-dotnet-sdk against a repo holding ORIGINAL_GLOBAL_JSON, with
@@ -251,7 +230,7 @@ EOF
 
 @test "fetch skips a repo whose rebase fails, after aborting the rebase" {
     make_bare_remote_and_clone repo-a
-    log_git_failing rebase
+    fail_git_for ' rebase '
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     assert_skipped_repo_a "could not rebase"
@@ -261,7 +240,7 @@ EOF
 
 @test "fetch does not abort a rebase that succeeded" {
     make_bare_remote_and_clone repo-a
-    log_git_failing no-such-subcommand
+    fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     [ "${status}" -eq 0 ]
@@ -273,7 +252,7 @@ EOF
 @test "fetch skips a clean repo with a rebase in progress on a branch with an upstream, without aborting it" {
     make_bare_remote_and_clone repo-a
     mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.git/rebase-apply"
-    log_git_failing no-such-subcommand
+    fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     assert_skipped_rebase_in_progress
@@ -295,7 +274,7 @@ EOF
     [ -d "${_clone}/.git/rebase-merge" ]
     [ -z "$(git -C "${_clone}" status --porcelain)" ]
     _stopped_at="$(git -C "${_clone}" rev-parse HEAD)"
-    log_git_failing no-such-subcommand
+    fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
     assert_skipped_rebase_in_progress
@@ -306,7 +285,7 @@ EOF
 
 @test "fetch --switch-to-main skips a repo that cannot switch to the default branch" {
     make_clone_on_feature_branch repo-a
-    log_git_failing checkout
+    fail_git_for ' checkout '
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
     assert_skipped_repo_a "could not switch to ${DEFAULT_BRANCH_NAME}"
@@ -315,7 +294,7 @@ EOF
 
 @test "fetch --switch-to-main skips a repo whose default branch rebase fails, after aborting the rebase" {
     make_clone_on_feature_branch repo-a
-    log_git_failing rebase
+    fail_git_for ' rebase '
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
     assert_skipped_repo_a "could not rebase ${DEFAULT_BRANCH_NAME}"
@@ -326,7 +305,7 @@ EOF
 
 @test "fetch --switch-to-main rebases the default branch without aborting it" {
     make_clone_on_feature_branch repo-a
-    log_git_failing no-such-subcommand
+    fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
     [ "${status}" -eq 0 ]
@@ -339,7 +318,7 @@ EOF
 @test "fetch --switch-to-main does not rebase a default branch with no upstream" {
     make_clone_on_feature_branch repo-a
     git -C "${BATS_TEST_TMPDIR}/repos/repo-a" branch --unset-upstream "${DEFAULT_BRANCH_NAME}"
-    log_git_failing no-such-subcommand
+    fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
     [ "${status}" -eq 0 ]
