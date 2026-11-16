@@ -137,6 +137,26 @@ make_wallpapers_clone() {
 
 # ── install-dotnet-tools ───────────────────────────────────────────────────
 
+# Fake dotnet that logs each call with the folder it ran from, for the tests
+# that check the install and update scripts act on the HOME tool manifest.
+# `tool list` prints one local and one global tool for update-dotnet-tools.
+fake_dotnet_logging_pwd() {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+case "$1 $2" in
+    "tool list")
+        if [ "$3" = "--local" ]; then
+            printf 'Package Id      Version\n-----------------------\nlocaltool       1.0.0\n'
+        elif [ "$3" = "--global" ]; then
+            printf 'Package Id      Version\n-----------------------\nglobaltool      1.0.0\n'
+        fi
+        ;;
+esac
+exit 0
+EOF
+}
+
 @test "install-dotnet-tools creates a tool manifest when absent, then installs every tool" {
     setup_fake_bin dotnet
     run "${GENERAL_DIR}/install-dotnet-tools"
@@ -210,11 +230,7 @@ EOF
 }
 
 @test "install-dotnet-tools runs every install from HOME when started from another folder with a manifest present" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
-exit 0
-EOF
+    fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
     mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
@@ -225,11 +241,7 @@ EOF
 }
 
 @test "install-dotnet-tools creates the manifest from HOME when started from another folder" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
-exit 0
-EOF
+    fake_dotnet_logging_pwd
     mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
     run "${GENERAL_DIR}/install-dotnet-tools"
@@ -275,20 +287,7 @@ EOF
 }
 
 @test "update-dotnet-tools runs every local list, install and update from HOME when started from another folder" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
-case "$1 $2" in
-    "tool list")
-        if [ "$3" = "--local" ]; then
-            printf 'Package Id      Version\n-----------------------\nlocaltool       1.0.0\n'
-        elif [ "$3" = "--global" ]; then
-            printf 'Package Id      Version\n-----------------------\nglobaltool      1.0.0\n'
-        fi
-        ;;
-esac
-exit 0
-EOF
+    fake_dotnet_logging_pwd
     mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
     run "${GENERAL_DIR}/update-dotnet-tools"
