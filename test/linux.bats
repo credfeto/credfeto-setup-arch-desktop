@@ -84,8 +84,9 @@ exit ${3:-0}
 EOF
 }
 
-# Creates an executable stub at <root>/<relpath> that logs "<name> <args>" to
-# the fake log and exits with the value of the named variable (default 0).
+# Creates an executable stub at <root>/<relpath> that logs "<name> <args>"
+# (just "<name>" when there are no arguments) to the fake log and exits with
+# the value of the named variable (default 0).
 # Also puts a decoy of the same name on PATH that logs "PATH <name>", so a
 # test can prove the stub was run from <root> rather than looked up on PATH.
 # Usage: make_decoyed_logging_stub <root> <relpath> <exit-variable>
@@ -95,7 +96,7 @@ make_decoyed_logging_stub() {
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "${_name}" "\$*" >> "\${FAKE_BIN_LOG}"
+printf '%s\n' "${_name}\${*:+ \$*}" >> "\${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
     replace_fake "${_name}" <<EOF
@@ -526,7 +527,7 @@ EOF
         expected_published_step credfeto-ai-skills install
         expected_published_step credfeto-orchestrator install-claude-hooks
         printf '%s\n' \
-            "update-dotnet-tools " \
+            "update-dotnet-tools" \
             "systemctl --user start dev-update.timer"
     )"
     [ "$(logged_steps | mask_publish_names)" = "${expected}" ]
@@ -752,7 +753,7 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
     assert_fake_called '^credfeto-orchestrator/install-claude-hooks --system$'
-    assert_fake_called '^update-dotnet-tools '
+    assert_fake_called '^update-dotnet-tools$'
 
     # The published copy dev-update ran, not the reference clone, is the one whose text must lack --system.
     run grep -q -e '--system' "${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks"
@@ -1386,7 +1387,7 @@ setup_dev_install_fixture() {
             expected_reference_update "${_repo}"
         done
         printf '%s\n' \
-            "install-dotnet-tools " \
+            "install-dotnet-tools" \
             "systemctl --user daemon-reload" \
             "systemctl --user enable dev-update.timer" \
             "settings/scripts/linux/dev-update --fail-if-running"
