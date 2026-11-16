@@ -6,9 +6,14 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# The --local installs act on the tool manifest in the current folder, so
+# they have to run from $HOME, where the manifest lives, whichever folder
+# the script was started from.
+cd "$HOME" || die "Could not change to $HOME"
+
 if [ ! -f "$HOME/dotnet-tools.json" ]; then
 
-  cd "$HOME" && dotnet new tool-manifest
+  dotnet new tool-manifest
 
 fi
 

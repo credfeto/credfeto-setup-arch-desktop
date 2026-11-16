@@ -178,6 +178,46 @@ make_wallpapers_clone() {
     [[ "${output}" == *"Done"* ]]
 }
 
+@test "install-dotnet-tools runs every install from HOME when started from another folder with a manifest present" {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+exit 0
+EOF
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [ "$(grep -c "^dotnet tool install --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
+}
+
+@test "install-dotnet-tools creates the manifest from HOME when started from another folder" {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+exit 0
+EOF
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    # The fake `dotnet new tool-manifest` creates no manifest, so the
+    # script's "No tool manifest" guard stops it once the call is made.
+    [ "${status}" -eq 1 ]
+    assert_fake_called "^dotnet new tool-manifest PWD=${HOME}\$"
+    [[ "${output}" == *"No tool manifest"* ]]
+}
+
+@test "install-dotnet-tools dies without running dotnet when it cannot change to HOME" {
+    setup_fake_bin dotnet
+    local missing_home="${BATS_TEST_TMPDIR}/missing-home"
+    run env HOME="${missing_home}" "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not change to ${missing_home}"* ]]
+    refute_fake_called '^dotnet '
+}
+
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
