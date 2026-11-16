@@ -23,6 +23,41 @@ make_bare_remote_and_clone() {
     git -C "${_clone}" push --quiet
 }
 
+# Clones a repo as make_bare_remote_and_clone does, points origin/HEAD at the
+# remote's default branch, then leaves the clone on a new branch with no
+# upstream, so fetch --switch-to-main skips the first rebase and goes straight
+# to switching to the default branch. The default branch's name is left in
+# DEFAULT_BRANCH_NAME.
+# Usage: make_clone_on_feature_branch <name>
+make_clone_on_feature_branch() {
+    local _clone="${BATS_TEST_TMPDIR}/repos/$1"
+    make_bare_remote_and_clone "$1"
+    git -C "${_clone}" remote set-head origin --auto > /dev/null
+    DEFAULT_BRANCH_NAME="$(git -C "${_clone}" rev-parse --abbrev-ref HEAD)"
+    git -C "${_clone}" checkout --quiet -b feature
+}
+
+# Replaces git with one that logs each call to $FAKE_BIN_LOG, fails when the
+# given word is one of its arguments, and runs the real git otherwise.
+# A rebase --abort always runs the real git, so failing "rebase" fails only
+# the rebase itself.
+# Usage: log_git_failing <subcommand>
+log_git_failing() {
+    local _real_git
+    _real_git="$(command -v git)"
+    ensure_fake_bin_dir
+    : > "${FAKE_BIN_LOG}"
+    replace_fake git <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+case " \$* " in
+    *" rebase --abort ") ;;
+    *" $1 "*) exit 1 ;;
+esac
+exec "${_real_git}" "\$@"
+EOF
+}
+
 ORIGINAL_GLOBAL_JSON='{"sdk":{"version":"11.0.0","allowPrerelease":true}}'
 
 # Runs update-dotnet-sdk against a repo holding ORIGINAL_GLOBAL_JSON, with
@@ -105,6 +140,68 @@ EOF
     [ "${status}" -ne 0 ]
     [[ "${output}" != *"repo(s) fetched"* ]]
     [ -z "$(ls -A "${_tmp}")" ]
+}
+
+@test "fetch skips a repo whose rebase fails, after aborting the rebase" {
+    make_bare_remote_and_clone repo-a
+    log_git_failing rebase
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not rebase ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
+    [[ "${output}" == *"repo-a (could not rebase)"* ]]
+    [[ "${output}" != *"Done with"* ]]
+    assert_fake_called 'rebase --abort$'
+}
+
+@test "fetch does not abort a rebase that succeeded" {
+    make_bare_remote_and_clone repo-a
+    log_git_failing no-such-subcommand
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    assert_fake_called ' rebase$'
+    refute_fake_called 'rebase --abort'
+}
+
+@test "fetch --switch-to-main skips a repo that cannot switch to the default branch" {
+    make_clone_on_feature_branch repo-a
+    log_git_failing checkout
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not switch to ${DEFAULT_BRANCH_NAME} in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
+    [[ "${output}" == *"repo-a (could not switch to ${DEFAULT_BRANCH_NAME})"* ]]
+    [[ "${output}" != *"Done with"* ]]
+}
+
+@test "fetch --switch-to-main skips a repo whose default branch rebase fails, after aborting the rebase" {
+    make_clone_on_feature_branch repo-a
+    log_git_failing rebase
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not rebase ${DEFAULT_BRANCH_NAME} in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
+    [[ "${output}" == *"repo-a (could not rebase ${DEFAULT_BRANCH_NAME})"* ]]
+    [[ "${output}" != *"Done with"* ]]
+    assert_fake_called "checkout ${DEFAULT_BRANCH_NAME}$"
+    assert_fake_called 'rebase --abort$'
+}
+
+@test "fetch --switch-to-main rebases the default branch without aborting it" {
+    make_clone_on_feature_branch repo-a
+    log_git_failing no-such-subcommand
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" rev-parse --abbrev-ref HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
+    assert_fake_called ' rebase$'
+    refute_fake_called 'rebase --abort'
 }
 
 # ── optimise-git ─────────────────────────────────────────────────────────────
