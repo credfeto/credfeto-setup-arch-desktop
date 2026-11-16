@@ -72,36 +72,56 @@ EOF
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
-# to the fake log and exits with the given code.
+# (just "<relpath>" when there are no arguments) to the fake log and exits
+# with the given code.
 # Usage: make_logging_stub <root> <relpath> [<exit-code>]
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
+printf '%s\n' "$2\${*:+ \$*}" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
 }
 
-# Creates an executable stub at <root>/<relpath> that logs "<name> <cwd>" to
-# the fake log, so a test can see which directory it was run from, and exits
-# with the value of the named variable (default 0). Also puts a decoy of the
-# same name on PATH that logs "PATH <name>", so a test can prove the stub was
-# run from <root> rather than looked up on PATH.
-# Usage: make_cwd_logging_stub <root> <relpath> <exit-variable>
-make_cwd_logging_stub() {
+# Creates an executable stub at <root>/<relpath> that logs "<name> <args>"
+# (just "<name>" when there are no arguments) to the fake log and exits with
+# the value of the named variable (default 0).
+# Also puts a decoy of the same name on PATH that logs "PATH <name>", so a
+# test can prove the stub was run from <root> rather than looked up on PATH.
+# Usage: make_decoyed_logging_stub <root> <relpath> <exit-variable>
+make_decoyed_logging_stub() {
     local _path="$1/$2" _name
     _name="$(basename "$2")"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "${_name}" "\$(pwd)" >> "\${FAKE_BIN_LOG}"
+printf '%s\n' "${_name}\${*:+ \$*}" >> "\${FAKE_BIN_LOG}"
 exit "\${$3:-0}"
 EOF
     replace_fake "${_name}" <<EOF
 #!/bin/sh
 printf 'PATH %s\n' "${_name}" >> "\${FAKE_BIN_LOG}"
+EOF
+}
+
+# Replaces the stub at <clone>/<relpath> with the real dotnet tool script and
+# the lib it sources, and fakes dotnet to log each call with the folder it ran
+# from, so a test can see which folder the tool script ends up acting from.
+# dotnet new tool-manifest creates the manifest install-dotnet-tools checks for.
+# Usage: use_real_dotnet_tool_script <clone> <relpath>
+use_real_dotnet_tool_script() {
+    mkdir -p "$1/$(dirname "$2")"
+    cp "${REPO_DIR}/$2" "$1/$2"
+    [ -d "$1/lib" ] || cp -R "${REPO_DIR}/lib" "$1/lib"
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+if [ "$1 $2" = "new tool-manifest" ]; then
+    : > dotnet-tools.json
+fi
+exit 0
 EOF
 }
 
@@ -350,9 +370,9 @@ published_snapshots() {
 # setup_fake_network), every reference clone present, every install step a
 # logging stub; git and the reference clone's update-dotnet-tools are faked
 # so nothing reaches a real remote or the real dotnet tool restore.
-# update-dotnet-tools logs the directory it was run from. Snapshots are
-# published into a writable directory in the test tree, so only the chown to
-# root goes through the fake sudo, which logs it without running it.
+# Snapshots are published into a writable directory in the test tree, so only
+# the chown to root goes through the fake sudo, which logs it without running
+# it.
 # Usage: setup_dev_update_fixture [<active-unit>]
 setup_dev_update_fixture() {
     setup_fake_network "${1:-NetworkManager.service}"
@@ -366,7 +386,7 @@ setup_dev_update_fixture() {
     for _step in "${DEV_UPDATE_STEPS[@]}"; do
         make_logging_stub "${HOME}/work/reference" "${_step}"
     done
-    make_cwd_logging_stub "${HOME}/work/reference" \
+    make_decoyed_logging_stub "${HOME}/work/reference" \
         credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools \
         FAKE_EXIT_update_dotnet_tools
 }
@@ -502,13 +522,13 @@ EOF
         done
         printf '%s\n' \
             "systemctl --user daemon-reload" \
-            "credfeto-setup-arch-desktop/install.d/dev-scripts "
+            "credfeto-setup-arch-desktop/install.d/dev-scripts"
         expected_published_step credfeto-global-pre-commit install
         expected_published_step claude install
         expected_published_step credfeto-ai-skills install
         expected_published_step credfeto-orchestrator install-claude-hooks
         printf '%s\n' \
-            "update-dotnet-tools ${HOME}" \
+            "update-dotnet-tools" \
             "systemctl --user start dev-update.timer"
     )"
     [ "$(logged_steps | mask_publish_names)" = "${expected}" ]
@@ -594,12 +614,15 @@ EOF
     refute_fake_called '^systemctl --user daemon-reload'
 }
 
-@test "dev-update runs the reference clone's update-dotnet-tools from \$HOME, not the one on PATH" {
+@test "dev-update runs the reference clone's update-dotnet-tools, not the one on PATH, which acts from \$HOME" {
     setup_dev_update_fixture
+    use_real_dotnet_tool_script "${HOME}/work/reference/credfeto-setup-arch-desktop" \
+        settings/scripts/general/update-dotnet-tools
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-update"
     [ "${status}" -eq 0 ]
-    grep -qxF "update-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+    assert_fake_called "^dotnet tool list --local PWD=${HOME}\$"
+    refute_fake_called "^dotnet .* PWD=${BATS_TEST_TMPDIR}\$"
     [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools..."* ]]
     refute_fake_called '^PATH '
 }
@@ -699,7 +722,7 @@ EOF
             [[ "${output}" == *"Failed to run ${DEV_PUBLISH_DIR}/${_failing}"* ]]
         fi
         for _later in "${DEV_UPDATE_STEPS[@]:_index+1}"; do
-            refute_fake_called "^${_later//./\\.} "
+            refute_fake_called "^${_later//./\\.}( |$)"
         done
         refute_fake_called '^update-dotnet-tools'
         refute_fake_called '^systemctl --user start '
@@ -731,7 +754,7 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Running ${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks --system..."* ]]
     assert_fake_called '^credfeto-orchestrator/install-claude-hooks --system$'
-    assert_fake_called '^update-dotnet-tools '
+    assert_fake_called '^update-dotnet-tools$'
 
     # The published copy dev-update ran, not the reference clone, is the one whose text must lack --system.
     run grep -q -e '--system' "${DEV_PUBLISH_DIR}/credfeto-orchestrator/install-claude-hooks"
@@ -1235,9 +1258,9 @@ lock_down_publish_dir_with_lock() {
 # Online under NetworkManager with dotnet present. The cloned
 # credfeto-setup-arch-desktop carries the real units/dev-update and
 # lib/common, so its units install runs for real against the fake
-# systemctl, plus a logging stub in place of dev-update.
-# install-dotnet-tools logs the directory it was run from. Pass another
-# active unit (as for setup_fake_network) to change the network manager.
+# systemctl, plus logging stubs in place of dev-update and
+# install-dotnet-tools. Pass another active unit (as for setup_fake_network)
+# to change the network manager.
 # id reports a normal user, and the fake systemctl answers the session probe,
 # so the preflight passes whoever runs the tests.
 # Usage: setup_dev_install_fixture [<active-unit>]
@@ -1251,7 +1274,7 @@ setup_dev_install_fixture() {
     cp -R "${REPO_DIR}/lib" "${_clone}/lib"
     cp -R "${REPO_DIR}/units/dev-update" "${_clone}/units/dev-update"
     make_logging_stub "${_clone}" settings/scripts/linux/dev-update
-    make_cwd_logging_stub "${_clone}" settings/scripts/general/install-dotnet-tools \
+    make_decoyed_logging_stub "${_clone}" settings/scripts/general/install-dotnet-tools \
         FAKE_EXIT_install_dotnet_tools
 }
 
@@ -1365,7 +1388,7 @@ setup_dev_install_fixture() {
             expected_reference_update "${_repo}"
         done
         printf '%s\n' \
-            "install-dotnet-tools ${HOME}" \
+            "install-dotnet-tools" \
             "systemctl --user daemon-reload" \
             "systemctl --user enable dev-update.timer" \
             "settings/scripts/linux/dev-update --fail-if-running"
@@ -1444,12 +1467,15 @@ setup_dev_install_fixture() {
     refute_fake_called '^install-dotnet-tools'
 }
 
-@test "dev-install runs the reference clone's install-dotnet-tools from \$HOME, not the one on PATH" {
+@test "dev-install runs the reference clone's install-dotnet-tools, not the one on PATH, which acts from \$HOME" {
     setup_dev_install_fixture
+    use_real_dotnet_tool_script "${FAKE_CLONE_SOURCE}/credfeto-setup-arch-desktop" \
+        settings/scripts/general/install-dotnet-tools
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    grep -qxF "install-dotnet-tools ${HOME}" "${FAKE_BIN_LOG}"
+    assert_fake_called "^dotnet tool install --local sleet PWD=${HOME}\$"
+    refute_fake_called "^dotnet .* PWD=${BATS_TEST_TMPDIR}\$"
     [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools..."* ]]
     refute_fake_called '^PATH '
 }

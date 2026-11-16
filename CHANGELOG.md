@@ -30,6 +30,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
+- install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -96,6 +97,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - auto-update.service now has Wants=network-online.target alongside After=network-online.target, so it actually pulls in network-online.target and waits for the network to come up
 - pacman-sync no longer runs while the machine is offline, so its package update check no longer fails with network errors when there is no connection (#97)
 - Made the NetworkManager timesyncd dispatcher hook check every command, exit non-zero with a stderr message on failure and write its drop-in atomically
+- install-dotnet-tools now always runs its installs from $HOME, not only when the tool manifest is missing, so --local .NET tools are no longer installed into whichever folder the script was started from, and the script stops with an error if it cannot change to $HOME (#116)
+- install-dotnet-tools now tries every dotnet tool even when one fails, prints Done only when all of them install, and otherwise reports how many succeeded and failed with the failed tool names and exits with an error, so dev-install and install-latest-dotnet no longer report success after a tool fails to install (#131)
+- update-dotnet-tools now changes to $HOME before listing, installing or updating tools, so running it from inside a repository no longer updates that repository's tool manifest or moves global tools into it, and the script stops with an error if it cannot change to $HOME (#132)
+- update-dotnet-tools now stops with an error when it cannot list the local or global dotnet tools, installs each global tool locally before uninstalling the global copy and keeps the global copy when the local install fails, so a tool is never left installed nowhere, counts every failed install, uninstall or update, and prints Done only when nothing failed, otherwise reports the counts and the failed tool names and exits with an error, so dev-update and install-latest-dotnet no longer report success after a failure (#139)
+- Fixed the Flatpak app launcher in login matching installed app ids as patterns, where the dots in an id such as com.brave.Browser could match a different installed app, so the wrong app could be launched
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -115,6 +121,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
 - Removed dead ~/work/personal/scripts/* PATH entries from the shell environment config; that directory was never populated and the repo's own dev-scripts are already installed onto PATH via /usr/local/bin
+- install-dotnet-tools no longer installs PowerShell as a dotnet tool, so new setups no longer get a tool nothing in them uses
 ### Deployment Changes
 
 <!--

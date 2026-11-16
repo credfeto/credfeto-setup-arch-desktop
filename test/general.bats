@@ -137,17 +137,36 @@ make_wallpapers_clone() {
 
 # ── install-dotnet-tools ───────────────────────────────────────────────────
 
-@test "install-dotnet-tools creates a tool manifest when absent, then installs every tool" {
-    setup_fake_bin dotnet
-    run "${GENERAL_DIR}/install-dotnet-tools"
-    [ "${status}" -eq 1 ]
-    # No tool manifest exists and the fake `dotnet new tool-manifest` is a
-    # no-op that doesn't create dotnet-tools.json, so the script's own
-    # `[ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"` guard
-    # fires - this is the genuine behaviour with any non-functional stub,
-    # so it's asserted directly rather than papered over.
-    assert_fake_called '^dotnet new tool-manifest'
-    [[ "${output}" == *"No tool manifest"* ]]
+# Fake dotnet that logs each call with the folder it ran from, so tests can
+# check the install and update scripts act on the HOME tool manifest.
+# `tool list` prints the tools in FAKE_DOTNET_LOCAL_TOOLS or
+# FAKE_DOTNET_GLOBAL_TOOLS (one local and one global tool when unset) for
+# update-dotnet-tools. A call whose arguments match the grep -E pattern in
+# FAKE_DOTNET_FAIL still prints its output, then exits 1; every other call
+# exits 0. All three are read when dotnet runs, so a test sets them with
+# `run env`.
+fake_dotnet_logging_pwd() {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+case "$1 $2" in
+    "tool list")
+        if [ "$3" = "--local" ]; then
+            tools="${FAKE_DOTNET_LOCAL_TOOLS:-localtool}"
+        else
+            tools="${FAKE_DOTNET_GLOBAL_TOOLS:-globaltool}"
+        fi
+        printf 'Package Id      Version\n-----------------------\n'
+        for tool in ${tools}; do
+            printf '%-15s 1.0.0\n' "${tool}"
+        done
+        ;;
+esac
+if [ -n "${FAKE_DOTNET_FAIL:-}" ] && printf '%s\n' "$*" | grep -qE "${FAKE_DOTNET_FAIL}"; then
+    exit 1
+fi
+exit 0
+EOF
 }
 
 @test "install-dotnet-tools installs every tool once a manifest exists" {
@@ -161,6 +180,7 @@ make_wallpapers_clone() {
     assert_fake_called '^dotnet tool install --local FunFair\.BuildCheck$'
     assert_fake_called '^dotnet tool install --local FunFair\.BuildVersion$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Changelog\.Cmd$'
+    assert_fake_called '^dotnet tool install --local Credfeto\.Changelog\.Mcp$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Push$'
     assert_fake_called '^dotnet tool install --local Credfeto\.Package\.Update$'
     assert_fake_called '^dotnet tool install --local Credfeto\.DotNet\.Code\.Analysis\.Overrides\.Cmd$'
@@ -169,37 +189,217 @@ make_wallpapers_clone() {
     assert_fake_called '^dotnet tool install --local Credfeto\.Build\.Dotnet\.Server$'
     assert_fake_called '^dotnet tool install --local FunFair\.Content\.Packager\.Cmd$'
     assert_fake_called '^dotnet tool install --local FunFair\.Content\.PackageSigner\.Cmd$'
-    assert_fake_called '^dotnet tool install --local powershell$'
     assert_fake_called '^dotnet tool install --local dotnet-script$'
     assert_fake_called '^dotnet tool install --local dotnet-reportgenerator-globaltool$'
     assert_fake_called '^dotnet tool install --local ilspycmd$'
-    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 17 ]
+    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage$'
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
     [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools attempts every tool and reports the counts and the failed tools when some installs fail" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_DOTNET_FAIL='^tool install --local (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage PWD='
+    [[ "${output}" == *"16 succeeded, 2 failed: sleet ilspycmd"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "install-dotnet-tools reports every tool as failed when no install succeeds" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [[ "${output}" == *"0 succeeded, 18 failed: sleet TSQLLint "* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "install-dotnet-tools runs every install from HOME when started from another folder with a manifest present" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [ "$(grep -c "^dotnet tool install --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
+}
+
+@test "install-dotnet-tools creates the manifest from HOME when started from another folder" {
+    fake_dotnet_logging_pwd
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    # No tool manifest exists and the fake `dotnet new tool-manifest` is a
+    # no-op that doesn't create dotnet-tools.json, so the script's own
+    # `[ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"` guard
+    # fires - this is the genuine behaviour with any non-functional stub,
+    # so it's asserted directly rather than papered over.
+    [ "${status}" -eq 1 ]
+    assert_fake_called "^dotnet new tool-manifest PWD=${HOME}\$"
+    [[ "${output}" == *"No tool manifest"* ]]
+}
+
+@test "install-dotnet-tools dies without running dotnet when it cannot change to HOME" {
+    setup_fake_bin dotnet
+    local missing_home="${BATS_TEST_TMPDIR}/missing-home"
+    run env HOME="${missing_home}" "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not change to ${missing_home}"* ]]
+    refute_fake_called '^dotnet '
 }
 
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
-    replace_fake dotnet <<'EOF'
-#!/bin/sh
-printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
-case "$1 $2" in
-    "tool list")
-        if [ "$3" = "--local" ]; then
-            printf 'Package Id      Version\n-----------------------\nlocaltool       1.0.0\n'
-        elif [ "$3" = "--global" ]; then
-            printf 'Package Id      Version\n-----------------------\nglobaltool      1.0.0\n'
-        fi
-        ;;
-esac
-exit 0
-EOF
-
+    fake_dotnet_logging_pwd
     run "${GENERAL_DIR}/update-dotnet-tools"
     [ "${status}" -eq 0 ]
-    assert_fake_called '^dotnet tool uninstall --global globaltool$'
-    assert_fake_called '^dotnet tool install --local globaltool$'
-    assert_fake_called '^dotnet tool update --local localtool$'
+    assert_fake_called '^dotnet tool uninstall --global globaltool PWD='
+    assert_fake_called '^dotnet tool install --local globaltool PWD='
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    # The local install comes first, so the global copy is only removed once
+    # the tool is installed locally.
+    [ "$(log_line_of '^dotnet tool install --local globaltool ')" -lt "$(log_line_of '^dotnet tool uninstall --global globaltool ')" ]
+    [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "update-dotnet-tools does not reinstall a global tool that is already installed locally" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_GLOBAL_TOOLS=localtool "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^dotnet tool uninstall --global localtool PWD='
+    refute_fake_called '^dotnet tool install '
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"localtool is already installed locally"* ]]
+    [[ "${output}" == *"Done"* ]]
+}
+
+@test "update-dotnet-tools counts a tool that is both global and local once when all its operations succeed" {
+    fake_dotnet_logging_pwd
+    # Done prints no counts, so an unrelated tool's failed update makes the
+    # counts visible; localtool's uninstall and update both succeed.
+    run env FAKE_DOTNET_GLOBAL_TOOLS=localtool FAKE_DOTNET_LOCAL_TOOLS='localtool othertool' \
+        FAKE_DOTNET_FAIL='^tool update --local othertool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool uninstall --global localtool PWD='
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: othertool"* ]]
+}
+
+@test "update-dotnet-tools matches a global tool id against the local tools as a literal string, not a regex" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_GLOBAL_TOOLS=a.b FAKE_DOTNET_LOCAL_TOOLS=axb "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^dotnet tool install --local a\.b PWD='
+    assert_fake_called '^dotnet tool uninstall --global a\.b PWD='
+    [[ "${output}" != *"a.b is already installed locally"* ]]
+}
+
+@test "update-dotnet-tools reports a global tool that is already installed locally as failed when it cannot uninstall it" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_GLOBAL_TOOLS=localtool FAKE_DOTNET_FAIL='^tool uninstall --global localtool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool uninstall --global localtool PWD='
+    refute_fake_called '^dotnet tool install '
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: localtool"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools dies without changing any tool when the local tools cannot be listed" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_FAIL='^tool list --local$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not list the local dotnet tools"* ]]
+    refute_fake_called '^dotnet tool (uninstall|install|update) '
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools dies without changing any tool when the global tools cannot be listed" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_FAIL='^tool list --global$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not list the global dotnet tools"* ]]
+    refute_fake_called '^dotnet tool (uninstall|install|update) '
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools reports a global tool it installed locally but could not uninstall as failed" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_FAIL='^tool uninstall --global globaltool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool install --local globaltool PWD='
+    assert_fake_called '^dotnet tool uninstall --global globaltool PWD='
+    [ "$(log_line_of '^dotnet tool install --local globaltool ')" -lt "$(log_line_of '^dotnet tool uninstall --global globaltool ')" ]
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: globaltool"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools keeps the global copy of a tool it could not install locally and reports it as failed" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_FAIL='^tool install --local globaltool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool install --local globaltool PWD='
+    refute_fake_called '^dotnet tool uninstall '
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: globaltool"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools reports a local tool it could not update as failed" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_FAIL='^tool update --local localtool$' "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool install --local globaltool PWD='
+    assert_fake_called '^dotnet tool update --local localtool PWD='
+    [[ "${output}" == *"1 succeeded, 1 failed: localtool"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools attempts every tool and reports the counts and the failed tools when some operations fail" {
+    fake_dotnet_logging_pwd
+    run env FAKE_DOTNET_GLOBAL_TOOLS='globala globalb globalc' \
+        FAKE_DOTNET_LOCAL_TOOLS='locala localb localc' \
+        FAKE_DOTNET_FAIL='^tool (uninstall --global globala|install --local globalb|update --local localc)$' \
+        "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    assert_fake_called '^dotnet tool install --local globala PWD='
+    assert_fake_called '^dotnet tool uninstall --global globala PWD='
+    refute_fake_called '^dotnet tool uninstall --global globalb '
+    assert_fake_called '^dotnet tool install --local globalc PWD='
+    assert_fake_called '^dotnet tool uninstall --global globalc PWD='
+    [ "$(grep -c '^dotnet tool update --local ' "${FAKE_BIN_LOG}")" -eq 3 ]
+    [[ "${output}" == *"3 succeeded, 3 failed: globala globalb localc"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "update-dotnet-tools runs every local list, install and update from HOME when started from another folder" {
+    fake_dotnet_logging_pwd
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^dotnet tool list --local PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool install --local globaltool PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool update --local localtool PWD=${HOME}\$"
+    [ "$(grep -c -- '--local' "${FAKE_BIN_LOG}")" -eq 3 ]
+}
+
+@test "update-dotnet-tools dies without running dotnet when it cannot change to HOME" {
+    setup_fake_bin dotnet
+    local missing_home="${BATS_TEST_TMPDIR}/missing-home"
+    run env HOME="${missing_home}" "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not change to ${missing_home}"* ]]
+    refute_fake_called '^dotnet '
 }
 
 # ── install-latest-dotnet ────────────────────────────────────────────────────
@@ -659,9 +859,9 @@ EOF
     [ "${switch_line}" -lt "${install_line}" ]
     [ "${install_line}" -lt "${update_line}" ]
     [ "${update_line}" -lt "${restore_line}" ]
-    # install-dotnet-tools lists PowerShell with the other tools, and
-    # update-dotnet-tools updates every local tool, so a tool step of its own
-    # here would only install or update a tool a second time.
+    # install-dotnet-tools installs the dotnet tools and update-dotnet-tools
+    # updates every local tool, so a tool step of its own here would only
+    # install or update a tool a second time.
     refute_fake_called '^dotnet tool (install|update) '
     refute_fake_called '[Pp][Oo][Ww][Ee][Rr][Ss][Hh][Ee][Ll][Ll]'
 }

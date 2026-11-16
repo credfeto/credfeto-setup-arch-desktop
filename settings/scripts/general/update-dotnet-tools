@@ -6,23 +6,68 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-local_packages=$(dotnet tool list --local | tail -n +3 | cut -f 1 -d " " | sort)
+# The --local list, install and update calls act on the tool manifest in the
+# current folder, so they have to run from $HOME, where the manifest lives,
+# whichever folder the script was started from.
+cd "$HOME" || die "Could not change to $HOME"
 
-for package in $(dotnet tool list --global | tail -n +3 | cut -f 1 -d " " | sort)
+# Each list is captured on its own before it is parsed: piped straight into
+# the parsing, a failed list would give an empty one, with its status lost.
+local_list=$(dotnet tool list --local) || die "Could not list the local dotnet tools"
+global_list=$(dotnet tool list --global) || die "Could not list the global dotnet tools"
+
+local_packages=$(printf '%s\n' "$local_list" | tail -n +3 | cut -f 1 -d " " | sort)
+global_packages=$(printf '%s\n' "$global_list" | tail -n +3 | cut -f 1 -d " " | sort)
+
+# Every tool is attempted even after one fails, so a single bad package
+# does not leave the rest un-updated; the failures are reported together.
+SUCCEEDED=0
+FAILED=0
+FAILED_TOOLS=""
+
+# Each global tool is installed locally before its global copy is removed, so
+# a failed local install leaves the global copy in place rather than leaving
+# the tool installed nowhere.
+for package in $global_packages
 do
-  info "Uninstalling global tool $package..."
-  dotnet tool uninstall --global "$package"
-
-  if echo "$local_packages" | grep -qx "$package"; then
+  if echo "$local_packages" | grep -qxF "$package"; then
     info "$package is already installed locally"
+    # The local update loop below counts this tool, so a successful
+    # uninstall here would count it twice; only a failure is recorded.
+    info "Uninstalling global tool $package..."
+    if ! dotnet tool uninstall --global "$package"; then
+      FAILED=$((FAILED + 1))
+      FAILED_TOOLS="$FAILED_TOOLS $package"
+    fi
   else
     info "Installing $package locally..."
-    dotnet tool install --local "$package"
+    if ! dotnet tool install --local "$package"; then
+      FAILED=$((FAILED + 1))
+      FAILED_TOOLS="$FAILED_TOOLS $package"
+      continue
+    fi
+
+    info "Uninstalling global tool $package..."
+    if dotnet tool uninstall --global "$package"; then
+      SUCCEEDED=$((SUCCEEDED + 1))
+    else
+      FAILED=$((FAILED + 1))
+      FAILED_TOOLS="$FAILED_TOOLS $package"
+    fi
   fi
 done
 
 for package in $local_packages
 do
   info "Updating $package..."
-  dotnet tool update --local "$package"
+  if dotnet tool update --local "$package"; then
+    SUCCEEDED=$((SUCCEEDED + 1))
+  else
+    FAILED=$((FAILED + 1))
+    FAILED_TOOLS="$FAILED_TOOLS $package"
+  fi
 done
+
+[ "$FAILED" -eq 0 ] || die "$SUCCEEDED succeeded, $FAILED failed:$FAILED_TOOLS"
+
+success "Done"

@@ -6,9 +6,14 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# The --local installs act on the tool manifest in the current folder, so
+# they have to run from $HOME, where the manifest lives, whichever folder
+# the script was started from.
+cd "$HOME" || die "Could not change to $HOME"
+
 if [ ! -f "$HOME/dotnet-tools.json" ]; then
 
-  cd "$HOME" && dotnet new tool-manifest
+  dotnet new tool-manifest
 
 fi
 
@@ -20,6 +25,7 @@ TOOLS="sleet \
        FunFair.BuildCheck \
        FunFair.BuildVersion \
        Credfeto.Changelog.Cmd \
+       Credfeto.Changelog.Mcp \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
        Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
@@ -28,14 +34,26 @@ TOOLS="sleet \
        Credfeto.Build.Dotnet.Server \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
-       powershell \
        dotnet-script \
        dotnet-reportgenerator-globaltool \
-       ilspycmd"
+       ilspycmd \
+       microsoft.sqlpackage"
 
+# Every tool is attempted even after one fails, so a single bad package
+# does not leave the rest uninstalled; the failures are reported together.
+SUCCEEDED=0
+FAILED=0
+FAILED_TOOLS=""
 for TOOL in $TOOLS; do
    info "Installing $TOOL"
-   dotnet tool install --local "$TOOL"
+   if dotnet tool install --local "$TOOL"; then
+      SUCCEEDED=$((SUCCEEDED + 1))
+   else
+      FAILED=$((FAILED + 1))
+      FAILED_TOOLS="$FAILED_TOOLS $TOOL"
+   fi
 done
+
+[ "$FAILED" -eq 0 ] || die "$SUCCEEDED succeeded, $FAILED failed:$FAILED_TOOLS"
 
 success "Done"
