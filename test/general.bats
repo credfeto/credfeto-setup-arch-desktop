@@ -274,6 +274,40 @@ EOF
     assert_fake_called '^dotnet tool update --local localtool$'
 }
 
+@test "update-dotnet-tools runs every local list, install and update from HOME when started from another folder" {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s PWD=%s\n' "$*" "${PWD}" >> "${FAKE_BIN_LOG}"
+case "$1 $2" in
+    "tool list")
+        if [ "$3" = "--local" ]; then
+            printf 'Package Id      Version\n-----------------------\nlocaltool       1.0.0\n'
+        elif [ "$3" = "--global" ]; then
+            printf 'Package Id      Version\n-----------------------\nglobaltool      1.0.0\n'
+        fi
+        ;;
+esac
+exit 0
+EOF
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^dotnet tool list --local PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool install --local globaltool PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool update --local localtool PWD=${HOME}\$"
+    [ "$(grep -c -- '--local' "${FAKE_BIN_LOG}")" -eq 3 ]
+}
+
+@test "update-dotnet-tools dies without running dotnet when it cannot change to HOME" {
+    setup_fake_bin dotnet
+    local missing_home="${BATS_TEST_TMPDIR}/missing-home"
+    run env HOME="${missing_home}" "${GENERAL_DIR}/update-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not change to ${missing_home}"* ]]
+    refute_fake_called '^dotnet '
+}
+
 # ── install-latest-dotnet ────────────────────────────────────────────────────
 # Static assertions over the script's constructs, plus end-to-end runs with
 # DOTNET_INSTALL_ROOT and DOTNET_WORK_ROOT pointed at folders of the test's
