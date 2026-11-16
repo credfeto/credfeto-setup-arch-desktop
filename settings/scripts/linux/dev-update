@@ -99,9 +99,10 @@ dev_update() {
     # /usr/local/bin link may still resolve to a copy installed from a working
     # checkout. update-dotnet-tools changes to $HOME itself, so whichever
     # folder a manual run happens to be started from, the home tool manifest
-    # is the one updated; the subshell's cd is no longer what selects it.
+    # is the one updated. run_reference_step dies on failure, which exits
+    # only the subshell, so this step's own failure message is still reported.
     info "Updating dotnet tools..."
-    (cd "${HOME}" && run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools) || die "Failed to update dotnet tools"
+    (run_reference_step credfeto-setup-arch-desktop/settings/scripts/general/update-dotnet-tools) || die "Failed to update dotnet tools"
 
     success "Dev environment updated"
 }
