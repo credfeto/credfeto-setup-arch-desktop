@@ -31,7 +31,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
 - install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
-- TBD - to be finalized after review
+- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, and keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -103,6 +103,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update-dotnet-tools now changes to $HOME before listing, installing or updating tools, so running it from inside a repository no longer updates that repository's tool manifest or moves global tools into it, and the script stops with an error if it cannot change to $HOME (#132)
 - update-dotnet-tools now stops with an error when it cannot list the local or global dotnet tools, installs each global tool locally before uninstalling the global copy and keeps the global copy when the local install fails, so a tool is never left installed nowhere, counts every failed install, uninstall or update, and prints Done only when nothing failed, otherwise reports the counts and the failed tool names and exits with an error, so dev-update and install-latest-dotnet no longer report success after a failure (#139)
 - Fixed the Flatpak app launcher in login matching installed app ids as patterns, where the dots in an id such as com.brave.Browser could match a different installed app, so the wrong app could be launched
+- fetch --switch-to-main now switches a repo whose current branch cannot be read to the default branch, instead of skipping the repo
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -118,6 +119,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-latest-dotnet now installs and updates all the dotnet tools through install-dotnet-tools and update-dotnet-tools instead of only PowerShell, which also moves any global dotnet tools into the $HOME tool manifest; a tool that fails to install no longer stops the run
 - Quoted temporary-directory paths in generated bats fake and stub scripts
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
+- fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, and only aborts a rebase after it has failed
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
