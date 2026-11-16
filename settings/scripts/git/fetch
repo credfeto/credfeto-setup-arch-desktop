@@ -53,6 +53,14 @@ skip_repo() {
 "
 }
 
+# Leaves no rebase in progress when it fails, so the caller can skip the repo.
+rebase_or_abort() {
+    rebase_dir=$1
+    git -C "$rebase_dir" rebase 2>&1 && return 0
+    git -C "$rebase_dir" rebase --abort > /dev/null 2>&1
+    return 1
+}
+
 CODEGRAPH_AVAILABLE=0
 if command -v codegraph > /dev/null 2>&1
 then
@@ -117,12 +125,7 @@ do
     if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
     then
       info "No pending changes in working folder. Rebasing..."
-      if ! git -C "$CURRENT_DIR" rebase 2>&1
-      then
-        git -C "$CURRENT_DIR" rebase --abort > /dev/null 2>&1
-        skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"
-        continue
-      fi
+      rebase_or_abort "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"; continue; }
     else
       info "No valid upstream for current branch. Skipping rebase."
     fi
@@ -153,12 +156,7 @@ do
         git -C "$CURRENT_DIR" checkout "$DEFAULT_BRANCH" 2>&1 || { skip_repo "$CURRENT_DIR" "could not switch to ${DEFAULT_BRANCH}" "Could not switch to ${DEFAULT_BRANCH} in ${CURRENT_DIR}"; continue; }
         if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
         then
-          if ! git -C "$CURRENT_DIR" rebase 2>&1
-          then
-            git -C "$CURRENT_DIR" rebase --abort > /dev/null 2>&1
-            skip_repo "$CURRENT_DIR" "could not rebase ${DEFAULT_BRANCH}" "Could not rebase ${DEFAULT_BRANCH} in ${CURRENT_DIR}"
-            continue
-          fi
+          rebase_or_abort "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not rebase ${DEFAULT_BRANCH}" "Could not rebase ${DEFAULT_BRANCH} in ${CURRENT_DIR}"; continue; }
         else
           info "No valid upstream for ${DEFAULT_BRANCH}. Skipping rebase."
         fi
