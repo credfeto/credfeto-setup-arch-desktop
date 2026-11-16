@@ -72,14 +72,15 @@ EOF
 }
 
 # Creates an executable stub at <root>/<relpath> that logs "<relpath> <args>"
-# to the fake log and exits with the given code.
+# (just "<relpath>" when there are no arguments) to the fake log and exits
+# with the given code.
 # Usage: make_logging_stub <root> <relpath> [<exit-code>]
 make_logging_stub() {
     local _path="$1/$2"
     mkdir -p "$(dirname "${_path}")"
     write_fake_script "${_path}" "$2" <<EOF
 #!/bin/sh
-printf '%s %s\n' "$2" "\$*" >> "\${FAKE_BIN_LOG}"
+printf '%s\n' "$2\${*:+ \$*}" >> "\${FAKE_BIN_LOG}"
 exit ${3:-0}
 EOF
 }
@@ -521,7 +522,7 @@ EOF
         done
         printf '%s\n' \
             "systemctl --user daemon-reload" \
-            "credfeto-setup-arch-desktop/install.d/dev-scripts "
+            "credfeto-setup-arch-desktop/install.d/dev-scripts"
         expected_published_step credfeto-global-pre-commit install
         expected_published_step claude install
         expected_published_step credfeto-ai-skills install
@@ -721,7 +722,7 @@ EOF
             [[ "${output}" == *"Failed to run ${DEV_PUBLISH_DIR}/${_failing}"* ]]
         fi
         for _later in "${DEV_UPDATE_STEPS[@]:_index+1}"; do
-            refute_fake_called "^${_later//./\\.} "
+            refute_fake_called "^${_later//./\\.}( |$)"
         done
         refute_fake_called '^update-dotnet-tools'
         refute_fake_called '^systemctl --user start '
