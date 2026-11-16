@@ -82,6 +82,16 @@ make_clone_on_feature_branch() {
     git -C "${_clone}" checkout --quiet -b feature
 }
 
+# Asserts the last fetch skipped repo-a, and only repo-a, for the given reason
+# without finishing it.
+# Usage: assert_skipped_repo_a <reason>
+assert_skipped_repo_a() {
+    [ "${status}" -eq 0 ] || return 1
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
+    [[ "${output}" == *"repo-a ($1)"* ]] || return 1
+    [[ "${output}" != *"Done with"* ]]
+}
+
 # Runs fetch over a single clone whose git fails the given arguments, and
 # asserts it skipped the clone for the given reason without finishing it.
 # Usage: assert_fetch_skips_when_git_fails <git-arguments> <reason>
@@ -90,19 +100,13 @@ assert_fetch_skips_when_git_fails() {
     fail_git_for "$1"
     cd "${BATS_TEST_TMPDIR}/repos" || return 1
     run "${GIT_DIR_SCRIPTS}/fetch"
-    [ "${status}" -eq 0 ] || return 1
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
-    [[ "${output}" == *"repo-a ($2)"* ]] || return 1
-    [[ "${output}" != *"Done with"* ]]
+    assert_skipped_repo_a "$2"
 }
 
 # Asserts the last fetch skipped repo-a because the codegraph index could not
 # be excluded, without starting codegraph init or leaving an index behind.
 assert_skipped_before_codegraph_init() {
-    [ "${status}" -eq 0 ] || return 1
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
-    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]] || return 1
-    [[ "${output}" != *"Done with"* ]] || return 1
+    assert_skipped_repo_a "could not initialise codegraph" || return 1
     refute_fake_called '^codegraph' || return 1
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
@@ -232,11 +236,8 @@ EOF
     log_git_failing rebase
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    [ "${status}" -eq 0 ]
+    assert_skipped_repo_a "could not rebase"
     [[ "${output}" == *"Could not rebase ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
-    [[ "${output}" == *"repo-a (could not rebase)"* ]]
-    [[ "${output}" != *"Done with"* ]]
     assert_fake_called 'rebase --abort$'
 }
 
@@ -256,11 +257,8 @@ EOF
     log_git_failing checkout
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
-    [ "${status}" -eq 0 ]
+    assert_skipped_repo_a "could not switch to ${DEFAULT_BRANCH_NAME}"
     [[ "${output}" == *"Could not switch to ${DEFAULT_BRANCH_NAME} in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
-    [[ "${output}" == *"repo-a (could not switch to ${DEFAULT_BRANCH_NAME})"* ]]
-    [[ "${output}" != *"Done with"* ]]
 }
 
 @test "fetch --switch-to-main skips a repo whose default branch rebase fails, after aborting the rebase" {
@@ -268,11 +266,8 @@ EOF
     log_git_failing rebase
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
-    [ "${status}" -eq 0 ]
+    assert_skipped_repo_a "could not rebase ${DEFAULT_BRANCH_NAME}"
     [[ "${output}" == *"Could not rebase ${DEFAULT_BRANCH_NAME} in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
-    [[ "${output}" == *"repo-a (could not rebase ${DEFAULT_BRANCH_NAME})"* ]]
-    [[ "${output}" != *"Done with"* ]]
     assert_fake_called "checkout ${DEFAULT_BRANCH_NAME}$"
     assert_fake_called 'rebase --abort$'
 }
@@ -389,10 +384,7 @@ EOF
     fail_git_for "rev-parse --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
-    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
-    [[ "${output}" != *"Done with"* ]]
+    assert_skipped_repo_a "could not initialise codegraph"
 }
 
 @test "fetch excludes the codegraph index in a git directory kept outside the work tree" {
@@ -503,11 +495,8 @@ EOF
     setup_fake_codegraph
     cd "${BATS_TEST_TMPDIR}/repos"
     FAKE_EXIT_codegraph=1 run "${GIT_DIR_SCRIPTS}/fetch"
-    [ "${status}" -eq 0 ]
+    assert_skipped_repo_a "could not initialise codegraph"
     [[ "${output}" == *"Could not initialise codegraph for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
-    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
-    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
-    [[ "${output}" != *"Done with"* ]]
     assert_fake_called '^codegraph init '
     [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
 }
