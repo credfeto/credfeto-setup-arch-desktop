@@ -35,6 +35,17 @@ $SHELL_FILES
 EOF
 }
 
+# CLAUDE_CODE_TMPDIR points Claude Code at $XDG_RUNTIME_DIR, which is only
+# emptied at logout, so a long-lived session would otherwise keep every temp
+# file it ever wrote. systemd-tmpfiles ages each file out on its own, so a
+# file still in use by a live session is left alone.
+install_claude_tmp_age_out() {
+    info "Ageing out Claude Code temp files after 3 days"
+    CLAUDE_TMPFILES_TARGET="$HOME/.config/user-tmpfiles.d/claude.conf"
+    install -D -m 0644 "$BASEDIR/settings/user-tmpfiles.d/claude.conf" "$CLAUDE_TMPFILES_TARGET" || die "Failed to install $CLAUDE_TMPFILES_TARGET"
+    systemctl --user enable --now systemd-tmpfiles-clean.timer || die "Failed to enable systemd-tmpfiles-clean.timer"
+}
+
 install_shell_environment() {
     # Once, before anything is installed: every file this step deploys comes
     # from the files git tracks in this checkout.
@@ -72,6 +83,8 @@ fi
 # END credfeto-setup-arch-desktop bash.bashrc.d
 BASHRC_D_BLOCK
     fi
+
+    install_claude_tmp_age_out
 
     success "Shell environment installed"
 }
