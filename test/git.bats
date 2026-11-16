@@ -82,6 +82,31 @@ make_clone_on_feature_branch() {
     git -C "${_clone}" checkout --quiet -b feature
 }
 
+# Runs fetch over a single clone whose git fails the given arguments, and
+# asserts it skipped the clone for the given reason without finishing it.
+# Usage: assert_fetch_skips_when_git_fails <git-arguments> <reason>
+assert_fetch_skips_when_git_fails() {
+    make_bare_remote_and_clone repo-a
+    fail_git_for "$1"
+    cd "${BATS_TEST_TMPDIR}/repos" || return 1
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ] || return 1
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
+    [[ "${output}" == *"repo-a ($2)"* ]] || return 1
+    [[ "${output}" != *"Done with"* ]]
+}
+
+# Asserts the last fetch skipped repo-a because the codegraph index could not
+# be excluded, without starting codegraph init or leaving an index behind.
+assert_skipped_before_codegraph_init() {
+    [ "${status}" -eq 0 ] || return 1
+    [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
+    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]] || return 1
+    [[ "${output}" != *"Done with"* ]] || return 1
+    refute_fake_called '^codegraph' || return 1
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+}
+
 # Replaces git with one that logs each call to $FAKE_BIN_LOG, fails when the
 # given word is one of its arguments, and runs the real git otherwise.
 # A rebase --abort always runs the real git, so failing "rebase" fails only
@@ -162,6 +187,21 @@ assert_global_json_kept_after_failed_replace() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
     [[ "${output}" == *"could not determine origin"* ]]
+}
+
+@test "fetch skips a repo it cannot fetch" {
+    assert_fetch_skips_when_git_fails "fetch --prune --prune-tags" "could not fetch"
+    [[ "${output}" == *"Could not fetch ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+}
+
+@test "fetch skips a repo whose remote refs cannot be updated" {
+    assert_fetch_skips_when_git_fails "remote update origin --prune" "could not update remote refs"
+    [[ "${output}" == *"Could not update remote refs for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+}
+
+@test "fetch skips a repo whose status cannot be read" {
+    assert_fetch_skips_when_git_fails "status --porcelain" "could not read status"
+    [[ "${output}" == *"Could not read status for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
 }
 
 @test "fetch removes its repo list when it is sent SIGTERM" {
@@ -247,6 +287,19 @@ EOF
     [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" rev-parse --abbrev-ref HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
     assert_fake_called ' rebase$'
     refute_fake_called 'rebase --abort'
+}
+
+@test "fetch --switch-to-main does not rebase a default branch with no upstream" {
+    make_clone_on_feature_branch repo-a
+    git -C "${BATS_TEST_TMPDIR}/repos/repo-a" branch --unset-upstream "${DEFAULT_BRANCH_NAME}"
+    log_git_failing no-such-subcommand
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"No valid upstream for ${DEFAULT_BRANCH_NAME}. Skipping rebase."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" symbolic-ref --short HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
+    refute_fake_called ' rebase$'
 }
 
 @test "fetch --switch-to-main switches a clean repo whose current branch cannot be read to the default branch" {
@@ -340,6 +393,61 @@ EOF
     [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]]
     [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
     [[ "${output}" != *"Done with"* ]]
+}
+
+@test "fetch excludes the codegraph index in a git directory kept outside the work tree" {
+    local _git_dir="${BATS_TEST_TMPDIR}/gitdirs/repo-a"
+    make_bare_remote_and_clone origin-only
+    mkdir -p "$(dirname "${_git_dir}")"
+    git clone --quiet --separate-git-dir "${_git_dir}" "${BATS_TEST_TMPDIR}/remotes/origin-only.git" "${BATS_TEST_TMPDIR}/repos/repo-a"
+    rm -rf "${BATS_TEST_TMPDIR}/repos/origin-only"
+    [[ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" rev-parse --git-path info/exclude)" == /* ]]
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
+    [ "$(grep -cxF '.codegraph/' "${_git_dir}/info/exclude")" -eq 1 ]
+    [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
+}
+
+@test "fetch skips a repo whose info directory cannot be created" {
+    make_bare_remote_and_clone repo-a
+    rm -rf "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
+    : > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_before_codegraph_init
+}
+
+@test "fetch skips a repo whose info/exclude cannot take the newline it lacks" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only file"
+    local _exclude="${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    make_bare_remote_and_clone repo-a
+    mkdir -p "$(dirname "${_exclude}")"
+    printf '%s' '# no newline' > "${_exclude}"
+    chmod 444 "${_exclude}"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_before_codegraph_init
+    [ "$(cat "${_exclude}")" = '# no newline' ]
+}
+
+@test "fetch skips a repo whose info/exclude cannot have .codegraph/ appended" {
+    [ "$(id -u)" -ne 0 ] || skip "root can write a read-only file"
+    local _exclude="${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    make_bare_remote_and_clone repo-a
+    mkdir -p "$(dirname "${_exclude}")"
+    : > "${_exclude}"
+    chmod 444 "${_exclude}"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_before_codegraph_init
+    [ ! -s "${_exclude}" ]
 }
 
 @test "fetch initialises codegraph on the run after it could not exclude the index" {
