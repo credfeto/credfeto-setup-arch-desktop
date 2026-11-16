@@ -204,6 +204,31 @@ EOF
     refute_fake_called 'rebase --abort'
 }
 
+@test "fetch --switch-to-main switches a clean repo whose current branch cannot be read to the default branch" {
+    make_clone_on_feature_branch repo-a
+    fail_git_for "rev-parse --abbrev-ref HEAD"
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not determine current branch for ${BATS_TEST_TMPDIR}/repos/repo-a."* ]]
+    [[ "${output}" == *"Switching to ${DEFAULT_BRANCH_NAME} branch..."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [[ "${output}" != *"Skipped repositories:"* ]]
+    [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" symbolic-ref --short HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
+}
+
+@test "fetch --switch-to-main does not switch a repo with pending changes whose current branch cannot be read" {
+    make_clone_on_feature_branch repo-a
+    printf 'pending\n' > "${BATS_TEST_TMPDIR}/repos/repo-a/pending.txt"
+    fail_git_for "rev-parse --abbrev-ref HEAD"
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Pending changes in working folder. Skipping switch to ${DEFAULT_BRANCH_NAME}."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" symbolic-ref --short HEAD)" = "feature" ]
+}
+
 # ── optimise-git ─────────────────────────────────────────────────────────────
 
 @test "optimise-git prunes, repacks, and garbage-collects every repo found" {

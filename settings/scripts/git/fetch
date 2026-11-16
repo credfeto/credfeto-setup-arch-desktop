@@ -90,12 +90,17 @@ do
 
   if [ "$SWITCH_TO_MAIN" = "1" ]
   then
-    CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>&1) || { skip_repo "$CURRENT_DIR" "could not determine current branch" "Could not determine current branch for ${CURRENT_DIR}"; continue; }
     DEFAULT_BRANCH=$(git -C "$CURRENT_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
 
     if [ -z "$DEFAULT_BRANCH" ]
     then
       DEFAULT_BRANCH="main"
+    fi
+
+    if ! CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    then
+      info "Could not determine current branch for ${CURRENT_DIR}."
+      CURRENT_BRANCH=""
     fi
 
     if [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]
