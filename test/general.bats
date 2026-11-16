@@ -176,6 +176,37 @@ make_wallpapers_clone() {
     assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage$'
     [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
     [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools attempts every tool and reports the counts and the failed tools when some installs fail" {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
+case "$*" in
+    "tool install --local sleet"|"tool install --local ilspycmd")
+        exit 1
+        ;;
+esac
+exit 0
+EOF
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    assert_fake_called '^dotnet tool install --local microsoft\.sqlpackage$'
+    [[ "${output}" == *"16 succeeded, 2 failed: sleet ilspycmd"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "install-dotnet-tools reports every tool as failed when no install succeeds" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c '^dotnet tool install --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [[ "${output}" == *"0 succeeded, 18 failed: sleet TSQLLint "* ]]
+    [[ "${output}" != *"Done"* ]]
 }
 
 @test "install-dotnet-tools runs every install from HOME when started from another folder with a manifest present" {
