@@ -98,6 +98,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pacman-sync no longer runs while the machine is offline, so its package update check no longer fails with network errors when there is no connection (#97)
 - Made the NetworkManager timesyncd dispatcher hook check every command, exit non-zero with a stderr message on failure and write its drop-in atomically
 - install-dotnet-tools now always runs its installs from $HOME, not only when the tool manifest is missing, so --local .NET tools are no longer installed into whichever folder the script was started from, and the script stops with an error if it cannot change to $HOME (#116)
+- install-dotnet-tools now tries every dotnet tool even when one fails, prints Done only when all of them install, and otherwise reports how many succeeded and failed with the failed tool names and exits with an error, so dev-install and install-latest-dotnet no longer report success after a tool fails to install (#131)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
