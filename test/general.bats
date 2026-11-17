@@ -198,6 +198,21 @@ EOF
     [[ "${output}" != *"failed"* ]]
 }
 
+@test "install-dotnet-tools installs its tools in alphabetical order, ignoring case, with no duplicates" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    # The script installs the tools in TOOLS order, so the install order is
+    # the list order. sort -c -u -f fails on any pair out of case-insensitive
+    # order and on any case-insensitive duplicate; LC_ALL=C keeps the
+    # comparison the same on every machine.
+    sed -n 's/^dotnet tool install --local --allow-roll-forward //p' "${FAKE_BIN_LOG}" > "${BATS_TEST_TMPDIR}/tools"
+    [ "$(wc -l < "${BATS_TEST_TMPDIR}/tools")" -eq 18 ]
+    run env LC_ALL=C sort -c -u -f "${BATS_TEST_TMPDIR}/tools"
+    [ "${status}" -eq 0 ]
+}
+
 @test "install-dotnet-tools attempts every tool and reports the counts and the failed tools when some installs fail" {
     fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
