@@ -68,6 +68,16 @@ copy_tree() {
     [ "$(count_lines "${CONF_FILE}" "DOTNET_ROOT=/usr/share/dotnet")" -eq 1 ]
 }
 
+@test "every file sets DOTNET_ROLL_FORWARD to Major" {
+    run "${INSTALL_SCRIPT}"
+    [ "${status}" -eq 0 ]
+
+    [ "$(count_lines "${ENVIRONMENT_D_FILE}" "DOTNET_ROLL_FORWARD=Major")" -eq 1 ]
+    [ "$(count_lines "${PROFILE_D_FILE}" "export DOTNET_ROLL_FORWARD=Major")" -eq 1 ]
+    [ "$(count_lines "${BASHRC_D_FILE}" "export DOTNET_ROLL_FORWARD=Major")" -eq 1 ]
+    [ "$(count_lines "${PAM_CONF}" "DOTNET_ROLL_FORWARD DEFAULT=Major")" -eq 1 ]
+}
+
 @test "installs every value from the list once into each file" {
     run "${INSTALL_SCRIPT}"
     [ "${status}" -eq 0 ]
