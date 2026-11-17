@@ -90,9 +90,16 @@ fi
 
 ensure_codegraph_index() {
     index_dir=$1
-    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || [ -e "$index_dir/.codegraph" ]
+    if [ "$CODEGRAPH_AVAILABLE" != "1" ]
     then
         return 0
+    fi
+    # An index made by hand was never excluded, so it would still make the
+    # working folder look as if it had pending changes.
+    if [ -e "$index_dir/.codegraph" ]
+    then
+        exclude_codegraph_index "$index_dir"
+        return
     fi
     info "Initialising codegraph for ${index_dir}..."
     # Excluding first means a failed exclude leaves no .codegraph behind, so
