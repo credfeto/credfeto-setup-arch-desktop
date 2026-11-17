@@ -31,10 +31,27 @@ for arg in "$@"; do
     esac
 done
 
+# The folder whose codegraph init is running, so a run stopped part way
+# through can remove the half-made index it leaves; set only while init runs.
+CODEGRAPH_INIT_DIR=""
+
+# A half-made .codegraph would be taken for an existing index by the next run
+# and never initialised again. None existed before this run's init, so only
+# its leftovers are removed.
+remove_partial_codegraph_index() {
+    if [ -n "$CODEGRAPH_INIT_DIR" ]
+    then
+        rm -rf -- "$CODEGRAPH_INIT_DIR/.codegraph"
+        CODEGRAPH_INIT_DIR=""
+    fi
+}
+
 REPO_LIST=$(mktemp)
-trap 'rm -f "$REPO_LIST"' EXIT
+# A signal during codegraph init reaches this through the exit below, before
+# the init's own failure handling could run.
+trap 'rm -f "$REPO_LIST"; remove_partial_codegraph_index' EXIT
 # dash does not run the EXIT trap when a signal kills the shell, so turn the
-# signals into an exit to get the repo list removed.
+# signals into an exit to get the repo list and any half-made index removed.
 trap 'exit 1' INT TERM HUP
 
 find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache' > "$REPO_LIST"
@@ -103,15 +120,15 @@ ensure_codegraph_index() {
     # Excluding first means a failed exclude leaves no .codegraph behind, so
     # the next run tries again instead of finding an index it never excluded.
     exclude_codegraph_index "$index_dir" || return 1
+    CODEGRAPH_INIT_DIR=$index_dir
     # The repo loop reads its list from stdin, which init must not consume.
-    if ! (cd "$index_dir" && codegraph init < /dev/null)
+    if (cd "$index_dir" && codegraph init < /dev/null)
     then
-        # A failed init can leave a half-made .codegraph behind, which the
-        # next run would take for an existing index and never initialise.
-        # None existed before this init, so only its leftovers are removed.
-        rm -rf -- "$index_dir/.codegraph"
-        return 1
+        CODEGRAPH_INIT_DIR=""
+        return 0
     fi
+    remove_partial_codegraph_index
+    return 1
 }
 
 # An index made by hand was never excluded, so it must be excluded before the

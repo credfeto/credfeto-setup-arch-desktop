@@ -639,6 +639,41 @@ EOF
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
 
+@test "fetch removes the .codegraph an init stopped by SIGTERM left behind, and its repo list" {
+    make_bare_remote_and_clone repo-a
+    local _tmp="${BATS_TEST_TMPDIR}/tmp"
+    mkdir -p "${_tmp}"
+    # A codegraph that sends fetch SIGTERM part way through init, as a Ctrl-C
+    # during a slow init would. Init runs in a subshell, which the shell may or
+    # may not fork, so fetch is found by walking up the parent chain to the
+    # process running the fetch script.
+    replace_fake codegraph <<'EOF'
+#!/bin/sh
+printf 'codegraph %s (in %s)\n' "$*" "$(pwd)" >> "${FAKE_BIN_LOG}"
+mkdir -p .codegraph
+: > .codegraph/partial
+_pid=${PPID}
+while [ "${_pid}" -gt 1 ]; do
+    case "$(tr '\0' ' ' < "/proc/${_pid}/cmdline")" in
+        *"/git/fetch"*)
+            kill -TERM "${_pid}"
+            break
+            ;;
+    esac
+    _pid=$(awk '/^PPid:/ { print $2 }' "/proc/${_pid}/status")
+done
+exit 143
+EOF
+    cd "${BATS_TEST_TMPDIR}/repos"
+
+    TMPDIR="${_tmp}" run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" != *"repo(s) fetched"* ]]
+    assert_fake_called '^codegraph init '
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    [ -z "$(ls -A "${_tmp}")" ]
+}
+
 @test "fetch does not initialise codegraph when codegraph is not installed" {
     make_bare_remote_and_clone repo-a
     [ -z "$(command -v codegraph)" ]
