@@ -105,6 +105,13 @@ then
     CODEGRAPH_AVAILABLE=1
 fi
 
+# A dangling .codegraph symlink fails -e but is still the user's, and taking
+# it for a missing index would have a failed init delete it.
+# Usage: has_codegraph_index <repo>
+has_codegraph_index() {
+    [ -e "$1/.codegraph" ] || [ -L "$1/.codegraph" ]
+}
+
 ensure_codegraph_index() {
     index_dir=$1
     if [ "$CODEGRAPH_AVAILABLE" != "1" ]
@@ -112,7 +119,7 @@ ensure_codegraph_index() {
         return 0
     fi
     # An existing index was excluded by exclude_existing_codegraph_index.
-    if [ -e "$index_dir/.codegraph" ]
+    if has_codegraph_index "$index_dir"
     then
         return 0
     fi
@@ -136,7 +143,7 @@ ensure_codegraph_index() {
 # the repo would not be rebased or switched on this run.
 exclude_existing_codegraph_index() {
     existing_dir=$1
-    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || [ ! -e "$existing_dir/.codegraph" ]
+    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || ! has_codegraph_index "$existing_dir"
     then
         return 0
     fi

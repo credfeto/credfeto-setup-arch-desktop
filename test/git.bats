@@ -561,6 +561,19 @@ EOF
     [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
 }
 
+@test "fetch excludes but does not initialise or remove a dangling .codegraph symlink" {
+    make_bare_remote_and_clone repo-a
+    ln -s "${BATS_TEST_TMPDIR}/missing-index" "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Initialising codegraph"* ]]
+    refute_fake_called '^codegraph'
+    [ -L "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+}
+
 @test "fetch does not list a pre-existing .codegraph index in info/exclude twice over two runs" {
     make_bare_remote_and_clone repo-a
     mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
