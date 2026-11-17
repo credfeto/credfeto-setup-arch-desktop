@@ -283,6 +283,46 @@ EOF
     [ "$(git -C "${_clone}" rev-parse HEAD)" = "${_stopped_at}" ]
 }
 
+@test "fetch --switch-to-main switches a repo whose feature branch rebase fails to the default branch, after aborting the rebase" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a" _other="${BATS_TEST_TMPDIR}/other" _feature_head
+    make_clone_on_feature_branch repo-a
+    # The feature branch and the remote's default branch change the same
+    # line, so rebasing the feature branch onto it conflicts for real.
+    git -C "${_clone}" branch --quiet --set-upstream-to "origin/${DEFAULT_BRANCH_NAME}"
+    printf 'feature\n' > "${_clone}/conflict.txt"
+    git -C "${_clone}" add conflict.txt
+    git -C "${_clone}" commit --quiet -m "feature work"
+    _feature_head="$(git -C "${_clone}" rev-parse HEAD)"
+    git clone --quiet "${BATS_TEST_TMPDIR}/remotes/repo-a.git" "${_other}"
+    printf 'upstream\n' > "${_other}/conflict.txt"
+    git -C "${_other}" add conflict.txt
+    git -C "${_other}" commit --quiet -m "upstream work"
+    git -C "${_other}" push --quiet
+    fake_git
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Could not rebase feature in ${_clone}; switching to ${DEFAULT_BRANCH_NAME} anyway."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    assert_fake_called 'rebase --abort$'
+    assert_fake_called "checkout ${DEFAULT_BRANCH_NAME}$"
+    [ "$(git -C "${_clone}" symbolic-ref --short HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
+    [ "$(git -C "${_clone}" rev-parse HEAD)" = "$(git -C "${_clone}" rev-parse "origin/${DEFAULT_BRANCH_NAME}")" ]
+    [ "$(git -C "${_clone}" rev-parse feature)" = "${_feature_head}" ]
+}
+
+@test "fetch --switch-to-main skips a repo on the default branch whose rebase fails, after aborting the rebase" {
+    make_bare_remote_and_clone repo-a
+    git -C "${BATS_TEST_TMPDIR}/repos/repo-a" remote set-head origin --auto > /dev/null
+    fail_git_for ' rebase '
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    assert_skipped_repo_a "could not rebase"
+    [[ "${output}" == *"Could not rebase ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    assert_fake_called 'rebase --abort$'
+    refute_fake_called 'checkout'
+}
+
 @test "fetch --switch-to-main skips a repo that cannot switch to the default branch" {
     make_clone_on_feature_branch repo-a
     fail_git_for ' checkout '

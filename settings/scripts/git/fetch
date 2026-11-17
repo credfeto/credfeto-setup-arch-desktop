@@ -155,19 +155,6 @@ do
   # the switch would also move the user off the commit their rebase stopped at.
   rebase_in_progress "$CURRENT_DIR" && { skip_repo "$CURRENT_DIR" "rebase in progress" "Rebase already in progress in ${CURRENT_DIR}"; continue; }
 
-  if [ -z "$REPO_STATUS" ]
-  then
-    if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
-    then
-      info "No pending changes in working folder. Rebasing..."
-      rebase_or_abort "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"; continue; }
-    else
-      info "No valid upstream for current branch. Skipping rebase."
-    fi
-  else
-    info "Pending changes in working folder. Skipping rebase."
-  fi
-
   if [ "$SWITCH_TO_MAIN" = "1" ]
   then
     DEFAULT_BRANCH=$(git -C "$CURRENT_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
@@ -182,7 +169,36 @@ do
       info "Could not determine current branch for ${CURRENT_DIR}."
       CURRENT_BRANCH=""
     fi
+  fi
 
+  if [ -z "$REPO_STATUS" ]
+  then
+    if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
+    then
+      info "No pending changes in working folder. Rebasing..."
+      if ! rebase_or_abort "$CURRENT_DIR"
+      then
+        # A feature branch that cannot be rebased is left as it was and the
+        # repo still moves to the default branch, which gets its own rebase.
+        # On the default branch no later rebase would follow, and a rebase
+        # the abort could not end must not be switched away from.
+        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] && ! rebase_in_progress "$CURRENT_DIR"
+        then
+          warn "Could not rebase ${CURRENT_BRANCH:-the current branch} in ${CURRENT_DIR}; switching to ${DEFAULT_BRANCH} anyway."
+        else
+          skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"
+          continue
+        fi
+      fi
+    else
+      info "No valid upstream for current branch. Skipping rebase."
+    fi
+  else
+    info "Pending changes in working folder. Skipping rebase."
+  fi
+
+  if [ "$SWITCH_TO_MAIN" = "1" ]
+  then
     if [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]
     then
       if [ -z "$REPO_STATUS" ]
