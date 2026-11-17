@@ -16,12 +16,18 @@ LOCK_CONFLICT=75
 # needs no action.
 FAIL_IF_RUNNING=0
 
-# Usage: parse_arguments [--fail-if-running]
+USAGE="Usage: dev-update [--fail-if-running]"
+
+# Usage: parse_arguments [--fail-if-running | -h | --help]
 parse_arguments() {
     case "$#:$1" in
         0:) ;;
         1:--fail-if-running) FAIL_IF_RUNNING=1 ;;
-        *) die "Usage: dev-update [--fail-if-running]" ;;
+        1:-h | 1:--help)
+            printf '%s\n' "$USAGE"
+            exit 0
+            ;;
+        *) die "$USAGE" ;;
     esac
 }
 
