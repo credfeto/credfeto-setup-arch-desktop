@@ -269,6 +269,77 @@ EOF
     refute_fake_called '^dotnet '
 }
 
+@test "install-dotnet-tools makes no uninstall calls without --reinstall" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools"
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    refute_fake_called '^dotnet tool uninstall '
+}
+
+@test "install-dotnet-tools --reinstall uninstalls then installs every tool from HOME" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
+    cd "${BATS_TEST_TMPDIR}/elsewhere"
+    run "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c "^dotnet tool uninstall --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
+    [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
+    # Each tool's uninstall comes straight before its own install, so the
+    # log alternates uninstall and install of the same tool, in TOOLS order.
+    sed -n 's/^dotnet tool install --local --allow-roll-forward \([^ ]*\) .*/\1/p' "${FAKE_BIN_LOG}" > "${BATS_TEST_TMPDIR}/installed"
+    sed -n 's/^dotnet tool \(uninstall --local\|install --local --allow-roll-forward\) \([^ ]*\) .*/\1 \2/p' "${FAKE_BIN_LOG}" > "${BATS_TEST_TMPDIR}/calls"
+    sed 's/.*/uninstall --local &\ninstall --local --allow-roll-forward &/' "${BATS_TEST_TMPDIR}/installed" > "${BATS_TEST_TMPDIR}/expected"
+    cmp "${BATS_TEST_TMPDIR}/calls" "${BATS_TEST_TMPDIR}/expected"
+    [ "$(log_line_of '^dotnet tool uninstall --local TSQLLint ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward TSQLLint ')" ]
+    [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools --reinstall still installs a tool it could not uninstall and does not count it as failed" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_DOTNET_FAIL='^tool uninstall --local (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    [ "${status}" -eq 0 ]
+    [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
+    [ "$(log_line_of '^dotnet tool uninstall --local ilspycmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward ilspycmd ')" ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [[ "${output}" == *"Could not uninstall sleet; installing it anyway"* ]]
+    [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools --reinstall reports the tools whose install fails" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    [ "${status}" -eq 1 ]
+    [ "$(grep -c '^dotnet tool uninstall --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [[ "${output}" == *"16 succeeded, 2 failed: ilspycmd sleet"* ]]
+    [[ "${output}" != *"Done"* ]]
+}
+
+@test "install-dotnet-tools dies with its usage without running dotnet when given an unknown argument" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools" --bogus
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Usage: install-dotnet-tools [--reinstall]"* ]]
+    refute_fake_called '^dotnet '
+}
+
+@test "install-dotnet-tools dies with its usage without running dotnet when given more than one argument" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools" --reinstall --reinstall
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Usage: install-dotnet-tools [--reinstall]"* ]]
+    refute_fake_called '^dotnet '
+}
+
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
