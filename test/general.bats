@@ -306,7 +306,7 @@ EOF
     [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
     [ "$(log_line_of '^dotnet tool uninstall --local ilspycmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward ilspycmd ')" ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
-    [[ "${output}" == *"Could not uninstall sleet; installing it anyway"* ]]
+    [[ "${output}" == *"⚠ Could not uninstall sleet; installing it anyway"* ]]
     [[ "${output}" == *"Done"* ]]
     [[ "${output}" != *"failed"* ]]
 }
