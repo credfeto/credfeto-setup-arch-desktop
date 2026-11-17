@@ -16,32 +16,35 @@ LATEST_PRE_RELEASE=$(dotnet --list-sdks | cut -f 1 -d " " | grep "^$DOTNET_PREVI
 
 if [ -n "$LATEST_GA_RELEASE" ]; then
   info "Latest GA release: $LATEST_GA_RELEASE"
-
-  TMP_JSON=$(mktemp)
-  jq --arg sdk "$LATEST_GA_RELEASE" '.sdk.version=$sdk' "$GLOBAL_JSON" | \
-      jq --argjson allowPrerelease false '.sdk.allowPrerelease=$allowPrerelease' > \
-          "$TMP_JSON"
-
-  mv "$TMP_JSON" "$GLOBAL_JSON" || die "Could not replace $GLOBAL_JSON"
-
-  cat "$GLOBAL_JSON"
-
-  git add "$GLOBAL_JSON" && git commit "$GLOBAL_JSON" -m"Updated DotNet SDK to $LATEST_GA_RELEASE" -n && git push --no-verify
-
+  SDK_VERSION="$LATEST_GA_RELEASE"
+  ALLOW_PRERELEASE=false
 elif [ -n "$LATEST_PRE_RELEASE" ]; then
   info "Latest preview release: $LATEST_PRE_RELEASE"
-
-  TMP_JSON=$(mktemp)
-  jq --arg sdk "$LATEST_PRE_RELEASE" '.sdk.version=$sdk' "$GLOBAL_JSON" | \
-        jq --argjson allowPrerelease true '.sdk.allowPrerelease=$allowPrerelease' > \
-            "$TMP_JSON"
-
-  mv "$TMP_JSON" "$GLOBAL_JSON" || die "Could not replace $GLOBAL_JSON"
-
-  cat "$GLOBAL_JSON"
-
-  git add "$GLOBAL_JSON" && git commit "$GLOBAL_JSON" -m"Updated DotNet SDK to $LATEST_PRE_RELEASE" -n && git push --no-verify
-
+  SDK_VERSION="$LATEST_PRE_RELEASE"
+  ALLOW_PRERELEASE=true
 else
   die "No suitable release found"
 fi
+
+# Run from die, so it warns rather than dies.
+remove_tmp_json() {
+  rm -f "$TMP_JSON" || warn "Failed to remove $TMP_JSON"
+}
+
+TMP_JSON=$(mktemp) || die "Could not create a temporary file to update $GLOBAL_JSON in"
+# Read by die in lib/common.
+# shellcheck disable=SC2034
+DIE_CLEANUP=remove_tmp_json
+
+jq --arg sdk "$SDK_VERSION" --argjson allowPrerelease "$ALLOW_PRERELEASE" \
+    '.sdk.version=$sdk | .sdk.allowPrerelease=$allowPrerelease' "$GLOBAL_JSON" > "$TMP_JSON" \
+    || die "Could not update the SDK version in $GLOBAL_JSON"
+[ -s "$TMP_JSON" ] || die "Updating the SDK version in $GLOBAL_JSON produced no output"
+
+mv "$TMP_JSON" "$GLOBAL_JSON" || die "Could not replace $GLOBAL_JSON"
+# shellcheck disable=SC2034
+DIE_CLEANUP=""
+
+cat "$GLOBAL_JSON"
+
+git add "$GLOBAL_JSON" && git commit "$GLOBAL_JSON" -m"Updated DotNet SDK to $SDK_VERSION" -n && git push --no-verify
