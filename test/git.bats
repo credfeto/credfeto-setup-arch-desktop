@@ -101,11 +101,12 @@ assert_skipped_repo_a() {
     [[ "${output}" != *"Done with"* ]]
 }
 
-# Asserts the last fetch skipped repo-a because a rebase was already in
-# progress, without starting or aborting a rebase there.
-assert_skipped_rebase_in_progress() {
-    assert_skipped_repo_a "rebase in progress" || return 1
-    [[ "${output}" == *"Rebase already in progress in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
+# Asserts the last fetch skipped repo-a because a rebase, merge, cherry-pick
+# or revert was already in progress, without starting or aborting a rebase
+# there.
+assert_skipped_operation_in_progress() {
+    assert_skipped_repo_a "operation in progress" || return 1
+    [[ "${output}" == *"A rebase, merge, cherry-pick or revert is already in progress in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
     refute_fake_called ' rebase( |$)' || return 1
     refute_fake_called 'rebase --abort'
 }
@@ -255,15 +256,63 @@ EOF
     fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    assert_skipped_rebase_in_progress
+    assert_skipped_operation_in_progress
 }
 
-@test "fetch skips a repo whose rebase state cannot be read, without rebasing it" {
+@test "fetch skips a repo whose operation state cannot be read, without rebasing it" {
     make_bare_remote_and_clone repo-a
     fail_git_for "rev-parse --path-format=absolute --git-path rebase-merge"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    assert_skipped_repo_a "rebase in progress"
+    assert_skipped_repo_a "operation in progress"
+    refute_fake_called ' rebase( |$)'
+}
+
+@test "fetch skips a clean repo with a paused cherry-pick sequence on a branch with an upstream, without rebasing it" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_bare_remote_and_clone repo-a
+    # Picking two commits, the first of which conflicts, then committing the
+    # resolution leaves the sequence paused, with the second still to pick,
+    # and a clean tree.
+    git -C "${_clone}" checkout --quiet -b picks
+    printf 'picked\n' > "${_clone}/conflict.txt"
+    git -C "${_clone}" add conflict.txt
+    git -C "${_clone}" commit --quiet -m "first pick"
+    git -C "${_clone}" commit --quiet --allow-empty -m "second pick"
+    git -C "${_clone}" checkout --quiet -
+    printf 'local\n' > "${_clone}/conflict.txt"
+    git -C "${_clone}" add conflict.txt
+    git -C "${_clone}" commit --quiet -m "local work"
+    if git -C "${_clone}" cherry-pick --allow-empty picks~1 picks > /dev/null 2>&1; then
+        false
+    fi
+    git -C "${_clone}" add conflict.txt
+    git -C "${_clone}" commit --quiet --no-edit
+    [ -d "${_clone}/.git/sequencer" ]
+    [ -z "$(git -C "${_clone}" status --porcelain)" ]
+    fake_git
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_operation_in_progress
+    [ -d "${_clone}/.git/sequencer" ]
+}
+
+@test "fetch --switch-to-main leaves a clean repo with a merge in progress on its branch" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_clone_on_feature_branch repo-a
+    git -C "${_clone}" checkout --quiet -b side
+    git -C "${_clone}" commit --quiet --allow-empty -m "side work"
+    git -C "${_clone}" checkout --quiet feature
+    git -C "${_clone}" merge --quiet --no-ff --no-commit side > /dev/null 2>&1
+    [ -f "${_clone}/.git/MERGE_HEAD" ]
+    [ -z "$(git -C "${_clone}" status --porcelain)" ]
+    fake_git
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    assert_skipped_operation_in_progress
+    refute_fake_called 'checkout'
+    [ "$(git -C "${_clone}" symbolic-ref --short HEAD)" = "feature" ]
+    [ -f "${_clone}/.git/MERGE_HEAD" ]
 }
 
 @test "fetch --switch-to-main leaves an interactive rebase paused on edit where it stopped" {
@@ -277,7 +326,7 @@ EOF
     fake_git
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
-    assert_skipped_rebase_in_progress
+    assert_skipped_operation_in_progress
     refute_fake_called 'checkout'
     [ -d "${_clone}/.git/rebase-merge" ]
     [ "$(git -C "${_clone}" rev-parse HEAD)" = "${_stopped_at}" ]

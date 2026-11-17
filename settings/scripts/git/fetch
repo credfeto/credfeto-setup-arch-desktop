@@ -70,15 +70,22 @@ skip_repo() {
 "
 }
 
-# A rebase the user paused, or a git am, must be left for them to finish:
-# rebasing again would fail, and the abort that follows would throw it away.
-# A git directory whose state cannot be read counts as one in progress.
-rebase_in_progress() {
-    rebase_dirs=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply) || return 0
-    { IFS= read -r rebase_merge_dir && IFS= read -r rebase_apply_dir; } <<EOF || return 0
-$rebase_dirs
+# A rebase, git am, merge, cherry-pick or revert the user paused must be left
+# for them to finish: rebasing would fail, and the abort that follows would
+# throw it away, while switching branches would move them off the commit it
+# stopped at. A git directory whose state cannot be read counts as one in
+# progress.
+operation_in_progress() {
+    operation_paths=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply --git-path MERGE_HEAD --git-path CHERRY_PICK_HEAD --git-path REVERT_HEAD --git-path sequencer) || return 0
+    operation_path_count=0
+    while IFS= read -r operation_path
+    do
+        operation_path_count=$((operation_path_count + 1))
+        [ -e "$operation_path" ] && return 0
+    done <<EOF
+$operation_paths
 EOF
-    [ -e "$rebase_merge_dir" ] || [ -e "$rebase_apply_dir" ]
+    [ "$operation_path_count" -ne 6 ]
 }
 
 # Leaves no rebase in progress when it fails, so the caller can skip the repo.
@@ -178,8 +185,9 @@ do
   REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
 
   # Checked once before either rebase, and before switching branches, since
-  # the switch would also move the user off the commit their rebase stopped at.
-  rebase_in_progress "$CURRENT_DIR" && { skip_repo "$CURRENT_DIR" "rebase in progress" "Rebase already in progress in ${CURRENT_DIR}"; continue; }
+  # the switch would also move the user off the commit their operation stopped
+  # at.
+  operation_in_progress "$CURRENT_DIR" && { skip_repo "$CURRENT_DIR" "operation in progress" "A rebase, merge, cherry-pick or revert is already in progress in ${CURRENT_DIR}"; continue; }
 
   if [ "$SWITCH_TO_MAIN" = "1" ]
   then
@@ -208,7 +216,7 @@ do
         # repo still moves to the default branch, which gets its own rebase.
         # On the default branch no later rebase would follow, and a rebase
         # the abort could not end must not be switched away from.
-        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] && ! rebase_in_progress "$CURRENT_DIR"
+        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] && ! operation_in_progress "$CURRENT_DIR"
         then
           warn "Could not rebase ${CURRENT_BRANCH:-the current branch} in ${CURRENT_DIR}; switching to ${DEFAULT_BRANCH} anyway."
         else
