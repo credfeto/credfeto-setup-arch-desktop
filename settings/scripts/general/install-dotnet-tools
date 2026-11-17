@@ -8,7 +8,9 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
 # Set by --reinstall, which uninstalls each tool before installing it, so a
 # tool already in the manifest is installed again and gets rollForward
-# recorded; a plain install leaves a tool that is already there unchanged.
+# recorded. A plain install of a tool already in the manifest updates it
+# when a newer version exists but keeps its existing rollForward value, as
+# --allow-roll-forward is written only for a tool new to the manifest.
 REINSTALL=0
 
 # Usage: parse_arguments [--reinstall]
