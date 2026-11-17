@@ -250,8 +250,8 @@ make_merge_conflict() {
 # "git <arguments>", fails when its arguments, with a space added at each
 # end, contain the given text, and runs the real git otherwise. With no text
 # it fails nothing, so a test only gets the log. The added spaces let text
-# such as " rebase " match a whole argument, which " rev-parse --git-path
-# rebase-merge " does not contain. A rebase --abort always runs the real
+# such as " rebase " match a whole argument, which " --git-path rebase-merge "
+# does not contain. A rebase --abort always runs the real
 # git, so failing " rebase " fails only the rebase itself.
 # Usage: fake_git [<text>]
 fake_git() {

@@ -70,24 +70,14 @@ skip_repo() {
 "
 }
 
-# Prints the absolute path of the given file inside the repo's git directory,
-# which git reports relative to the repo unless it lives outside the work tree.
-# Usage: git_path <repo> <name>
-git_path() {
-    git_path_repo=$1
-    git_path_name=$(git -C "$git_path_repo" rev-parse --git-path "$2") || return 1
-    case "$git_path_name" in
-        /*) printf '%s\n' "$git_path_name" ;;
-        *) printf '%s\n' "$git_path_repo/$git_path_name" ;;
-    esac
-}
-
 # A rebase the user paused, or a git am, must be left for them to finish:
 # rebasing again would fail, and the abort that follows would throw it away.
 # A git directory whose state cannot be read counts as one in progress.
 rebase_in_progress() {
-    rebase_merge_dir=$(git_path "$1" rebase-merge) || return 0
-    rebase_apply_dir=$(git_path "$1" rebase-apply) || return 0
+    rebase_dirs=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply) || return 0
+    { IFS= read -r rebase_merge_dir && IFS= read -r rebase_apply_dir; } <<EOF || return 0
+$rebase_dirs
+EOF
     [ -e "$rebase_merge_dir" ] || [ -e "$rebase_apply_dir" ]
 }
 
@@ -155,7 +145,7 @@ exclude_existing_codegraph_index() {
 # rebasing the repo.
 exclude_codegraph_index() {
     exclude_repo=$1
-    exclude_file=$(git_path "$exclude_repo" info/exclude) || return 1
+    exclude_file=$(git -C "$exclude_repo" rev-parse --path-format=absolute --git-path info/exclude) || return 1
     mkdir -p "$(dirname "$exclude_file")" || return 1
     if [ -f "$exclude_file" ] && grep -qxF '.codegraph/' "$exclude_file"
     then

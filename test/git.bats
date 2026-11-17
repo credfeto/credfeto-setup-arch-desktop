@@ -260,7 +260,7 @@ EOF
 
 @test "fetch skips a repo whose rebase state cannot be read, without rebasing it" {
     make_bare_remote_and_clone repo-a
-    fail_git_for "rev-parse --git-path rebase-merge"
+    fail_git_for "rev-parse --path-format=absolute --git-path rebase-merge"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     assert_skipped_repo_a "rebase in progress"
@@ -452,7 +452,7 @@ EOF
 @test "fetch skips a repo whose codegraph index cannot be excluded" {
     make_bare_remote_and_clone repo-a
     setup_fake_codegraph
-    fail_git_for "rev-parse --git-path info/exclude"
+    fail_git_for "rev-parse --path-format=absolute --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     assert_skipped_repo_a "could not initialise codegraph"
@@ -516,7 +516,7 @@ EOF
 @test "fetch initialises codegraph on the run after it could not exclude the index" {
     make_bare_remote_and_clone repo-a
     setup_fake_codegraph
-    fail_git_for "rev-parse --git-path info/exclude"
+    fail_git_for "rev-parse --path-format=absolute --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     [ "${status}" -eq 0 ]
@@ -592,7 +592,7 @@ EOF
     make_bare_remote_and_clone repo-a
     mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
     setup_fake_codegraph
-    fail_git_for "rev-parse --git-path info/exclude"
+    fail_git_for "rev-parse --path-format=absolute --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     assert_skipped_repo_a "could not exclude codegraph index"
