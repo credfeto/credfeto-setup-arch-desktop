@@ -101,12 +101,12 @@ assert_skipped_repo_a() {
     [[ "${output}" != *"Done with"* ]]
 }
 
-# Asserts the last fetch skipped repo-a because a rebase, merge, cherry-pick
-# or revert was already in progress, without starting or aborting a rebase
-# there.
+# Asserts the last fetch skipped repo-a because a rebase, merge, cherry-pick,
+# revert or bisect was already in progress, without starting or aborting a
+# rebase there.
 assert_skipped_operation_in_progress() {
     assert_skipped_repo_a "operation in progress" || return 1
-    [[ "${output}" == *"A rebase, merge, cherry-pick or revert is already in progress in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
+    [[ "${output}" == *"A rebase, merge, cherry-pick, revert or bisect is already in progress in ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
     refute_fake_called ' rebase( |$)' || return 1
     refute_fake_called 'rebase --abort'
 }
@@ -313,6 +313,24 @@ EOF
     refute_fake_called 'checkout'
     [ "$(git -C "${_clone}" symbolic-ref --short HEAD)" = "feature" ]
     [ -f "${_clone}/.git/MERGE_HEAD" ]
+}
+
+@test "fetch --switch-to-main leaves a clean repo mid-bisect where it stopped" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a" _stopped_at
+    make_clone_on_feature_branch repo-a
+    git -C "${_clone}" commit --quiet --allow-empty -m "second"
+    git -C "${_clone}" commit --quiet --allow-empty -m "third"
+    git -C "${_clone}" bisect start HEAD HEAD~2 > /dev/null 2>&1
+    [ -f "${_clone}/.git/BISECT_LOG" ]
+    [ -z "$(git -C "${_clone}" status --porcelain)" ]
+    _stopped_at="$(git -C "${_clone}" rev-parse HEAD)"
+    fake_git
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    assert_skipped_operation_in_progress
+    refute_fake_called 'checkout'
+    [ -f "${_clone}/.git/BISECT_LOG" ]
+    [ "$(git -C "${_clone}" rev-parse HEAD)" = "${_stopped_at}" ]
 }
 
 @test "fetch --switch-to-main leaves an interactive rebase paused on edit where it stopped" {
