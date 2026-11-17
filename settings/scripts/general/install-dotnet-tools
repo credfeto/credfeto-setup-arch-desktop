@@ -21,7 +21,7 @@ parse_arguments() {
         0:) ;;
         1:--reinstall) REINSTALL=1 ;;
         1:-h | 1:--help)
-            printf '%s\n' "$USAGE"
+            info "$USAGE"
             exit 0
             ;;
         *) die "$USAGE" ;;

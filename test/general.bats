@@ -374,7 +374,7 @@ EOF
     printf '{}' > "${HOME}/dotnet-tools.json"
     run "${GENERAL_DIR}/install-dotnet-tools" --help
     [ "${status}" -eq 0 ]
-    [ "${output}" = "Usage: install-dotnet-tools [--reinstall]" ]
+    [ "${output}" = $'\n→ Usage: install-dotnet-tools [--reinstall]' ]
     refute_fake_called '^dotnet '
 }
 
@@ -383,7 +383,7 @@ EOF
     printf '{}' > "${HOME}/dotnet-tools.json"
     run "${GENERAL_DIR}/install-dotnet-tools" -h
     [ "${status}" -eq 0 ]
-    [ "${output}" = "Usage: install-dotnet-tools [--reinstall]" ]
+    [ "${output}" = $'\n→ Usage: install-dotnet-tools [--reinstall]' ]
     refute_fake_called '^dotnet '
 }
 
