@@ -32,7 +32,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
 - install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
 - fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed; whether or not the CLI is installed, it keeps any .codegraph index out of git by adding /.codegraph to that repo's local git exclude only when git does not already ignore .codegraph (the line also hides a .codegraph symlink; repos with an index are excluded before their status is read so they still rebase on the first run), treats a dangling .codegraph symlink as an existing index, and removes a half-made index when init fails or fetch is interrupted during init, so the next run tries again
-- install-dotnet-tools --reinstall uninstalls and reinstalls each tool, so tools already in the manifest also record rollForward
+- install-dotnet-tools --reinstall uninstalls and reinstalls each tool, so tools already in the manifest also record rollForward; a tool that cannot be uninstalled is reported as a warning and still installed
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -127,7 +127,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - fetch now skips a repo that already has a rebase, merge, cherry-pick, revert or bisect in progress, so an operation the user paused is not aborted or switched away from
 - install-dotnet-tools passes --allow-roll-forward to dotnet tool install, and update-dotnet-tools does too when it moves a global tool to a local one, so newly installed tools record rollForward in the manifest and run on a newer .NET runtime when theirs is missing
 - The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
-- Failures in install-dotnet-tools --reinstall (could not uninstall a tool), wallpaper and fetch (git) are now reported as warnings on stderr
+- Failures in wallpaper and fetch are now reported as warnings on stderr
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
