@@ -21,24 +21,24 @@ fi
 
 
 ## Tools should be sorted alphabetically
-TOOLS="sleet \
-       TSQLLint \
-       FunFair.BuildCheck \
-       FunFair.BuildVersion \
+TOOLS="Credfeto.Build.Dotnet.Server \
        Credfeto.Changelog.Cmd \
        Credfeto.Changelog.Mcp \
+       Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
+       Credfeto.DotNet.Repo.Formatter \
+       Credfeto.DotNet.Repo.Tools.Cmd \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
-       Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
-       Credfeto.DotNet.Repo.Tools.Cmd \
-       Credfeto.DotNet.Repo.Formatter \
-       Credfeto.Build.Dotnet.Server \
+       dotnet-reportgenerator-globaltool \
+       dotnet-script \
+       FunFair.BuildCheck \
+       FunFair.BuildVersion \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
-       dotnet-script \
-       dotnet-reportgenerator-globaltool \
        ilspycmd \
-       microsoft.sqlpackage"
+       microsoft.sqlpackage \
+       sleet \
+       TSQLLint"
 
 # Every tool is attempted even after one fails, so a single bad package
 # does not leave the rest uninstalled; the failures are reported together.

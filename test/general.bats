@@ -233,8 +233,8 @@ EOF
     run env FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
-    assert_fake_called '^dotnet tool install --local --allow-roll-forward microsoft\.sqlpackage PWD='
-    [[ "${output}" == *"16 succeeded, 2 failed: sleet ilspycmd"* ]]
+    assert_fake_called '^dotnet tool install --local --allow-roll-forward TSQLLint PWD='
+    [[ "${output}" == *"16 succeeded, 2 failed: ilspycmd sleet"* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
@@ -244,7 +244,7 @@ EOF
     run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
-    [[ "${output}" == *"0 succeeded, 18 failed: sleet TSQLLint "* ]]
+    [[ "${output}" == *"0 succeeded, 18 failed: Credfeto.Build.Dotnet.Server Credfeto.Changelog.Cmd "* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
