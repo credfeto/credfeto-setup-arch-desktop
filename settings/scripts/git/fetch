@@ -156,17 +156,21 @@ exclude_existing_codegraph_index() {
 
 # The index is never committed, and an untracked .codegraph would make the
 # working folder look as if it had pending changes, so later runs would stop
-# rebasing the repo. The pattern has no trailing slash so it also matches a
-# .codegraph symlink, which a directory-only .codegraph/ line (written by
-# earlier runs) does not, so that older line does not count as excluded.
+# rebasing the repo. git's own ignore rules decide whether it is already
+# ignored, so a .gitignore, a global excludes file or any equivalent pattern
+# counts too. A directory-only .codegraph/ pattern (written by earlier runs)
+# does not match a .codegraph symlink, so git reports that as not ignored and
+# the /.codegraph line, which has no trailing slash, is added for it.
 exclude_codegraph_index() {
     exclude_repo=$1
+    git -C "$exclude_repo" check-ignore -q -- .codegraph
+    case $? in
+        0) return 0 ;;
+        1) ;;
+        *) return 1 ;;
+    esac
     exclude_file=$(git -C "$exclude_repo" rev-parse --path-format=absolute --git-path info/exclude) || return 1
     mkdir -p "$(dirname "$exclude_file")" || return 1
-    if [ -f "$exclude_file" ] && grep -qxF '/.codegraph' "$exclude_file"
-    then
-        return 0
-    fi
     if [ -s "$exclude_file" ] && [ -n "$(tail -c 1 "$exclude_file")" ]
     then
         printf '\n' >> "$exclude_file" || return 1

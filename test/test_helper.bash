@@ -252,12 +252,13 @@ make_merge_conflict() {
 # it fails nothing, so a test only gets the log. The added spaces let text
 # such as " rebase " match a whole argument, which " --git-path rebase-merge "
 # does not contain. A rebase --abort always runs the real
-# git, so failing " rebase " fails only the rebase itself.
-# Usage: fake_git [<text>]
+# git, so failing " rebase " fails only the rebase itself. The failure exits
+# with the given code, 1 when none is given.
+# Usage: fake_git [<text> [<exit-code>]]
 fake_git() {
     local _real_git _fail_case=""
     _real_git="$(command -v git)"
-    [ -z "${1:-}" ] || _fail_case="    *\"$1\"*) exit 1 ;;"
+    [ -z "${1:-}" ] || _fail_case="    *\"$1\"*) exit ${2:-1} ;;"
     replace_fake git <<EOF
 #!/bin/sh
 printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
@@ -270,10 +271,10 @@ EOF
 }
 
 # Replaces git with the fake_git that fails when its arguments contain the
-# given text.
-# Usage: fail_git_for <text>
+# given text, exiting with the given code (1 when none is given).
+# Usage: fail_git_for <text> [<exit-code>]
 fail_git_for() {
-    fake_git "$1"
+    fake_git "$1" "${2:-1}"
 }
 
 # Holds a flock on the given file from a background process for the given

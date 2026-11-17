@@ -131,6 +131,15 @@ assert_skipped_unreadable_git_state() {
     [[ "${output}" != *"already in progress"* ]]
 }
 
+# Commits a .gitignore with the directory-only .codegraph/ line, as a repo
+# that ignores its own index would have.
+# Usage: commit_codegraph_gitignore <repo>
+commit_codegraph_gitignore() {
+    printf '%s\n' '.codegraph/' > "$1/.gitignore"
+    git -C "$1" add .gitignore
+    git -C "$1" commit --quiet -m "ignore codegraph"
+}
+
 # Asserts the last fetch skipped repo-a because the codegraph index could not
 # be excluded, without starting codegraph init or leaving an index behind.
 assert_skipped_before_codegraph_init() {
@@ -540,6 +549,45 @@ EOF
     [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
     grep -qxF '.codegraph/' "${_repo}/.git/info/exclude"
     [ -z "$(git -C "${_repo}" status --porcelain)" ]
+}
+
+@test "fetch adds nothing to info/exclude when the repo's .gitignore already ignores its .codegraph directory" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_bare_remote_and_clone repo-a
+    commit_codegraph_gitignore "${_repo}"
+    mkdir "${_repo}/.codegraph"
+    : > "${_repo}/.codegraph/codegraph.db"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 0 ]
+    [ -z "$(git -C "${_repo}" status --porcelain)" ]
+}
+
+@test "fetch adds /.codegraph when the repo's directory-only .gitignore line does not ignore its .codegraph symlink" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_bare_remote_and_clone repo-a
+    commit_codegraph_gitignore "${_repo}"
+    ln -s "${BATS_TEST_TMPDIR}/missing-index" "${_repo}/.codegraph"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
+    [ -z "$(git -C "${_repo}" status --porcelain)" ]
+}
+
+@test "fetch skips a repo whose ignore rules cannot be checked for the codegraph index" {
+    make_bare_remote_and_clone repo-a
+    setup_fake_codegraph
+    fail_git_for " check-ignore " 128
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_before_codegraph_init
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
 }
 
 @test "fetch adds /.codegraph on its own line when info/exclude does not end in a newline" {
