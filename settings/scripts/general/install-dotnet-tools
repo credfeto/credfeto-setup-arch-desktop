@@ -13,12 +13,18 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # --allow-roll-forward is written only for a tool new to the manifest.
 REINSTALL=0
 
-# Usage: parse_arguments [--reinstall]
+USAGE="Usage: install-dotnet-tools [--reinstall]"
+
+# Usage: parse_arguments [--reinstall | -h | --help]
 parse_arguments() {
     case "$#:$1" in
         0:) ;;
         1:--reinstall) REINSTALL=1 ;;
-        *) die "Usage: install-dotnet-tools [--reinstall]" ;;
+        1:-h | 1:--help)
+            printf '%s\n' "$USAGE"
+            exit 0
+            ;;
+        *) die "$USAGE" ;;
     esac
 }
 
