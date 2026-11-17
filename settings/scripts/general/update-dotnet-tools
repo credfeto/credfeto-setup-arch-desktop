@@ -60,7 +60,7 @@ done
 for package in $local_packages
 do
   info "Updating $package..."
-  if dotnet tool update --local --allow-roll-forward "$package"; then
+  if dotnet tool update --local "$package"; then
     SUCCEEDED=$((SUCCEEDED + 1))
   else
     FAILED=$((FAILED + 1))
