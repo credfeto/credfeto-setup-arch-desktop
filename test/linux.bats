@@ -1474,7 +1474,7 @@ setup_dev_install_fixture() {
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    assert_fake_called "^dotnet tool install --local sleet PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool install --local --allow-roll-forward sleet PWD=${HOME}\$"
     refute_fake_called "^dotnet .* PWD=${BATS_TEST_TMPDIR}\$"
     [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools..."* ]]
     refute_fake_called '^PATH '

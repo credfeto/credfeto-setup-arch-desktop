@@ -20,6 +20,7 @@ fi
 [ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"
 
 
+## Tools should be sorted alphabetically
 TOOLS="sleet \
        TSQLLint \
        FunFair.BuildCheck \
@@ -46,7 +47,7 @@ FAILED=0
 FAILED_TOOLS=""
 for TOOL in $TOOLS; do
    info "Installing $TOOL"
-   if dotnet tool install --local "$TOOL"; then
+   if dotnet tool install --local --allow-roll-forward "$TOOL"; then
       SUCCEEDED=$((SUCCEEDED + 1))
    else
       FAILED=$((FAILED + 1))
