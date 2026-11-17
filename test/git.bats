@@ -799,6 +799,19 @@ EOF
     [[ "${output}" != *"Initialising codegraph"* ]]
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
+}
+
+@test "fetch does not exclude a pre-existing .codegraph index when codegraph is not installed" {
+    make_bare_remote_and_clone repo-a
+    mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
+    [ -z "$(command -v codegraph)" ]
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ -d "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
 }
 
 @test "the suite keeps git on PATH when codegraph is installed in the same directory as git" {

@@ -123,10 +123,6 @@ has_codegraph_index() {
 # excluded, so each is reported as the failure it is.
 ensure_codegraph_index() {
     index_dir=$1
-    if [ "$CODEGRAPH_AVAILABLE" != "1" ]
-    then
-        return 0
-    fi
     # An existing index was excluded by exclude_existing_codegraph_index.
     if has_codegraph_index "$index_dir"
     then
@@ -152,11 +148,10 @@ ensure_codegraph_index() {
 # the repo would not be rebased or switched on this run.
 exclude_existing_codegraph_index() {
     existing_dir=$1
-    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || ! has_codegraph_index "$existing_dir"
+    if has_codegraph_index "$existing_dir"
     then
-        return 0
+        exclude_codegraph_index "$existing_dir"
     fi
-    exclude_codegraph_index "$existing_dir"
 }
 
 # The index is never committed, and an untracked .codegraph/ would make the
@@ -192,7 +187,10 @@ do
   git -C "$CURRENT_DIR" fetch --prune --prune-tags > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not fetch" "Could not fetch ${CURRENT_DIR}"; continue; }
   git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not update remote refs" "Could not update remote refs for ${CURRENT_DIR}"; continue; }
 
-  exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue; }
+  if [ "$CODEGRAPH_AVAILABLE" = "1" ]
+  then
+    exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue; }
+  fi
 
   REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
 
@@ -272,11 +270,14 @@ do
     fi
   fi
 
-  ensure_codegraph_index "$CURRENT_DIR"
-  case $? in
-    1) skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue ;;
-    2) skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue ;;
-  esac
+  if [ "$CODEGRAPH_AVAILABLE" = "1" ]
+  then
+    ensure_codegraph_index "$CURRENT_DIR"
+    case $? in
+      1) skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue ;;
+      2) skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue ;;
+    esac
+  fi
 
   FETCHED_COUNT=$((FETCHED_COUNT + 1))
   success "Done with ${CURRENT_DIR}"
