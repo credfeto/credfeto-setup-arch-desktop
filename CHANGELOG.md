@@ -30,7 +30,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added the Credfeto.Build.Dotnet.Server dotnet tool to the tools installed by install-dotnet-tools
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
-- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, and keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude
+- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude (also added to repos that already have an index), and removes a half-made index when init fails so the next run tries again
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -113,7 +113,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-latest-dotnet now installs and updates all the dotnet tools through install-dotnet-tools and update-dotnet-tools instead of only PowerShell, which also moves any global dotnet tools into the $HOME tool manifest; a tool that fails to install no longer stops the run
 - Quoted temporary-directory paths in generated bats fake and stub scripts
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
-- fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, and only aborts a rebase after it has failed
+- fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, except that under --switch-to-main a failed feature-branch rebase is aborted and the repo is switched to the default branch instead; a rebase is only aborted after it has failed
+- fetch now skips a repo that already has a rebase in progress, so a rebase the user paused is not aborted or switched away from
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
