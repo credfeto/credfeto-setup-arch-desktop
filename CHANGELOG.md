@@ -108,6 +108,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Reload firewalld after configure-network adds permanent firewall rules so they take effect immediately (#61)
 - update-dotnet-sdk no longer replaces global.json with an empty file when jq fails
 - buildtest, optimise-git, wallpaper, install-fp and the install-network-manager-dhcp-hook script now fail loudly when a step fails instead of reporting success, and their loops no longer run in pipe subshells that swallow failures; added bats tests covering failing steps (#55)
+- install-dotnet-tools and dev-update now print usage and exit 0 for --help and -h instead of failing
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -127,6 +128,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - fetch now skips a repo that already has a rebase, merge, cherry-pick, revert or bisect in progress, so an operation the user paused is not aborted or switched away from
 - install-dotnet-tools passes --allow-roll-forward to dotnet tool install, and update-dotnet-tools does too when it moves a global tool to a local one, so newly installed tools record rollForward in the manifest and run on a newer .NET runtime when theirs is missing
 - The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
+- Failures in install-dotnet-tools --reinstall (could not uninstall a tool), wallpaper and fetch (git) are now reported as warnings on stderr
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
