@@ -69,7 +69,7 @@ for TOOL in $TOOLS; do
       info "Uninstalling $TOOL"
       # A tool not in the manifest yet fails to uninstall; the install that
       # follows still adds it, so only the install's result counts.
-      dotnet tool uninstall --local "$TOOL" || info "Could not uninstall $TOOL; installing it anyway"
+      dotnet tool uninstall --local "$TOOL" || warn "Could not uninstall $TOOL; installing it anyway"
    fi
    info "Installing $TOOL"
    if dotnet tool install --local --allow-roll-forward "$TOOL"; then
