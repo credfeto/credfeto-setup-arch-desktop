@@ -154,14 +154,16 @@ exclude_existing_codegraph_index() {
     fi
 }
 
-# The index is never committed, and an untracked .codegraph/ would make the
+# The index is never committed, and an untracked .codegraph would make the
 # working folder look as if it had pending changes, so later runs would stop
-# rebasing the repo.
+# rebasing the repo. The pattern has no trailing slash so it also matches a
+# .codegraph symlink, which a directory-only .codegraph/ line (written by
+# earlier runs) does not, so that older line does not count as excluded.
 exclude_codegraph_index() {
     exclude_repo=$1
     exclude_file=$(git -C "$exclude_repo" rev-parse --path-format=absolute --git-path info/exclude) || return 1
     mkdir -p "$(dirname "$exclude_file")" || return 1
-    if [ -f "$exclude_file" ] && grep -qxF '.codegraph/' "$exclude_file"
+    if [ -f "$exclude_file" ] && grep -qxF '/.codegraph' "$exclude_file"
     then
         return 0
     fi
@@ -169,7 +171,7 @@ exclude_codegraph_index() {
     then
         printf '\n' >> "$exclude_file" || return 1
     fi
-    printf '%s\n' '.codegraph/' >> "$exclude_file"
+    printf '%s\n' '/.codegraph' >> "$exclude_file"
 }
 
 while IFS= read -r line

@@ -56,14 +56,14 @@ exit "${FAKE_EXIT_codegraph:-0}"
 EOF
 }
 
-# Prints how many lines of the repo's info/exclude are exactly .codegraph/.
+# Prints how many lines of the repo's info/exclude are exactly /.codegraph.
 # Usage: codegraph_exclude_count <repo>
 codegraph_exclude_count() {
     if [ ! -e "$1/.git/info/exclude" ]; then
         echo 0
         return
     fi
-    grep -cxF '.codegraph/' "$1/.git/info/exclude" || true
+    grep -cxF '/.codegraph' "$1/.git/info/exclude" || true
 }
 
 make_bare_remote_and_clone() {
@@ -510,10 +510,10 @@ EOF
     [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
 }
 
-@test "fetch does not list .codegraph/ twice when info/exclude already excludes it" {
+@test "fetch does not list /.codegraph twice when info/exclude already excludes it" {
     make_bare_remote_and_clone repo-a
     mkdir -p "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
-    printf '%s\n' '# kept' '.codegraph/' > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
+    printf '%s\n' '# kept' '/.codegraph' > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
     setup_fake_codegraph
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
@@ -524,7 +524,25 @@ EOF
     grep -qxF '# kept' "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
 }
 
-@test "fetch adds .codegraph/ on its own line when info/exclude does not end in a newline" {
+@test "fetch adds /.codegraph once when info/exclude only has the directory-only .codegraph/ line" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_bare_remote_and_clone repo-a
+    mkdir -p "${_repo}/.git/info"
+    printf '%s\n' '.codegraph/' > "${_repo}/.git/info/exclude"
+    ln -s "${BATS_TEST_TMPDIR}/missing-index" "${_repo}/.codegraph"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"No pending changes in working folder. Rebasing..."* ]]
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
+    grep -qxF '.codegraph/' "${_repo}/.git/info/exclude"
+    [ -z "$(git -C "${_repo}" status --porcelain)" ]
+}
+
+@test "fetch adds /.codegraph on its own line when info/exclude does not end in a newline" {
     make_bare_remote_and_clone repo-a
     mkdir -p "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info"
     printf '%s' '# no newline' > "${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
@@ -574,7 +592,7 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
     grep -qxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}"
-    [ "$(grep -cxF '.codegraph/' "${_git_dir}/info/exclude")" -eq 1 ]
+    [ "$(grep -cxF '/.codegraph' "${_git_dir}/info/exclude")" -eq 1 ]
     [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
 }
 
@@ -602,7 +620,7 @@ EOF
     [ "$(cat "${_exclude}")" = '# no newline' ]
 }
 
-@test "fetch skips a repo whose info/exclude cannot have .codegraph/ appended" {
+@test "fetch skips a repo whose info/exclude cannot have /.codegraph appended" {
     [ "$(id -u)" -ne 0 ] || skip "root can write a read-only file"
     local _exclude="${BATS_TEST_TMPDIR}/repos/repo-a/.git/info/exclude"
     make_bare_remote_and_clone repo-a
@@ -675,6 +693,24 @@ EOF
     refute_fake_called '^codegraph'
     [ -L "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
     [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
+    [ -z "$(git -C "${BATS_TEST_TMPDIR}/repos/repo-a" status --porcelain)" ]
+}
+
+@test "fetch excludes but does not initialise a .codegraph symlink to an index directory" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    make_bare_remote_and_clone repo-a
+    mkdir "${BATS_TEST_TMPDIR}/shared-index"
+    : > "${BATS_TEST_TMPDIR}/shared-index/codegraph.db"
+    ln -s "${BATS_TEST_TMPDIR}/shared-index" "${_repo}/.codegraph"
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    refute_fake_called '^codegraph'
+    [ -L "${_repo}/.codegraph" ]
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
+    [ -z "$(git -C "${_repo}" status --porcelain)" ]
 }
 
 @test "fetch does not list a pre-existing .codegraph index in info/exclude twice over two runs" {
