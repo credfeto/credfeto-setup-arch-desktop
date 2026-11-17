@@ -123,7 +123,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
 - fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, when its git state cannot be read or its codegraph index cannot be excluded, except that under --switch-to-main a failed feature-branch rebase is aborted and the repo is switched to the default branch instead; a rebase is only aborted after it has failed
 - fetch now skips a repo that already has a rebase, merge, cherry-pick, revert or bisect in progress, so an operation the user paused is not aborted or switched away from
-- TBD - to be finalized after review
+- install-dotnet-tools and update-dotnet-tools now pass --allow-roll-forward to dotnet tool install and dotnet tool update, so tools targeting an older .NET runtime still run on newer runtimes
+- The install-dotnet-tools tool list is now sorted alphabetically, making it easier to scan and keep tidy
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
