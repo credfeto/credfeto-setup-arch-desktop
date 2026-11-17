@@ -94,12 +94,10 @@ ensure_codegraph_index() {
     then
         return 0
     fi
-    # An index made by hand was never excluded, so it would still make the
-    # working folder look as if it had pending changes.
+    # An existing index was excluded by exclude_existing_codegraph_index.
     if [ -e "$index_dir/.codegraph" ]
     then
-        exclude_codegraph_index "$index_dir"
-        return
+        return 0
     fi
     info "Initialising codegraph for ${index_dir}..."
     # Excluding first means a failed exclude leaves no .codegraph behind, so
@@ -114,6 +112,18 @@ ensure_codegraph_index() {
         rm -rf -- "$index_dir/.codegraph"
         return 1
     fi
+}
+
+# An index made by hand was never excluded, so it must be excluded before the
+# working folder's status is read, or it would look like a pending change and
+# the repo would not be rebased or switched on this run.
+exclude_existing_codegraph_index() {
+    existing_dir=$1
+    if [ "$CODEGRAPH_AVAILABLE" != "1" ] || [ ! -e "$existing_dir/.codegraph" ]
+    then
+        return 0
+    fi
+    exclude_codegraph_index "$existing_dir"
 }
 
 # The index is never committed, and an untracked .codegraph/ would make the
@@ -148,6 +158,8 @@ do
   git -C "$CURRENT_DIR" remote get-url origin > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not determine origin" "Could not determine origin for ${CURRENT_DIR}"; continue; }
   git -C "$CURRENT_DIR" fetch --prune --prune-tags > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not fetch" "Could not fetch ${CURRENT_DIR}"; continue; }
   git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not update remote refs" "Could not update remote refs for ${CURRENT_DIR}"; continue; }
+
+  exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not exclude codegraph index" "Could not exclude the codegraph index for ${CURRENT_DIR}"; continue; }
 
   REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
 

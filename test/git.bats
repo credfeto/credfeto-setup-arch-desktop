@@ -582,8 +582,31 @@ EOF
     fail_git_for "rev-parse --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    assert_skipped_repo_a "could not initialise codegraph"
+    assert_skipped_repo_a "could not exclude codegraph index"
+    [[ "${output}" == *"Could not exclude the codegraph index for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
     refute_fake_called '^codegraph'
+}
+
+@test "fetch rebases a clean repo with a pre-existing un-excluded .codegraph index on the first run" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    local _pusher="${BATS_TEST_TMPDIR}/pusher"
+    make_bare_remote_and_clone repo-a
+    mkdir "${_repo}/.codegraph"
+    : > "${_repo}/.codegraph/codegraph.db"
+    [[ "$(git -C "${_repo}" status --porcelain)" == *"?? .codegraph/"* ]]
+    git clone --quiet "${BATS_TEST_TMPDIR}/remotes/repo-a.git" "${_pusher}"
+    git -C "${_pusher}" commit --quiet --allow-empty -m "upstream"
+    git -C "${_pusher}" push --quiet
+    setup_fake_codegraph
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Pending changes"* ]]
+    [[ "${output}" == *"No pending changes in working folder. Rebasing..."* ]]
+    [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
+    [ "$(git -C "${_repo}" rev-parse HEAD)" = "$(git -C "${_pusher}" rev-parse HEAD)" ]
+    refute_fake_called '^codegraph'
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
 }
 
 @test "fetch skips a repo whose codegraph init fails" {
