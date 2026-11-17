@@ -461,6 +461,24 @@ setup_dev_update_fixture() {
     [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
 }
 
+@test "dev-update --help prints its usage and exits 0 without doing anything" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" --help
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Usage: dev-update [--fail-if-running]" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
+}
+
+@test "dev-update -h prints its usage and exits 0 without doing anything" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" -h
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Usage: dev-update [--fail-if-running]" ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
+}
+
 @test "dev-update holds the lock while its steps run" {
     setup_dev_update_fixture
     # A second dev-update started from inside a step must find the lock held.
