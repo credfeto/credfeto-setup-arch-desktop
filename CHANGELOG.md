@@ -31,7 +31,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added a bats test pinning the symlinked /usr/share/dotnet layout install-latest-dotnet produces, as the global pre-commit hook expects (#110)
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
 - install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
-- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude (also added to repos that already have an index), and removes a half-made index when init fails so the next run tries again
+- fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed, keeps the generated index out of git by adding .codegraph/ to that repo's local git exclude (also for repos that already have an index, which is excluded before their status is read so they still rebase on the first run), treats a dangling .codegraph symlink as an existing index, and removes a half-made index when init fails or fetch is interrupted during init, so the next run tries again
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -120,7 +120,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Quoted temporary-directory paths in generated bats fake and stub scripts
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
 - fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, except that under --switch-to-main a failed feature-branch rebase is aborted and the repo is switched to the default branch instead; a rebase is only aborted after it has failed
-- fetch now skips a repo that already has a rebase in progress, so a rebase the user paused is not aborted or switched away from
+- fetch now skips a repo that already has a rebase, merge, cherry-pick or revert in progress, so an operation the user paused is not aborted or switched away from
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
