@@ -122,10 +122,21 @@ assert_fetch_skips_when_git_fails() {
     assert_skipped_repo_a "$2"
 }
 
+# Asserts the last fetch skipped repo-a because its git state could not be
+# read, without reporting an operation in progress.
+assert_skipped_unreadable_git_state() {
+    assert_skipped_repo_a "could not read git state" || return 1
+    [[ "${output}" == *"Could not read the git state of ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
+    [[ "${output}" != *"operation in progress"* ]] || return 1
+    [[ "${output}" != *"already in progress"* ]]
+}
+
 # Asserts the last fetch skipped repo-a because the codegraph index could not
 # be excluded, without starting codegraph init or leaving an index behind.
 assert_skipped_before_codegraph_init() {
-    assert_skipped_repo_a "could not initialise codegraph" || return 1
+    assert_skipped_repo_a "could not exclude codegraph index" || return 1
+    [[ "${output}" == *"Could not exclude the codegraph index for ${BATS_TEST_TMPDIR}/repos/repo-a"* ]] || return 1
+    [[ "${output}" != *"could not initialise codegraph"* ]] || return 1
     refute_fake_called '^codegraph' || return 1
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
@@ -264,7 +275,7 @@ EOF
     fail_git_for "rev-parse --path-format=absolute --git-path rebase-merge"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    assert_skipped_repo_a "operation in progress"
+    assert_skipped_unreadable_git_state
     refute_fake_called ' rebase( |$)'
 }
 
@@ -376,6 +387,31 @@ EOF
     [ "$(git -C "${_clone}" symbolic-ref --short HEAD)" = "${DEFAULT_BRANCH_NAME}" ]
     [ "$(git -C "${_clone}" rev-parse HEAD)" = "$(git -C "${_clone}" rev-parse "origin/${DEFAULT_BRANCH_NAME}")" ]
     [ "$(git -C "${_clone}" rev-parse feature)" = "${_feature_head}" ]
+}
+
+@test "fetch --switch-to-main skips a repo whose feature branch rebase fails when its git state then cannot be read, without switching it" {
+    local _clone="${BATS_TEST_TMPDIR}/repos/repo-a" _real_git
+    make_clone_on_feature_branch repo-a
+    git -C "${_clone}" branch --quiet --set-upstream-to "origin/${DEFAULT_BRANCH_NAME}"
+    _real_git="$(command -v git)"
+    # The rebase fails, and the state read that follows it fails too, while
+    # the read made before the rebase still works.
+    replace_fake git <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+case " \$* " in
+    *" rebase --abort ") ;;
+    *" rebase ") exit 1 ;;
+    *"--git-path rebase-merge"*) if grep -q ' rebase\$' "\${FAKE_BIN_LOG}"; then exit 1; fi ;;
+esac
+exec "${_real_git}" "\$@"
+EOF
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch" --switch-to-main
+    assert_skipped_unreadable_git_state
+    assert_fake_called 'rebase --abort$'
+    refute_fake_called 'checkout'
+    [ "$(git -C "${_clone}" symbolic-ref --short HEAD)" = feature ]
 }
 
 @test "fetch --switch-to-main skips a repo on the default branch whose rebase fails, after aborting the rebase" {
@@ -522,7 +558,7 @@ EOF
     fail_git_for "rev-parse --path-format=absolute --git-path info/exclude"
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
-    assert_skipped_repo_a "could not initialise codegraph"
+    assert_skipped_before_codegraph_init
 }
 
 @test "fetch excludes the codegraph index in a git directory kept outside the work tree" {
@@ -587,7 +623,7 @@ EOF
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"repo-a (could not initialise codegraph)"* ]]
+    [[ "${output}" == *"repo-a (could not exclude codegraph index)"* ]]
     refute_fake_called '^codegraph'
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
     rm "${FAKE_BIN_DIR}/git"

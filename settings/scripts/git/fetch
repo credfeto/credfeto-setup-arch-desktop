@@ -73,10 +73,11 @@ skip_repo() {
 # A rebase, git am, merge, cherry-pick, revert or bisect the user paused must
 # be left for them to finish: rebasing would fail, and the abort that follows
 # would throw it away, while switching branches would move them off the commit
-# it stopped at. A git directory whose state cannot be read counts as one in
-# progress.
+# it stopped at. Returns 0 when one is in progress, 1 when none is, and 2
+# when the git directory's state cannot be read, which the caller must treat
+# as unsafe too but report as its own failure.
 operation_in_progress() {
-    operation_paths=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply --git-path MERGE_HEAD --git-path CHERRY_PICK_HEAD --git-path REVERT_HEAD --git-path sequencer --git-path BISECT_LOG) || return 0
+    operation_paths=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply --git-path MERGE_HEAD --git-path CHERRY_PICK_HEAD --git-path REVERT_HEAD --git-path sequencer --git-path BISECT_LOG) || return 2
     operation_path_count=0
     while IFS= read -r operation_path
     do
@@ -85,7 +86,16 @@ operation_in_progress() {
     done <<EOF
 $operation_paths
 EOF
-    [ "$operation_path_count" -ne 7 ]
+    [ "$operation_path_count" -eq 7 ] || return 2
+    return 1
+}
+
+skip_unreadable_git_state() {
+    skip_repo "$1" "could not read git state" "Could not read the git state of $1"
+}
+
+skip_unexcluded_codegraph_index() {
+    skip_repo "$1" "could not exclude codegraph index" "Could not exclude the codegraph index for $1"
 }
 
 # Leaves no rebase in progress when it fails, so the caller can skip the repo.
@@ -109,6 +119,8 @@ has_codegraph_index() {
     [ -e "$1/.codegraph" ] || [ -L "$1/.codegraph" ]
 }
 
+# Returns 1 when codegraph init fails and 2 when the index cannot be
+# excluded, so each is reported as the failure it is.
 ensure_codegraph_index() {
     index_dir=$1
     if [ "$CODEGRAPH_AVAILABLE" != "1" ]
@@ -123,7 +135,7 @@ ensure_codegraph_index() {
     info "Initialising codegraph for ${index_dir}..."
     # Excluding first means a failed exclude leaves no .codegraph behind, so
     # the next run tries again instead of finding an index it never excluded.
-    exclude_codegraph_index "$index_dir" || return 1
+    exclude_codegraph_index "$index_dir" || return 2
     CODEGRAPH_INIT_DIR=$index_dir
     # The repo loop reads its list from stdin, which init must not consume.
     if (cd "$index_dir" && codegraph init < /dev/null)
@@ -180,14 +192,18 @@ do
   git -C "$CURRENT_DIR" fetch --prune --prune-tags > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not fetch" "Could not fetch ${CURRENT_DIR}"; continue; }
   git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not update remote refs" "Could not update remote refs for ${CURRENT_DIR}"; continue; }
 
-  exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not exclude codegraph index" "Could not exclude the codegraph index for ${CURRENT_DIR}"; continue; }
+  exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue; }
 
   REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
 
   # Checked once before either rebase, and before switching branches, since
   # the switch would also move the user off the commit their operation stopped
   # at.
-  operation_in_progress "$CURRENT_DIR" && { skip_repo "$CURRENT_DIR" "operation in progress" "A rebase, merge, cherry-pick, revert or bisect is already in progress in ${CURRENT_DIR}"; continue; }
+  operation_in_progress "$CURRENT_DIR"
+  case $? in
+    0) skip_repo "$CURRENT_DIR" "operation in progress" "A rebase, merge, cherry-pick, revert or bisect is already in progress in ${CURRENT_DIR}"; continue ;;
+    2) skip_unreadable_git_state "$CURRENT_DIR"; continue ;;
+  esac
 
   if [ "$SWITCH_TO_MAIN" = "1" ]
   then
@@ -215,14 +231,19 @@ do
         # A feature branch that cannot be rebased is left as it was and the
         # repo still moves to the default branch, which gets its own rebase.
         # On the default branch no later rebase would follow, and a rebase
-        # the abort could not end must not be switched away from.
-        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] && ! operation_in_progress "$CURRENT_DIR"
+        # the abort could not end, or one whose state cannot be read, must not
+        # be switched away from.
+        OPERATION_STATE=0
+        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]
         then
-          warn "Could not rebase ${CURRENT_BRANCH:-the current branch} in ${CURRENT_DIR}; switching to ${DEFAULT_BRANCH} anyway."
-        else
-          skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"
-          continue
+          operation_in_progress "$CURRENT_DIR"
+          OPERATION_STATE=$?
         fi
+        case $OPERATION_STATE in
+          1) warn "Could not rebase ${CURRENT_BRANCH:-the current branch} in ${CURRENT_DIR}; switching to ${DEFAULT_BRANCH} anyway." ;;
+          2) skip_unreadable_git_state "$CURRENT_DIR"; continue ;;
+          *) skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"; continue ;;
+        esac
       fi
     else
       info "No valid upstream for current branch. Skipping rebase."
@@ -251,7 +272,11 @@ do
     fi
   fi
 
-  ensure_codegraph_index "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue; }
+  ensure_codegraph_index "$CURRENT_DIR"
+  case $? in
+    1) skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue ;;
+    2) skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue ;;
+  esac
 
   FETCHED_COUNT=$((FETCHED_COUNT + 1))
   success "Done with ${CURRENT_DIR}"
