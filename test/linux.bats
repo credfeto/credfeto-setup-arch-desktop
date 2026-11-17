@@ -465,7 +465,7 @@ setup_dev_update_fixture() {
     setup_dev_update_fixture
     run "${LINUX_DIR}/dev-update" --help
     [ "${status}" -eq 0 ]
-    [ "${output}" = "Usage: dev-update [--fail-if-running]" ]
+    [ "${output}" = $'\n→ Usage: dev-update [--fail-if-running]' ]
     [ ! -s "${FAKE_BIN_LOG}" ]
     [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
 }
@@ -474,7 +474,7 @@ setup_dev_update_fixture() {
     setup_dev_update_fixture
     run "${LINUX_DIR}/dev-update" -h
     [ "${status}" -eq 0 ]
-    [ "${output}" = "Usage: dev-update [--fail-if-running]" ]
+    [ "${output}" = $'\n→ Usage: dev-update [--fail-if-running]' ]
     [ ! -s "${FAKE_BIN_LOG}" ]
     [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
 }
