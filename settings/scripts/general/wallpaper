@@ -17,7 +17,7 @@ else
 fi
 
 if [ ! -d "$HOME/work/thirdparty/wallpapers" ]; then
-  info "Could not find $HOME/work/thirdparty/wallpapers"
+  warn "Could not find $HOME/work/thirdparty/wallpapers"
   exit 0
 fi
 
