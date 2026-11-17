@@ -106,7 +106,14 @@ ensure_codegraph_index() {
     # the next run tries again instead of finding an index it never excluded.
     exclude_codegraph_index "$index_dir" || return 1
     # The repo loop reads its list from stdin, which init must not consume.
-    (cd "$index_dir" && codegraph init < /dev/null)
+    if ! (cd "$index_dir" && codegraph init < /dev/null)
+    then
+        # A failed init can leave a half-made .codegraph behind, which the
+        # next run would take for an existing index and never initialise.
+        # None existed before this init, so only its leftovers are removed.
+        rm -rf -- "$index_dir/.codegraph"
+        return 1
+    fi
 }
 
 # The index is never committed, and an untracked .codegraph/ would make the
