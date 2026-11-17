@@ -557,6 +557,25 @@ EOF
     [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 1 ]
 }
 
+@test "fetch removes the .codegraph a failed init left behind and initialises again on the next run" {
+    make_bare_remote_and_clone repo-a
+    replace_fake codegraph <<'EOF'
+#!/bin/sh
+printf 'codegraph %s (in %s)\n' "$*" "$(pwd)" >> "${FAKE_BIN_LOG}"
+mkdir -p .codegraph
+: > .codegraph/partial
+exit 1
+EOF
+    cd "${BATS_TEST_TMPDIR}/repos"
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_repo_a "could not initialise codegraph"
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+    run "${GIT_DIR_SCRIPTS}/fetch"
+    assert_skipped_repo_a "could not initialise codegraph"
+    [ "$(grep -cxF "codegraph init (in ${BATS_TEST_TMPDIR}/repos/repo-a)" "${FAKE_BIN_LOG}")" -eq 2 ]
+    [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
+}
+
 @test "fetch does not initialise codegraph when codegraph is not installed" {
     make_bare_remote_and_clone repo-a
     [ -z "$(command -v codegraph)" ]
