@@ -221,7 +221,7 @@ do
 
     if ! CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
     then
-      info "Could not determine current branch for ${CURRENT_DIR}."
+      warn "Could not determine current branch for ${CURRENT_DIR}."
       CURRENT_BRANCH=""
     fi
   fi
