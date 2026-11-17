@@ -886,16 +886,27 @@ EOF
     [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
 }
 
-@test "fetch does not exclude a pre-existing .codegraph index when codegraph is not installed" {
+@test "fetch excludes a pre-existing .codegraph index and rebases when codegraph is not installed" {
+    local _repo="${BATS_TEST_TMPDIR}/repos/repo-a"
+    local _pusher="${BATS_TEST_TMPDIR}/pusher"
     make_bare_remote_and_clone repo-a
-    mkdir "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph"
+    mkdir "${_repo}/.codegraph"
+    : > "${_repo}/.codegraph/codegraph.db"
+    git clone --quiet "${BATS_TEST_TMPDIR}/remotes/repo-a.git" "${_pusher}"
+    git -C "${_pusher}" commit --quiet --allow-empty -m "upstream"
+    git -C "${_pusher}" push --quiet
     [ -z "$(command -v codegraph)" ]
     cd "${BATS_TEST_TMPDIR}/repos"
     run "${GIT_DIR_SCRIPTS}/fetch"
     [ "${status}" -eq 0 ]
+    [[ "${output}" != *"Initialising codegraph"* ]]
+    [[ "${output}" != *"Pending changes"* ]]
+    [[ "${output}" == *"No pending changes in working folder. Rebasing..."* ]]
     [[ "${output}" == *"1 repo(s) fetched, 0 repo(s) skipped"* ]]
-    [ -d "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
-    [ "$(codegraph_exclude_count "${BATS_TEST_TMPDIR}/repos/repo-a")" -eq 0 ]
+    [ "$(git -C "${_repo}" rev-parse HEAD)" = "$(git -C "${_pusher}" rev-parse HEAD)" ]
+    [ -f "${_repo}/.codegraph/codegraph.db" ]
+    [ "$(codegraph_exclude_count "${_repo}")" -eq 1 ]
+    [ -z "$(git -C "${_repo}" status --porcelain)" ]
 }
 
 @test "the suite keeps git on PATH when codegraph is installed in the same directory as git" {
