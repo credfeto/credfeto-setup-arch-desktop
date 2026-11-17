@@ -16,6 +16,30 @@ setup() {
     cd "${BATS_TEST_TMPDIR}" || exit
 }
 
+# Runs dbappsettings over a project with an existing appsettings-local.json,
+# with jq faked and TMPDIR a directory of its own, so a temporary file left
+# behind can be seen. A FAKE_EXIT_jq set on the call reaches the fake.
+run_dbappsettings_with_fake_jq() {
+    mkdir -p "${BATS_TEST_TMPDIR}/repo/src/Foo" "${BATS_TEST_TMPDIR}/tmp"
+    cd "${BATS_TEST_TMPDIR}/repo" || exit
+    printf '<Project Sdk="Microsoft.NET.Sdk"></Project>' > src/Foo/Foo.csproj
+    printf '{}' > src/Foo/appsettings.json
+    printf '{"existing":true}' > src/Foo/appsettings-local.json
+    setup_fake_bin jq
+
+    run env TMPDIR="${BATS_TEST_TMPDIR}/tmp" "${DBAPPSETTINGS}" --server myserver --user myuser --password mypass --database mydb
+}
+
+# Asserts the last run died with the given message, left
+# appsettings-local.json exactly as it was and left no temporary file behind.
+# Usage: assert_local_appsettings_kept <message>
+assert_local_appsettings_kept() {
+    [ "${status}" -eq 1 ] || return 1
+    [[ "${output}" == *"$1"* ]] || return 1
+    [ "$(cat "${BATS_TEST_TMPDIR}/repo/src/Foo/appsettings-local.json")" = '{"existing":true}' ] || return 1
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/tmp")" ]
+}
+
 @test "dbenv does not crash when ~/.database is absent" {
     run "${DBENV}" --server myserver --user myuser --password mypass
     [[ "${output}" == *"Server: myserver"* ]]
@@ -98,6 +122,16 @@ setup() {
     run "${DBAPPSETTINGS}" --server myserver --user myuser --password mypass --database mydb
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Existing"* ]]
+}
+
+@test "dbappsettings fails, keeping the existing appsettings-local.json, when jq fails" {
+    FAKE_EXIT_jq=1 run_dbappsettings_with_fake_jq
+    assert_local_appsettings_kept "Could not update the database settings in ${BATS_TEST_TMPDIR}/repo/src/Foo/appsettings-local.json"
+}
+
+@test "dbappsettings fails, keeping the existing appsettings-local.json, when jq writes nothing" {
+    run_dbappsettings_with_fake_jq
+    assert_local_appsettings_kept "Updating the database settings in ${BATS_TEST_TMPDIR}/repo/src/Foo/appsettings-local.json produced no output"
 }
 
 @test "querydb dies when SERVER is not set" {
