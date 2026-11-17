@@ -340,6 +340,24 @@ EOF
     refute_fake_called '^dotnet '
 }
 
+@test "install-dotnet-tools --help prints its usage and exits 0 without running dotnet" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools" --help
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Usage: install-dotnet-tools [--reinstall]" ]
+    refute_fake_called '^dotnet '
+}
+
+@test "install-dotnet-tools -h prints its usage and exits 0 without running dotnet" {
+    setup_fake_bin dotnet
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run "${GENERAL_DIR}/install-dotnet-tools" -h
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "Usage: install-dotnet-tools [--reinstall]" ]
+    refute_fake_called '^dotnet '
+}
+
 # ── update-dotnet-tools ──────────────────────────────────────────────────────
 
 @test "update-dotnet-tools reinstalls global tools locally and updates every local tool" {
