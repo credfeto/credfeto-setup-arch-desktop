@@ -31,10 +31,27 @@ for arg in "$@"; do
     esac
 done
 
+# The folder whose codegraph init is running, so a run stopped part way
+# through can remove the half-made index it leaves; set only while init runs.
+CODEGRAPH_INIT_DIR=""
+
+# A half-made .codegraph would be taken for an existing index by the next run
+# and never initialised again. None existed before this run's init, so only
+# its leftovers are removed.
+remove_partial_codegraph_index() {
+    if [ -n "$CODEGRAPH_INIT_DIR" ]
+    then
+        rm -rf -- "$CODEGRAPH_INIT_DIR/.codegraph"
+        CODEGRAPH_INIT_DIR=""
+    fi
+}
+
 REPO_LIST=$(mktemp)
-trap 'rm -f "$REPO_LIST"' EXIT
+# A signal during codegraph init reaches this through the exit below, before
+# the init's own failure handling could run.
+trap 'rm -f "$REPO_LIST"; remove_partial_codegraph_index' EXIT
 # dash does not run the EXIT trap when a signal kills the shell, so turn the
-# signals into an exit to get the repo list removed.
+# signals into an exit to get the repo list and any half-made index removed.
 trap 'exit 1' INT TERM HUP
 
 find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache' > "$REPO_LIST"
@@ -42,6 +59,126 @@ find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.c
 FETCHED_COUNT=0
 SKIPPED_COUNT=0
 SKIPPED_REPOS=""
+
+skip_repo() {
+    skipped_dir=$1
+    skip_reason=$2
+    skip_warning=$3
+    warn "$skip_warning"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    SKIPPED_REPOS="${SKIPPED_REPOS}${skipped_dir} (${skip_reason})
+"
+}
+
+# A rebase, git am, merge, cherry-pick, revert or bisect the user paused must
+# be left for them to finish: rebasing would fail, and the abort that follows
+# would throw it away, while switching branches would move them off the commit
+# it stopped at. Returns 0 when one is in progress, 1 when none is, and 2
+# when the git directory's state cannot be read, which the caller must treat
+# as unsafe too but report as its own failure.
+operation_in_progress() {
+    operation_paths=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply --git-path MERGE_HEAD --git-path CHERRY_PICK_HEAD --git-path REVERT_HEAD --git-path sequencer --git-path BISECT_LOG) || return 2
+    operation_path_count=0
+    while IFS= read -r operation_path
+    do
+        operation_path_count=$((operation_path_count + 1))
+        [ -e "$operation_path" ] && return 0
+    done <<EOF
+$operation_paths
+EOF
+    [ "$operation_path_count" -eq 7 ] || return 2
+    return 1
+}
+
+skip_unreadable_git_state() {
+    skip_repo "$1" "could not read git state" "Could not read the git state of $1"
+}
+
+skip_unexcluded_codegraph_index() {
+    skip_repo "$1" "could not exclude codegraph index" "Could not exclude the codegraph index for $1"
+}
+
+# Leaves no rebase in progress when it fails, so the caller can skip the repo.
+rebase_or_abort() {
+    rebase_dir=$1
+    git -C "$rebase_dir" rebase 2>&1 && return 0
+    git -C "$rebase_dir" rebase --abort > /dev/null 2>&1
+    return 1
+}
+
+CODEGRAPH_AVAILABLE=0
+if command -v codegraph > /dev/null 2>&1
+then
+    CODEGRAPH_AVAILABLE=1
+fi
+
+# A dangling .codegraph symlink fails -e but is still the user's, and taking
+# it for a missing index would have a failed init delete it.
+# Usage: has_codegraph_index <repo>
+has_codegraph_index() {
+    [ -e "$1/.codegraph" ] || [ -L "$1/.codegraph" ]
+}
+
+# Returns 1 when codegraph init fails and 2 when the index cannot be
+# excluded, so each is reported as the failure it is.
+ensure_codegraph_index() {
+    index_dir=$1
+    # An existing index was excluded by exclude_existing_codegraph_index.
+    if has_codegraph_index "$index_dir"
+    then
+        return 0
+    fi
+    info "Initialising codegraph for ${index_dir}..."
+    # Excluding first means a failed exclude leaves no .codegraph behind, so
+    # the next run tries again instead of finding an index it never excluded.
+    exclude_codegraph_index "$index_dir" || return 2
+    CODEGRAPH_INIT_DIR=$index_dir
+    # The repo loop reads its list from stdin, which init must not consume.
+    if (cd "$index_dir" && codegraph init < /dev/null)
+    then
+        CODEGRAPH_INIT_DIR=""
+        return 0
+    fi
+    remove_partial_codegraph_index
+    return 1
+}
+
+# An index made outside this script (by hand, by the codegraph MCP server or
+# by a CLI since uninstalled) was never excluded, so it must be excluded before
+# the working folder's status is read, whether or not the CLI is installed, or
+# it would look like a pending change and the repo would not be rebased or
+# switched on this run.
+exclude_existing_codegraph_index() {
+    existing_dir=$1
+    if has_codegraph_index "$existing_dir"
+    then
+        exclude_codegraph_index "$existing_dir"
+    fi
+}
+
+# The index is never committed, and an untracked .codegraph would make the
+# working folder look as if it had pending changes, so later runs would stop
+# rebasing the repo. git's own ignore rules decide whether it is already
+# ignored, so a .gitignore, a global excludes file or any equivalent pattern
+# counts too. A directory-only .codegraph/ pattern (written by earlier runs)
+# does not match a .codegraph symlink, so git reports that as not ignored and
+# the /.codegraph line, which has no trailing slash, is added for it.
+exclude_codegraph_index() {
+    exclude_repo=$1
+    git -C "$exclude_repo" check-ignore -q -- .codegraph
+    case $? in
+        0) return 0 ;;
+        1) ;;
+        *) return 1 ;;
+    esac
+    exclude_file=$(git -C "$exclude_repo" rev-parse --path-format=absolute --git-path info/exclude) || return 1
+    mkdir -p "$(dirname "$exclude_file")" || return 1
+    if [ -s "$exclude_file" ] && [ -n "$(tail -c 1 "$exclude_file")" ]
+    then
+        printf '\n' >> "$exclude_file" || return 1
+    fi
+    printf '%s\n' '/.codegraph' >> "$exclude_file"
+}
 
 while IFS= read -r line
 do
@@ -54,23 +191,65 @@ do
   else
     git -C "$CURRENT_DIR" config --local --unset core.hookspath 2>/dev/null || true
   fi
-  git -C "$CURRENT_DIR" remote get-url origin > /dev/null 2>&1 || { warn "Could not determine origin for ${CURRENT_DIR}"; SKIPPED_COUNT=$((SKIPPED_COUNT + 1)); SKIPPED_REPOS="${SKIPPED_REPOS}${CURRENT_DIR} (could not determine origin)
-"; continue; }
-  git -C "$CURRENT_DIR" fetch --prune --prune-tags > /dev/null 2>&1 || { warn "Could not fetch ${CURRENT_DIR}"; SKIPPED_COUNT=$((SKIPPED_COUNT + 1)); SKIPPED_REPOS="${SKIPPED_REPOS}${CURRENT_DIR} (could not fetch)
-"; continue; }
-  git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { warn "Could not update remote refs for ${CURRENT_DIR}"; SKIPPED_COUNT=$((SKIPPED_COUNT + 1)); SKIPPED_REPOS="${SKIPPED_REPOS}${CURRENT_DIR} (could not update remote refs)
-"; continue; }
+  git -C "$CURRENT_DIR" remote get-url origin > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not determine origin" "Could not determine origin for ${CURRENT_DIR}"; continue; }
+  git -C "$CURRENT_DIR" fetch --prune --prune-tags > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not fetch" "Could not fetch ${CURRENT_DIR}"; continue; }
+  git -C "$CURRENT_DIR" remote update origin --prune > /dev/null 2>&1 || { skip_repo "$CURRENT_DIR" "could not update remote refs" "Could not update remote refs for ${CURRENT_DIR}"; continue; }
 
-  REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { warn "Could not read status for ${CURRENT_DIR}"; SKIPPED_COUNT=$((SKIPPED_COUNT + 1)); SKIPPED_REPOS="${SKIPPED_REPOS}${CURRENT_DIR} (could not read status)
-"; continue; }
+  # Not gated on CODEGRAPH_AVAILABLE: an index made by the codegraph MCP
+  # server, or left behind after the CLI was uninstalled, must be excluded too.
+  exclude_existing_codegraph_index "$CURRENT_DIR" || { skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue; }
+
+  REPO_STATUS=$(git -C "$CURRENT_DIR" status --porcelain 2>&1) || { skip_repo "$CURRENT_DIR" "could not read status" "Could not read status for ${CURRENT_DIR}"; continue; }
+
+  # Checked once before either rebase, and before switching branches, since
+  # the switch would also move the user off the commit their operation stopped
+  # at.
+  operation_in_progress "$CURRENT_DIR"
+  case $? in
+    0) skip_repo "$CURRENT_DIR" "operation in progress" "A rebase, merge, cherry-pick, revert or bisect is already in progress in ${CURRENT_DIR}"; continue ;;
+    2) skip_unreadable_git_state "$CURRENT_DIR"; continue ;;
+  esac
+
+  if [ "$SWITCH_TO_MAIN" = "1" ]
+  then
+    DEFAULT_BRANCH=$(git -C "$CURRENT_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+
+    if [ -z "$DEFAULT_BRANCH" ]
+    then
+      DEFAULT_BRANCH="main"
+    fi
+
+    if ! CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    then
+      info "Could not determine current branch for ${CURRENT_DIR}."
+      CURRENT_BRANCH=""
+    fi
+  fi
 
   if [ -z "$REPO_STATUS" ]
   then
     if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
     then
       info "No pending changes in working folder. Rebasing..."
-      git -C "$CURRENT_DIR" rebase 2>&1 || warn "Could not rebase ${CURRENT_DIR}"
-      git -C "$CURRENT_DIR" rebase --abort > /dev/null 2>&1
+      if ! rebase_or_abort "$CURRENT_DIR"
+      then
+        # A feature branch that cannot be rebased is left as it was and the
+        # repo still moves to the default branch, which gets its own rebase.
+        # On the default branch no later rebase would follow, and a rebase
+        # the abort could not end, or one whose state cannot be read, must not
+        # be switched away from.
+        OPERATION_STATE=0
+        if [ "$SWITCH_TO_MAIN" = "1" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]
+        then
+          operation_in_progress "$CURRENT_DIR"
+          OPERATION_STATE=$?
+        fi
+        case $OPERATION_STATE in
+          1) warn "Could not rebase ${CURRENT_BRANCH:-the current branch} in ${CURRENT_DIR}; switching to ${DEFAULT_BRANCH} anyway." ;;
+          2) skip_unreadable_git_state "$CURRENT_DIR"; continue ;;
+          *) skip_repo "$CURRENT_DIR" "could not rebase" "Could not rebase ${CURRENT_DIR}"; continue ;;
+        esac
+      fi
     else
       info "No valid upstream for current branch. Skipping rebase."
     fi
@@ -80,36 +259,31 @@ do
 
   if [ "$SWITCH_TO_MAIN" = "1" ]
   then
-    CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>&1) || { warn "Could not determine current branch for ${CURRENT_DIR}"; SKIPPED_COUNT=$((SKIPPED_COUNT + 1)); SKIPPED_REPOS="${SKIPPED_REPOS}${CURRENT_DIR} (could not determine current branch)
-"; continue; }
-    DEFAULT_BRANCH=$(git -C "$CURRENT_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-
-    if [ -z "$DEFAULT_BRANCH" ]
-    then
-      DEFAULT_BRANCH="main"
-    fi
-
     if [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]
     then
       if [ -z "$REPO_STATUS" ]
       then
         info "Switching to ${DEFAULT_BRANCH} branch..."
-        if git -C "$CURRENT_DIR" checkout "$DEFAULT_BRANCH" 2>&1
+        git -C "$CURRENT_DIR" checkout "$DEFAULT_BRANCH" 2>&1 || { skip_repo "$CURRENT_DIR" "could not switch to ${DEFAULT_BRANCH}" "Could not switch to ${DEFAULT_BRANCH} in ${CURRENT_DIR}"; continue; }
+        if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
         then
-          if git -C "$CURRENT_DIR" rev-parse --verify '@{upstream}' > /dev/null 2>&1
-          then
-            git -C "$CURRENT_DIR" rebase 2>&1 || warn "Could not rebase ${DEFAULT_BRANCH} in ${CURRENT_DIR}"
-            git -C "$CURRENT_DIR" rebase --abort > /dev/null 2>&1
-          else
-            info "No valid upstream for ${DEFAULT_BRANCH}. Skipping rebase."
-          fi
+          rebase_or_abort "$CURRENT_DIR" || { skip_repo "$CURRENT_DIR" "could not rebase ${DEFAULT_BRANCH}" "Could not rebase ${DEFAULT_BRANCH} in ${CURRENT_DIR}"; continue; }
         else
-          warn "Could not switch to ${DEFAULT_BRANCH} in ${CURRENT_DIR}"
+          info "No valid upstream for ${DEFAULT_BRANCH}. Skipping rebase."
         fi
       else
         info "Pending changes in working folder. Skipping switch to ${DEFAULT_BRANCH}."
       fi
     fi
+  fi
+
+  if [ "$CODEGRAPH_AVAILABLE" = "1" ]
+  then
+    ensure_codegraph_index "$CURRENT_DIR"
+    case $? in
+      1) skip_repo "$CURRENT_DIR" "could not initialise codegraph" "Could not initialise codegraph for ${CURRENT_DIR}"; continue ;;
+      2) skip_unexcluded_codegraph_index "$CURRENT_DIR"; continue ;;
+    esac
   fi
 
   FETCHED_COUNT=$((FETCHED_COUNT + 1))
