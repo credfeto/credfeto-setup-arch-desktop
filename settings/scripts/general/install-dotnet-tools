@@ -6,6 +6,22 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Set by --reinstall, which uninstalls each tool before installing it, so a
+# tool already in the manifest is installed again and gets rollForward
+# recorded; a plain install leaves a tool that is already there unchanged.
+REINSTALL=0
+
+# Usage: parse_arguments [--reinstall]
+parse_arguments() {
+    case "$#:$1" in
+        0:) ;;
+        1:--reinstall) REINSTALL=1 ;;
+        *) die "Usage: install-dotnet-tools [--reinstall]" ;;
+    esac
+}
+
+parse_arguments "$@"
+
 # The --local installs act on the tool manifest in the current folder, so
 # they have to run from $HOME, where the manifest lives, whichever folder
 # the script was started from.
@@ -47,6 +63,12 @@ SUCCEEDED=0
 FAILED=0
 FAILED_TOOLS=""
 for TOOL in $TOOLS; do
+   if [ "$REINSTALL" -eq 1 ]; then
+      info "Uninstalling $TOOL"
+      # A tool not in the manifest yet fails to uninstall; the install that
+      # follows still adds it, so only the install's result counts.
+      dotnet tool uninstall --local "$TOOL" || info "Could not uninstall $TOOL; installing it anyway"
+   fi
    info "Installing $TOOL"
    if dotnet tool install --local --allow-roll-forward "$TOOL"; then
       SUCCEEDED=$((SUCCEEDED + 1))
