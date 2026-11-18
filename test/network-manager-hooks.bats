@@ -172,3 +172,19 @@ EOF
     [ "${status}" -ne 0 ]
     [[ "${stderr}" == *"Failed to restart systemd-timesyncd.service"* ]]
 }
+
+# install-network-manager-dhcp-hook
+
+@test "install-network-manager-dhcp-hook installs the dispatcher script executable" {
+    setup_fake_sudo
+    run "${REPO_DIR}/hooks/networkmanager/install-network-manager-dhcp-hook"
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo install -m 0755 ${REPO_DIR}/hooks/networkmanager/10-update-timesyncd /etc/NetworkManager/dispatcher\.d/10-update-timesyncd$"
+}
+
+@test "install-network-manager-dhcp-hook fails when the install fails" {
+    setup_fake_sudo
+    run env FAKE_SUDO_FAIL='^install ' "${REPO_DIR}/hooks/networkmanager/install-network-manager-dhcp-hook"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to install /etc/NetworkManager/dispatcher.d/10-update-timesyncd"* ]]
+}
