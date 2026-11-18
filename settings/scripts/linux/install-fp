@@ -19,7 +19,7 @@ PACKAGES="com.brave.Browser \
 
 for PACKAGE in $PACKAGES; do
   info "Installing ${PACKAGE}..."
-  flatpak install -y "$PACKAGE"
+  flatpak install -y "$PACKAGE" || die "Failed to install ${PACKAGE}"
 done
 
 success "All flatpak packages installed"

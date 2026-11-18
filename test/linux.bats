@@ -1552,6 +1552,15 @@ setup_dev_install_fixture() {
 
 # ── install-fp ───────────────────────────────────────────────────────────────
 
+@test "install-fp stops at the first flatpak that fails to install" {
+    setup_fake_bin flatpak
+    run env FAKE_EXIT_flatpak=1 "${LINUX_DIR}/install-fp"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to install com.brave.Browser"* ]]
+    [[ "${output}" != *"All flatpak packages installed"* ]]
+    [ "$(grep -c '^flatpak install -y ' "${FAKE_BIN_LOG}")" -eq 1 ]
+}
+
 @test "install-fp installs every candidate flatpak package" {
     setup_fake_bin flatpak
     run "${LINUX_DIR}/install-fp"
