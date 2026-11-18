@@ -169,8 +169,8 @@ EOF
 # Fake dotnet that logs each call with the folder it ran from, so tests can
 # check the install and update scripts act on the HOME tool manifest.
 # `tool list` prints the tools in FAKE_DOTNET_LOCAL_TOOLS or
-# FAKE_DOTNET_GLOBAL_TOOLS (one local and one global tool when unset) for
-# update-dotnet-tools. A call whose arguments match the grep -E pattern in
+# FAKE_DOTNET_GLOBAL_TOOLS (one local and one global tool when unset), for
+# update-dotnet-tools and for install-dotnet-tools --reinstall. A call whose arguments match the grep -E pattern in
 # FAKE_DOTNET_FAIL still prints its output, then exits 1; every other call
 # exits 0. All three are read when dotnet runs, so a test sets them with
 # `run env`.
@@ -197,6 +197,14 @@ fi
 exit 0
 EOF
 }
+
+# Every tool install-dotnet-tools installs, as the lower-case package ids
+# `dotnet tool list --local` prints for a manifest that already has them all.
+ALL_TOOLS_IN_MANIFEST="credfeto.build.dotnet.server credfeto.changelog.cmd credfeto.changelog.mcp \
+credfeto.dotnet.code.analysis.overrides.cmd credfeto.dotnet.repo.formatter credfeto.dotnet.repo.tools.cmd \
+credfeto.package.push credfeto.package.update dotnet-reportgenerator-globaltool dotnet-script \
+funfair.buildcheck funfair.buildversion funfair.content.packager.cmd funfair.content.packagesigner.cmd \
+ilspycmd microsoft.sqlpackage sleet tsqllint"
 
 @test "install-dotnet-tools installs every tool once a manifest exists" {
     setup_fake_bin dotnet
@@ -305,15 +313,17 @@ EOF
     [ "${status}" -eq 0 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
     refute_fake_called '^dotnet tool uninstall '
+    refute_fake_called '^dotnet tool list '
 }
 
-@test "install-dotnet-tools --reinstall uninstalls then installs every tool from HOME" {
+@test "install-dotnet-tools --reinstall uninstalls then installs every tool in the manifest from HOME" {
     fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
     mkdir -p "${BATS_TEST_TMPDIR}/elsewhere"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
-    run "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    run env FAKE_DOTNET_LOCAL_TOOLS="${ALL_TOOLS_IN_MANIFEST}" "${GENERAL_DIR}/install-dotnet-tools" --reinstall
     [ "${status}" -eq 0 ]
+    assert_fake_called "^dotnet tool list --local PWD=${HOME}\$"
     [ "$(grep -c "^dotnet tool uninstall --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
     [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 18 ]
     # Each tool's uninstall comes straight before its own install, so the
@@ -323,14 +333,41 @@ EOF
     sed 's/.*/uninstall --local &\ninstall --local --allow-roll-forward &/' "${BATS_TEST_TMPDIR}/installed" > "${BATS_TEST_TMPDIR}/expected"
     cmp "${BATS_TEST_TMPDIR}/calls" "${BATS_TEST_TMPDIR}/expected"
     [ "$(log_line_of '^dotnet tool uninstall --local TSQLLint ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward TSQLLint ')" ]
+    [[ "${output}" != *"Could not uninstall"* ]]
     [[ "${output}" == *"Done"* ]]
     [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools --reinstall installs a tool not in the manifest without uninstalling it or warning" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    # Lower case, as dotnet tool list prints them, while TOOLS has
+    # Credfeto.Changelog.Cmd in mixed case.
+    run env FAKE_DOTNET_LOCAL_TOOLS='credfeto.changelog.cmd sleet' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    [ "${status}" -eq 0 ]
+    [ "$(grep -c '^dotnet tool uninstall --local ' "${FAKE_BIN_LOG}")" -eq 2 ]
+    [ "$(log_line_of '^dotnet tool uninstall --local Credfeto\.Changelog\.Cmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward Credfeto\.Changelog\.Cmd ')" ]
+    [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
+    refute_fake_called '^dotnet tool uninstall --local TSQLLint '
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
+    [[ "${output}" != *"Could not uninstall"* ]]
+    [[ "${output}" == *"Done"* ]]
+    [[ "${output}" != *"failed"* ]]
+}
+
+@test "install-dotnet-tools --reinstall dies without installing anything when it cannot list the manifest's tools" {
+    fake_dotnet_logging_pwd
+    printf '{}' > "${HOME}/dotnet-tools.json"
+    run env FAKE_DOTNET_FAIL='^tool list --local$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not list the local dotnet tools"* ]]
+    refute_fake_called '^dotnet tool (un)?install '
 }
 
 @test "install-dotnet-tools --reinstall still installs a tool it could not uninstall and does not count it as failed" {
     fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
-    run env FAKE_DOTNET_FAIL='^tool uninstall --local (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    run env FAKE_DOTNET_LOCAL_TOOLS="${ALL_TOOLS_IN_MANIFEST}" FAKE_DOTNET_FAIL='^tool uninstall --local (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
     [ "${status}" -eq 0 ]
     [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
     [ "$(log_line_of '^dotnet tool uninstall --local ilspycmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward ilspycmd ')" ]
@@ -343,7 +380,7 @@ EOF
 @test "install-dotnet-tools --reinstall reports the tools whose install fails" {
     fake_dotnet_logging_pwd
     printf '{}' > "${HOME}/dotnet-tools.json"
-    run env FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
+    run env FAKE_DOTNET_LOCAL_TOOLS="${ALL_TOOLS_IN_MANIFEST}" FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool uninstall --local ' "${FAKE_BIN_LOG}")" -eq 18 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 18 ]
