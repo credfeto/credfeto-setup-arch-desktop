@@ -128,7 +128,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - fetch now skips a repo that already has a rebase, merge, cherry-pick, revert or bisect in progress, so an operation the user paused is not aborted or switched away from
 - install-dotnet-tools passes --allow-roll-forward to dotnet tool install, and update-dotnet-tools does too when it moves a global tool to a local one, so newly installed tools record rollForward in the manifest and run on a newer .NET runtime when theirs is missing
 - The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
-- Failures in wallpaper and fetch are now reported as warnings on stderr
+- Failures in wallpaper, fetch and querydb are now reported as warnings on stderr
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
