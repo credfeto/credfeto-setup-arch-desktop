@@ -8,27 +8,35 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 
 info "PWD: $(pwd)"
 
-find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache' | while IFS= read -r line
+REPOS=$(find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache')
+
+# Fed from a here-doc rather than a pipe so the loop runs in this shell and a
+# die inside it stops the whole script instead of just a subshell.
+while IFS= read -r line
 do
+  [ -n "$line" ] || continue
   CURRENT_DIR=$line
 
   info "Optimising ${CURRENT_DIR}..."
 
   info "Pruning remotes..."
-  for REMOTE in $(git -C "$CURRENT_DIR" remote)
+  REMOTES=$(git -C "$CURRENT_DIR" remote) || die "Failed to list the remotes of ${CURRENT_DIR}"
+  for REMOTE in $REMOTES
   do
     info "Pruning ${REMOTE}..."
-    git -C "$CURRENT_DIR" remote prune "$REMOTE"
+    git -C "$CURRENT_DIR" remote prune "$REMOTE" || die "Failed to prune ${REMOTE} in ${CURRENT_DIR}"
   done
 
   info "Repacking..."
-  git -C "$CURRENT_DIR" repack
+  git -C "$CURRENT_DIR" repack || die "Failed to repack ${CURRENT_DIR}"
   info "Pruning packed..."
-  git -C "$CURRENT_DIR" prune-packed
+  git -C "$CURRENT_DIR" prune-packed || die "Failed to prune packed objects in ${CURRENT_DIR}"
   info "Expiring reflog..."
-  git -C "$CURRENT_DIR" reflog expire --expire=1.month.ago
+  git -C "$CURRENT_DIR" reflog expire --expire=1.month.ago || die "Failed to expire the reflog of ${CURRENT_DIR}"
   info "Garbage collecting..."
-  git -C "$CURRENT_DIR" gc --aggressive --prune 2>&1
+  git -C "$CURRENT_DIR" gc --aggressive --prune 2>&1 || die "Failed to garbage collect ${CURRENT_DIR}"
 
   success "Done with ${CURRENT_DIR}"
-done
+done <<REPOS_EOF
+$REPOS
+REPOS_EOF
