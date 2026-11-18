@@ -129,10 +129,21 @@ dotnet build \
 # Fail if the build generated or modified any ApiCompatSuppressions.xml files —
 # these indicate newly suppressed API compatibility breaks that must be reviewed,
 # staged and committed intentionally rather than silently auto-included.
-COMPAT_CHANGED=$(find "$SOURCE_DIR" -name "ApiCompatSuppressions.xml" 2>/dev/null | while IFS= read -r f; do
-    git diff --name-only -- "$f" 2>/dev/null
-    git ls-files --others --exclude-standard -- "$f" 2>/dev/null
-done)
+COMPAT_FILES=$(find "$SOURCE_DIR" -name "ApiCompatSuppressions.xml") || die "Could not search $SOURCE_DIR for ApiCompatSuppressions.xml files"
+COMPAT_CHANGED=""
+# Fed from a here-doc rather than a pipe so the loop runs in this shell and a
+# git failure stops the script instead of being read as "nothing changed".
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    COMPAT_MODIFIED=$(git diff --name-only -- "$f") || die "Could not check $f for changes"
+    COMPAT_UNTRACKED=$(git ls-files --others --exclude-standard -- "$f") || die "Could not check $f for being untracked"
+    COMPAT_CHANGED="$COMPAT_CHANGED
+$COMPAT_MODIFIED
+$COMPAT_UNTRACKED"
+done <<COMPAT_EOF
+$COMPAT_FILES
+COMPAT_EOF
+COMPAT_CHANGED=$(printf '%s' "$COMPAT_CHANGED" | sed '/^$/d')
 if [ -n "$COMPAT_CHANGED" ]; then
     die "ApiCompatSuppressions.xml was created or modified by the build — review, stage and commit it explicitly:$(printf '\n  %s' "$COMPAT_CHANGED")"
 fi
@@ -246,7 +257,7 @@ if [ -n "$PUBLISHABLE" ]; then
         "-p:SolutionDir=$SOURCE_DIR/" \
         "-p:IsProduction=false" \
         --output "$OUTFOLDER" || die "Publish failed: $project (framework: $fw)"
-      rm -rf "$OUTFOLDER"
+      rm -rf "$OUTFOLDER" || warn "Could not remove $OUTFOLDER"
     done <<FRAMEWORKS_EOF
 $FRAMEWORKS_NL
 FRAMEWORKS_EOF
