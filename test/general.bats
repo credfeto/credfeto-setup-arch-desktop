@@ -86,7 +86,11 @@ make_wallpapers_clone() {
 }
 
 @test "wallpaper picks a random jpg, copies it to Pictures/Backgrounds" {
-    setup_fake_bin git
+    # cp is faked: the script deliberately uses `cp --reflink` (a real btrfs
+    # CoW copy on the target desktop, not something to weaken), which errors
+    # with "Operation not supported" on a non-CoW test filesystem (e.g. tmpfs
+    # under BATS_TEST_TMPDIR), and a failed copy now stops the script.
+    setup_fake_bin git cp
     # Real desktops already have ~/Pictures via xdg-user-dirs; the script
     # only mkdir's the Backgrounds subfolder (not -p), so this precondition
     # is part of the fixture, not something the script itself guarantees.
@@ -98,14 +102,39 @@ make_wallpapers_clone() {
     run "${GENERAL_DIR}/wallpaper"
     [ "${status}" -eq 0 ]
     assert_fake_called '^git -C .*wallpapers pull'
+    assert_fake_called '^cp --reflink -f .*\.jpg .*/Pictures/Backgrounds/dt\.jpg$'
     [[ "${output}" == *"Selected wallpaper:"* ]]
-    # dt.jpg itself is not asserted here: the script deliberately uses
-    # `cp --reflink` (a real btrfs CoW copy on the target desktop, not
-    # something to weaken), which errors with "Operation not supported" on
-    # a non-CoW test filesystem (e.g. tmpfs under BATS_TEST_TMPDIR) even
-    # though it works as intended on the real machine. The script has no
-    # `set -e`, so execution continues past that failure regardless.
     [ -L "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
+}
+
+@test "wallpaper stops when copying the wallpaper fails and never links it" {
+    setup_fake_bin git cp
+    mkdir -p "${HOME}/Pictures"
+    make_wallpapers_clone
+    printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
+
+    run env FAKE_EXIT_cp=1 "${GENERAL_DIR}/wallpaper"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not copy"*"dt.jpg"* ]]
+    [ ! -e "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
+}
+
+@test "wallpaper stops when updating the wallpapers clone fails" {
+    setup_fake_bin git cp
+    make_wallpapers_clone
+    printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
+    # rev-parse passes (seeded output), but the pull exits non-zero.
+    replace_fake git <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "\${FAKE_BIN_LOG}"
+[ "\$3" = pull ] && exit 1
+readlink -f "${WALLPAPERS_DIR}"
+exit 0
+EOF
+    run "${GENERAL_DIR}/wallpaper"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Could not update"* ]]
+    refute_fake_called 'Selected wallpaper'
 }
 
 @test "wallpaper dies naming a wallpapers directory that is not a git clone, and never pulls" {
@@ -121,7 +150,7 @@ make_wallpapers_clone() {
 }
 
 @test "wallpaper does not attempt to copy into an empty Zoom virtual-background directory" {
-    setup_fake_bin git
+    setup_fake_bin git cp
     mkdir -p "${HOME}/Pictures"
     make_wallpapers_clone
     printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
