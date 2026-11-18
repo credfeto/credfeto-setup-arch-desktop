@@ -6,8 +6,8 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-# Set by --reinstall, which uninstalls each tool before installing it, so a
-# tool already in the manifest is installed again and gets rollForward
+# Set by --reinstall, which uninstalls each tool the manifest already lists
+# before installing it, so that tool is installed again and gets rollForward
 # recorded. A plain install of a tool already in the manifest updates it
 # when a newer version exists but keeps its existing rollForward value, as
 # --allow-roll-forward is written only for a tool new to the manifest.
@@ -43,6 +43,16 @@ fi
 
 [ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"
 
+# Only --reinstall needs the manifest's tools, to skip the uninstall for a
+# tool not in it yet. The list is captured on its own before it is parsed:
+# piped straight into the parsing, a failed list would give an empty one,
+# with its status lost.
+LOCAL_TOOLS=""
+if [ "$REINSTALL" -eq 1 ]; then
+   local_list=$(dotnet tool list --local) || die "Could not list the local dotnet tools"
+   LOCAL_TOOLS=$(printf '%s\n' "$local_list" | tail -n +3 | cut -f 1 -d " ")
+fi
+
 
 ## Tools are kept sorted alphabetically, ignoring case, with no duplicates;
 ## test/general.bats checks the install order.
@@ -71,10 +81,12 @@ SUCCEEDED=0
 FAILED=0
 FAILED_TOOLS=""
 for TOOL in $TOOLS; do
-   if [ "$REINSTALL" -eq 1 ]; then
+   # dotnet tool list prints package ids in lower case, so the match ignores
+   # case.
+   if [ "$REINSTALL" -eq 1 ] && printf '%s\n' "$LOCAL_TOOLS" | grep -qixF "$TOOL"; then
       info "Uninstalling $TOOL"
-      # A tool not in the manifest yet fails to uninstall; the install that
-      # follows still adds it, so only the install's result counts.
+      # A failed uninstall leaves the tool in the manifest, where the install
+      # that follows updates it in place, so only the install's result counts.
       dotnet tool uninstall --local "$TOOL" || warn "Could not uninstall $TOOL; installing it anyway"
    fi
    info "Installing $TOOL"
