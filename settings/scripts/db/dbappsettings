@@ -15,6 +15,11 @@ info "Script Dir: $BASEDIR"
 [ -z "$USER" ] && die "--user not specified"
 [ -z "$PASSWORD" ] && die "--password not specified"
 
+# Run from die, so it warns rather than dies.
+remove_jq_tmp() {
+  rm -f "$JQ_TMP" || warn "Failed to remove $JQ_TMP"
+}
+
 for  CSPROJ in $(find "$PWD" -iname "*.csproj") IFS='\n'; do
   PROJECT_DIR="$(dirname "$CSPROJ")"
   APPSETTINGS_FILE="$PROJECT_DIR/appsettings.json"
@@ -36,11 +41,18 @@ EOF
     # output through tee back onto its own input file) races jq's read
     # against tee's truncating open and reliably loses, leaving the file
     # empty.
-    JQ_TMP="$(mktemp)"
+    JQ_TMP="$(mktemp)" || die "Could not create a temporary file to update $LOCAL_APPSETTINGS_FILE in"
+    # Read by die in lib/common.
+    # shellcheck disable=SC2034
+    DIE_CLEANUP=remove_jq_tmp
     jq --arg Provider "mssql" \
        --arg ConnectionString "Database=$DB;Server=$SERVER;User ID=$USER;Password=$PASSWORD;Application Name=$DB;Connection Timeout=60;TrustServerCertificate=true" \
        '.DatabaseConfiguration.Provider=$Provider | .DatabaseConfiguration.ConnectionString=$ConnectionString' \
        "$LOCAL_APPSETTINGS_FILE" > "$JQ_TMP" \
-      && mv "$JQ_TMP" "$LOCAL_APPSETTINGS_FILE"
+      || die "Could not update the database settings in $LOCAL_APPSETTINGS_FILE"
+    [ -s "$JQ_TMP" ] || die "Updating the database settings in $LOCAL_APPSETTINGS_FILE produced no output"
+    mv "$JQ_TMP" "$LOCAL_APPSETTINGS_FILE" || die "Could not replace $LOCAL_APPSETTINGS_FILE"
+    # shellcheck disable=SC2034
+    DIE_CLEANUP=""
   fi
 done

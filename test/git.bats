@@ -150,30 +150,53 @@ assert_skipped_before_codegraph_init() {
     [ ! -e "${BATS_TEST_TMPDIR}/repos/repo-a/.codegraph" ]
 }
 
-ORIGINAL_GLOBAL_JSON='{"sdk":{"version":"11.0.0","allowPrerelease":true}}'
+# Has neither the version nor the allowPrerelease an update writes, and a key
+# an update must keep.
+ORIGINAL_GLOBAL_JSON='{"sdk":{"version":"11.0.0","rollForward":"latestFeature"}}'
 
 # Runs update-dotnet-sdk against a repo holding ORIGINAL_GLOBAL_JSON, with
-# dotnet listing the given SDK version and mv failing.
-# Usage: run_update_dotnet_sdk_with_failing_mv <sdk-version>
-run_update_dotnet_sdk_with_failing_mv() {
-    # Real mv is shadowed only for the script run; the fixture is set up
-    # with the real tools first.
-    mkdir -p "${BATS_TEST_TMPDIR}/repo"
+# git, dotnet and any other given tools faked, dotnet listing the given SDK
+# versions, and TMPDIR a directory of its own, so a temporary file left
+# behind can be seen. A FAKE_EXIT_<tool> set on the call reaches the fakes.
+# Usage: run_update_dotnet_sdk <sdk-versions> [<tool> ...]
+run_update_dotnet_sdk() {
+    local _versions="$1"
+    shift
+    # The fixture is set up with the real tools, before any are faked.
+    mkdir -p "${BATS_TEST_TMPDIR}/repo" "${BATS_TEST_TMPDIR}/tmp"
     printf '%s' "${ORIGINAL_GLOBAL_JSON}" > "${BATS_TEST_TMPDIR}/repo/global.json"
     cd "${BATS_TEST_TMPDIR}/repo" || exit
-    setup_fake_bin git dotnet mv
-    seed_fake_output dotnet <<< "$1"
+    setup_fake_bin git dotnet "$@"
+    seed_fake_output dotnet <<< "${_versions}"
 
-    run env DOTNET_PREVIEW_VERSION=11 FAKE_EXIT_mv=1 "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
+    run env DOTNET_PREVIEW_VERSION=11 TMPDIR="${BATS_TEST_TMPDIR}/tmp" "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
 }
 
-# Asserts the last run died naming global.json, left it exactly as it was
-# and committed nothing.
-assert_global_json_kept_after_failed_replace() {
+# Asserts the last run died with the given message, left global.json exactly
+# as it was, left no temporary file behind and committed nothing.
+# Usage: assert_global_json_kept <message>
+assert_global_json_kept() {
     [ "${status}" -eq 1 ] || return 1
-    [[ "${output}" == *"Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"* ]] || return 1
+    [[ "${output}" == *"$1"* ]] || return 1
     [ "$(cat "${BATS_TEST_TMPDIR}/repo/global.json")" = "${ORIGINAL_GLOBAL_JSON}" ] || return 1
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/tmp")" ] || return 1
     refute_fake_called '^git '
+}
+
+# Asserts the last run set global.json to the given SDK version and
+# allowPrerelease, kept its other keys, left no temporary file behind, then
+# committed and pushed it, skipping the hooks.
+# Usage: assert_global_json_updated_and_committed <sdk-version> <allow-prerelease>
+assert_global_json_updated_and_committed() {
+    local _global_json="${BATS_TEST_TMPDIR}/repo/global.json"
+    [ "${status}" -eq 0 ] || return 1
+    [ "$(jq -r '.sdk.version' "${_global_json}")" = "$1" ] || return 1
+    [ "$(jq -r '.sdk.allowPrerelease' "${_global_json}")" = "$2" ] || return 1
+    [ "$(jq -r '.sdk.rollForward' "${_global_json}")" = "latestFeature" ] || return 1
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/tmp")" ] || return 1
+    assert_fake_called "^git add ${_global_json}$" || return 1
+    assert_fake_called "^git commit ${_global_json} -mUpdated DotNet SDK to $1 -n$" || return 1
+    assert_fake_called '^git push --no-verify$'
 }
 
 # ── fetch ────────────────────────────────────────────────────────────────────
@@ -1007,30 +1030,31 @@ EOF
 }
 
 @test "update-dotnet-sdk updates global.json to the latest GA release and commits it" {
-    setup_fake_bin git dotnet
-    seed_fake_output dotnet <<'EOF'
-11.0.1
-11.0.2
-11.0.3-preview.1
-EOF
-    mkdir -p "${BATS_TEST_TMPDIR}/repo"
-    printf '{"sdk":{"version":"11.0.0","allowPrerelease":true}}' > "${BATS_TEST_TMPDIR}/repo/global.json"
-    cd "${BATS_TEST_TMPDIR}/repo" || exit
+    run_update_dotnet_sdk $'11.0.1\n11.0.2\n11.0.3-preview.1'
+    assert_global_json_updated_and_committed 11.0.2 false
+}
 
-    run env DOTNET_PREVIEW_VERSION=11 "${GIT_DIR_SCRIPTS}/update-dotnet-sdk"
-    [ "${status}" -eq 0 ]
-    run jq -r '.sdk.version' "${BATS_TEST_TMPDIR}/repo/global.json"
-    [ "${output}" = "11.0.2" ]
-    run jq -r '.sdk.allowPrerelease' "${BATS_TEST_TMPDIR}/repo/global.json"
-    [ "${output}" = "false" ]
+@test "update-dotnet-sdk updates global.json to the latest preview release when there is no GA release and commits it" {
+    run_update_dotnet_sdk $'11.0.3-preview.1\n11.0.3-preview.2'
+    assert_global_json_updated_and_committed 11.0.3-preview.2 true
 }
 
 @test "update-dotnet-sdk fails, naming the file and keeping the original, when global.json cannot be replaced with a GA release" {
-    run_update_dotnet_sdk_with_failing_mv 11.0.2
-    assert_global_json_kept_after_failed_replace
+    FAKE_EXIT_mv=1 run_update_dotnet_sdk 11.0.2 mv
+    assert_global_json_kept "Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"
 }
 
 @test "update-dotnet-sdk fails, naming the file and keeping the original, when global.json cannot be replaced with a preview release" {
-    run_update_dotnet_sdk_with_failing_mv 11.0.3-preview.1
-    assert_global_json_kept_after_failed_replace
+    FAKE_EXIT_mv=1 run_update_dotnet_sdk 11.0.3-preview.1 mv
+    assert_global_json_kept "Could not replace ${BATS_TEST_TMPDIR}/repo/global.json"
+}
+
+@test "update-dotnet-sdk fails, keeping the original global.json and committing nothing, when jq fails" {
+    FAKE_EXIT_jq=1 run_update_dotnet_sdk 11.0.2 jq
+    assert_global_json_kept "Could not update the SDK version in ${BATS_TEST_TMPDIR}/repo/global.json"
+}
+
+@test "update-dotnet-sdk fails, keeping the original global.json and committing nothing, when jq writes nothing" {
+    run_update_dotnet_sdk 11.0.3-preview.1 jq
+    assert_global_json_kept "Updating the SDK version in ${BATS_TEST_TMPDIR}/repo/global.json produced no output"
 }
