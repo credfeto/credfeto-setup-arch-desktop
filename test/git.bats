@@ -101,7 +101,7 @@ make_clone_on_feature_branch() {
 assert_skipped_repo_a() {
     [ "${status}" -eq 0 ] || return 1
     [[ "${output}" == *"0 repo(s) fetched, 1 repo(s) skipped"* ]] || return 1
-    [[ "${output}" == *"repo-a ($1)"* ]] || return 1
+    [[ "${output}" == *"⚠ Skipped repositories:"$'\n'"${BATS_TEST_TMPDIR}/repos/repo-a ($1)"* ]] || return 1
     [[ "${output}" != *"Done with"* ]]
 }
 
