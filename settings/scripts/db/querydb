@@ -1,5 +1,11 @@
 #!/bin/bash
 
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
+
+# shellcheck source=../../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
 TMPBASE="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
 TESTDB_LOG="$TMPBASE/testdb-last.log"
 
@@ -10,15 +16,9 @@ if [ -z "$TESTDB_LOGGING" ]; then
   status="${PIPESTATUS[0]:-$?}"
   # Reported here, not via lib/common's die(), since only this outer
   # invocation (not the re-exec'd inner one) knows the log capture succeeded.
-  [ "$status" -ne 0 ] && printf '(full log: %s)\n' "$TESTDB_LOG" >&2
+  [ "$status" -ne 0 ] && warn "(full log: $TESTDB_LOG)"
   exit "$status"
 fi
-
-SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
-BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
-
-# shellcheck source=../../../lib/common disable=SC1091
-. "$BASEDIR/lib/common"
 
 SERVER=
 DB=
