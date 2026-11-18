@@ -20,6 +20,10 @@ setup() {
 # say) does not take git with it. A test that wants one puts a fake on PATH
 # afterwards. Fails when codegraph can still be found, or git can no longer
 # be.
+prepend_to_path() {
+    export PATH="${1}:${PATH}"
+}
+
 remove_codegraph_from_path() {
     local _dir _source _shadow _kept="" _entries
     IFS=: read -r -a _entries <<< "${PATH}"
@@ -939,7 +943,7 @@ EOF
     rm -f "${_bin}/codegraph"
     printf '#!/bin/sh\nexit 0\n' > "${_bin}/codegraph"
     chmod +x "${_bin}/codegraph"
-    export PATH="${_bin}:${PATH}"
+    prepend_to_path "${_bin}"
     hash -r
     remove_codegraph_from_path
     [ -z "$(command -v codegraph)" ]
@@ -956,6 +960,27 @@ EOF
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"Optimising"*"repo-a"* ]]
     [[ "${output}" == *"Done with"*"repo-a"* ]]
+}
+
+@test "optimise-git stops on the first failing step and does not go on to later repos" {
+    make_bare_remote_and_clone repo-a
+    make_bare_remote_and_clone repo-b
+    cd "${BATS_TEST_TMPDIR}/repos"
+    # A git whose repack fails, every other subcommand passing through.
+    mkdir -p "${BATS_TEST_TMPDIR}/failing-git-bin"
+    cat > "${BATS_TEST_TMPDIR}/failing-git-bin/git" <<EOF
+#!/bin/sh
+case "\$*" in
+    *" repack"*) exit 1 ;;
+esac
+exec "$(command -v git)" "\$@"
+EOF
+    chmod +x "${BATS_TEST_TMPDIR}/failing-git-bin/git"
+    PATH="${BATS_TEST_TMPDIR}/failing-git-bin:${PATH}" run "${GIT_DIR_SCRIPTS}/optimise-git"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to repack"*"repo-a"* ]]
+    [[ "${output}" != *"Done with"* ]]
+    [[ "${output}" != *"Optimising"*"repo-b"* ]]
 }
 
 # ── rebase ───────────────────────────────────────────────────────────────────

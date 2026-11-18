@@ -255,6 +255,21 @@ EOF
     [[ "${output}" == *"Completed"* ]]
 }
 
+@test "buildtest dies listing a new untracked ApiCompatSuppressions.xml" {
+    setup_fake_bin dotnet
+    mkdir -p "${BATS_TEST_TMPDIR}/repo/src/Foo.Database"
+    cd "${BATS_TEST_TMPDIR}/repo"
+    git init --quiet
+    printf '<Project></Project>' > src/Foo.slnx
+    printf '<Project Sdk="MSBuild.Sdk.SqlProj/2.5.0"></Project>' > src/Foo.Database/Foo.Database.csproj
+    printf '<Suppressions/>' > src/Foo.Database/ApiCompatSuppressions.xml
+
+    run "${BUILDTEST}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"ApiCompatSuppressions.xml was created or modified by the build"* ]]
+    [[ "${output}" == *"  "*"Foo.Database/ApiCompatSuppressions.xml"* ]]
+}
+
 # A repo whose solution has a ruleset override, so buildtest runs the
 # code-analysis tool on a committed .globalconfig holding "original", and a
 # dotnet whose code-analysis tool is installed and rewrites the ruleset it is

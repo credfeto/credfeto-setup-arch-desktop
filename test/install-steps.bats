@@ -629,6 +629,45 @@ EOF
     refute_fake_called 'spectacle-remove-firejail-wrapper'
 }
 
+@test "pacman-hooks stops when copying the second hook fails" {
+    run_step pacman-hooks FAKE_SUDO_FAIL='^install -m 0644 .*/spectacle-remove-firejail-wrapper\.hook '
+    assert_step_died "Failed to copy /etc/pacman.d/hooks/spectacle-remove-firejail-wrapper.hook" "Pacman hooks installed"
+}
+
+# ── configure-pacman ─────────────────────────────────────────────────────────
+
+@test "configure-pacman enables each missing option" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    printf '[options]\nHoldPkg = pacman glibc\n' > "${_conf}"
+    run_step configure-pacman PACMAN_CONF="${_conf}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Pacman configured"* ]]
+    assert_fake_called '^sudo sed -i .*ILoveCandy'
+    assert_fake_called '^sudo sed -i .*CheckSpace'
+    assert_fake_called '^sudo sed -i .*VerbosePkgLists'
+}
+
+@test "configure-pacman stops when adding an option fails" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    printf '[options]\nHoldPkg = pacman glibc\n' > "${_conf}"
+    run_step configure-pacman PACMAN_CONF="${_conf}" FAKE_SUDO_FAIL='^sed -i .*CheckSpace'
+    assert_step_died "Failed to add CheckSpace to ${_conf}" "Pacman configured"
+    refute_fake_called 'VerbosePkgLists'
+}
+
+@test "configure-pacman stops when uncommenting an option fails" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    printf '[options]\n#ILoveCandy\n' > "${_conf}"
+    run_step configure-pacman PACMAN_CONF="${_conf}" FAKE_SUDO_FAIL='^sed -i .*ILoveCandy'
+    assert_step_died "Failed to enable ILoveCandy in ${_conf}" "Pacman configured"
+    refute_fake_called 'CheckSpace'
+}
+
+@test "configure-pacman stops when pacman.conf cannot be read" {
+    run_step configure-pacman PACMAN_CONF="${BATS_TEST_TMPDIR}/missing.conf"
+    assert_step_died "Failed to read ${BATS_TEST_TMPDIR}/missing.conf" "Pacman configured"
+}
+
 # ── remove-aur-helpers ───────────────────────────────────────────────────────
 
 @test "remove-aur-helpers removes yay and paru when both are installed" {
@@ -725,6 +764,12 @@ EOF
     run_step shell-prompt FAKE_SUDO_FAIL='^install -m 0644 .*/starship\.toml '
     assert_step_died "Failed to copy /etc/starship.toml" "Starship prompt installed"
     refute_fake_called '^sudo tee '
+}
+
+@test "shell-prompt stops when installing starship fails" {
+    run_step shell-prompt FAKE_SUDO_FAIL='^pacman -S --needed --noconfirm starship$'
+    assert_step_died "Failed to install starship" "Starship prompt installed"
+    refute_fake_called 'starship\.toml'
 }
 
 # ── harden-ssh ───────────────────────────────────────────────────────────────
