@@ -32,6 +32,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Claude Code temp files in the XDG runtime directory are now aged out after 3 days by a user tmpfiles.d rule and the user systemd-tmpfiles-clean.timer, so long-lived sessions no longer keep every temp file until logout
 - install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
 - fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed; whether or not the CLI is installed, it keeps any .codegraph index out of git by adding /.codegraph to that repo's local git exclude only when git does not already ignore .codegraph (the line also hides a .codegraph symlink; repos with an index are excluded before their status is read so they still rebase on the first run), treats a dangling .codegraph symlink as an existing index, and removes a half-made index when init fails or fetch is interrupted during init, so the next run tries again
+- install-dotnet-tools --reinstall uninstalls each tool already in the manifest and reinstalls it, so those tools also record rollForward; a tool that cannot be uninstalled is reported as a warning and still installed
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
@@ -107,6 +108,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Reload firewalld after configure-network adds permanent firewall rules so they take effect immediately (#61)
 - update-dotnet-sdk no longer replaces global.json with an empty file when jq fails
 - buildtest, optimise-git, wallpaper, install-fp and the install-network-manager-dhcp-hook script now fail loudly when a step fails instead of reporting success, and their loops no longer run in pipe subshells that swallow failures; added bats tests covering failing steps (#55)
+- install-dotnet-tools and dev-update now print usage and exit 0 for --help and -h instead of failing
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
@@ -124,6 +126,9 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Removed duplicate NoNewPrivileges=true from btrfs-scrub.service
 - fetch now counts a repo as skipped when its rebase, its switch to the default branch or its codegraph init fails, when its git state cannot be read or its codegraph index cannot be excluded, except that under --switch-to-main a failed feature-branch rebase is aborted and the repo is switched to the default branch instead; a rebase is only aborted after it has failed
 - fetch now skips a repo that already has a rebase, merge, cherry-pick, revert or bisect in progress, so an operation the user paused is not aborted or switched away from
+- install-dotnet-tools passes --allow-roll-forward to dotnet tool install, and update-dotnet-tools does too when it moves a global tool to a local one, so newly installed tools record rollForward in the manifest and run on a newer .NET runtime when theirs is missing
+- The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
+- Failures in wallpaper, fetch and querydb are now reported as warnings on stderr
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited

@@ -221,7 +221,7 @@ do
 
     if ! CURRENT_BRANCH=$(git -C "$CURRENT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
     then
-      info "Could not determine current branch for ${CURRENT_DIR}."
+      warn "Could not determine current branch for ${CURRENT_DIR}."
       CURRENT_BRANCH=""
     fi
   fi
@@ -293,6 +293,7 @@ done < "$REPO_LIST"
 info "${FETCHED_COUNT} repo(s) fetched, ${SKIPPED_COUNT} repo(s) skipped"
 if [ "$SKIPPED_COUNT" -gt 0 ]
 then
-  warn "Skipped repositories:"
-  printf '%s' "$SKIPPED_REPOS" >&2
+  # Each entry ends in a newline, and warn adds its own after the message.
+  warn "Skipped repositories:
+${SKIPPED_REPOS%?}"
 fi

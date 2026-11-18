@@ -41,7 +41,7 @@ do
     fi
   else
     info "Installing $package locally..."
-    if ! dotnet tool install --local "$package"; then
+    if ! dotnet tool install --local --allow-roll-forward "$package"; then
       FAILED=$((FAILED + 1))
       FAILED_TOOLS="$FAILED_TOOLS $package"
       continue

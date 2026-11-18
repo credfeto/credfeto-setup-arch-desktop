@@ -6,6 +6,30 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Set by --reinstall, which uninstalls each tool the manifest already lists
+# before installing it, so that tool is installed again and gets rollForward
+# recorded. A plain install of a tool already in the manifest updates it
+# when a newer version exists but keeps its existing rollForward value, as
+# --allow-roll-forward is written only for a tool new to the manifest.
+REINSTALL=0
+
+USAGE="Usage: install-dotnet-tools [--reinstall]"
+
+# Usage: parse_arguments [--reinstall | -h | --help]
+parse_arguments() {
+    case "$#:$1" in
+        0:) ;;
+        1:--reinstall) REINSTALL=1 ;;
+        1:-h | 1:--help)
+            info "$USAGE"
+            exit 0
+            ;;
+        *) die "$USAGE" ;;
+    esac
+}
+
+parse_arguments "$@"
+
 # The --local installs act on the tool manifest in the current folder, so
 # they have to run from $HOME, where the manifest lives, whichever folder
 # the script was started from.
@@ -19,25 +43,37 @@ fi
 
 [ -f "$HOME/dotnet-tools.json" ] || die "No tool manifest"
 
+# Only --reinstall needs the manifest's tools, to skip the uninstall for a
+# tool not in it yet. The list is captured on its own before it is parsed:
+# piped straight into the parsing, a failed list would give an empty one,
+# with its status lost.
+LOCAL_TOOLS=""
+if [ "$REINSTALL" -eq 1 ]; then
+   local_list=$(dotnet tool list --local) || die "Could not list the local dotnet tools"
+   LOCAL_TOOLS=$(printf '%s\n' "$local_list" | tail -n +3 | cut -f 1 -d " ")
+fi
 
-TOOLS="sleet \
-       TSQLLint \
-       FunFair.BuildCheck \
-       FunFair.BuildVersion \
+
+## Tools are kept sorted alphabetically, ignoring case, with no duplicates;
+## test/general.bats checks the install order.
+TOOLS="Credfeto.Build.Dotnet.Server \
        Credfeto.Changelog.Cmd \
        Credfeto.Changelog.Mcp \
+       Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
+       Credfeto.DotNet.Repo.Formatter \
+       Credfeto.DotNet.Repo.Tools.Cmd \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
-       Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
-       Credfeto.DotNet.Repo.Tools.Cmd \
-       Credfeto.DotNet.Repo.Formatter \
-       Credfeto.Build.Dotnet.Server \
+       dotnet-reportgenerator-globaltool \
+       dotnet-script \
+       FunFair.BuildCheck \
+       FunFair.BuildVersion \
        FunFair.Content.Packager.Cmd \
        FunFair.Content.PackageSigner.Cmd \
-       dotnet-script \
-       dotnet-reportgenerator-globaltool \
        ilspycmd \
-       microsoft.sqlpackage"
+       microsoft.sqlpackage \
+       sleet \
+       TSQLLint"
 
 # Every tool is attempted even after one fails, so a single bad package
 # does not leave the rest uninstalled; the failures are reported together.
@@ -45,8 +81,16 @@ SUCCEEDED=0
 FAILED=0
 FAILED_TOOLS=""
 for TOOL in $TOOLS; do
+   # dotnet tool list prints package ids in lower case, so the match ignores
+   # case.
+   if [ "$REINSTALL" -eq 1 ] && printf '%s\n' "$LOCAL_TOOLS" | grep -qixF "$TOOL"; then
+      info "Uninstalling $TOOL"
+      # A failed uninstall leaves the tool in the manifest, where the install
+      # that follows updates it in place, so only the install's result counts.
+      dotnet tool uninstall --local "$TOOL" || warn "Could not uninstall $TOOL; installing it anyway"
+   fi
    info "Installing $TOOL"
-   if dotnet tool install --local "$TOOL"; then
+   if dotnet tool install --local --allow-roll-forward "$TOOL"; then
       SUCCEEDED=$((SUCCEEDED + 1))
    else
       FAILED=$((FAILED + 1))

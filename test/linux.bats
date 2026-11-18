@@ -461,6 +461,24 @@ setup_dev_update_fixture() {
     [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
 }
 
+@test "dev-update --help prints its usage and exits 0 without doing anything" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" --help
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'\n→ Usage: dev-update [--fail-if-running]' ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
+}
+
+@test "dev-update -h prints its usage and exits 0 without doing anything" {
+    setup_dev_update_fixture
+    run "${LINUX_DIR}/dev-update" -h
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'\n→ Usage: dev-update [--fail-if-running]' ]
+    [ ! -s "${FAKE_BIN_LOG}" ]
+    [ ! -e "${XDG_RUNTIME_DIR}/dev-update.lock" ]
+}
+
 @test "dev-update holds the lock while its steps run" {
     setup_dev_update_fixture
     # A second dev-update started from inside a step must find the lock held.
@@ -1474,7 +1492,7 @@ setup_dev_install_fixture() {
     cd "${BATS_TEST_TMPDIR}"
     run "${LINUX_DIR}/dev-install"
     [ "${status}" -eq 0 ]
-    assert_fake_called "^dotnet tool install --local sleet PWD=${HOME}\$"
+    assert_fake_called "^dotnet tool install --local --allow-roll-forward sleet PWD=${HOME}\$"
     refute_fake_called "^dotnet .* PWD=${BATS_TEST_TMPDIR}\$"
     [[ "${output}" == *"Running ${HOME}/work/reference/credfeto-setup-arch-desktop/settings/scripts/general/install-dotnet-tools..."* ]]
     refute_fake_called '^PATH '

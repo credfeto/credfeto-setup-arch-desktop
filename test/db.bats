@@ -140,6 +140,14 @@ assert_local_appsettings_kept() {
     [[ "${output}" == *"SERVER not set"* ]]
 }
 
+@test "querydb warns where its full log is when it fails" {
+    export XDG_RUNTIME_DIR="${BATS_TEST_TMPDIR}"
+    run "${QUERYDB}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"⚠ (full log: ${BATS_TEST_TMPDIR}/testdb-last.log)"* ]]
+    [[ "$(cat "${BATS_TEST_TMPDIR}/testdb-last.log")" == *"SERVER not set"* ]]
+}
+
 @test "querydb dies when DB is not set" {
     printf 'SERVER=myserver\n' > "${HOME}/.database"
     run "${QUERYDB}"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # Acceptance tests for install.d/dev-scripts and install.d/git-environment.
 
+bats_require_minimum_version 1.5.0
+
 load test_helper
 
 DEV_SCRIPTS="${REPO_DIR}/install.d/dev-scripts"
