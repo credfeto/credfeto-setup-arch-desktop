@@ -106,7 +106,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - fetch --switch-to-main now switches a repo whose current branch cannot be read to the default branch, instead of skipping the repo
 - Reload firewalld after configure-network adds permanent firewall rules so they take effect immediately (#61)
 - update-dotnet-sdk no longer replaces global.json with an empty file when jq fails
-- install.d scripts and benchmark-test-affected now stop and report failures instead of printing success after a failed step
+- buildtest, optimise-git, wallpaper, install-fp and the install-network-manager-dhcp-hook script now fail loudly when a step fails instead of reporting success, and their loops no longer run in pipe subshells that swallow failures; added bats tests covering failing steps (#55)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
