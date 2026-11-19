@@ -131,6 +131,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-dotnet-tools passes --allow-roll-forward to dotnet tool install, and update-dotnet-tools does too when it moves a global tool to a local one, so newly installed tools record rollForward in the manifest and run on a newer .NET runtime when theirs is missing
 - The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
 - Failures in wallpaper, fetch and querydb are now reported as warnings on stderr
+- Starship bash.bashrc block no longer forks on shell start, and install.d/shell-prompt now replaces an existing block when its content differs
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
