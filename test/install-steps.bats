@@ -763,7 +763,193 @@ EOF
 @test "shell-prompt stops when copying the starship theme fails" {
     run_step shell-prompt FAKE_SUDO_FAIL='^install -m 0644 .*/starship\.toml '
     assert_step_died "Failed to copy /etc/starship.toml" "Starship prompt installed"
-    refute_fake_called '^sudo tee '
+    refute_fake_called 'bash\.bashrc'
+}
+
+STARSHIP_BEGIN='# BEGIN credfeto-systemd starship'
+STARSHIP_END='# END credfeto-systemd starship'
+
+# Replaces sudo with one that logs every command line as the fake sudo does,
+# and runs the command only when its last argument is the step's own
+# bash.bashrc (SHELL_PROMPT_BASHRC, as the step is run with it), so a test
+# can read back what the step wrote there. Everything else it only logs.
+fake_sudo_writing_bashrc() {
+    replace_fake sudo <<'EOF'
+#!/bin/sh
+printf 'sudo %s\n' "$*" >> "${FAKE_BIN_LOG}"
+for _last; do :; done
+if [ -n "${SHELL_PROMPT_BASHRC:-}" ] && [ "${_last}" = "${SHELL_PROMPT_BASHRC}" ]; then
+    exec "$@"
+fi
+exit 0
+EOF
+}
+
+# Runs shell-prompt against the given bash.bashrc, letting it write the file,
+# under a restrictive umask so the mode it leaves is the one it set.
+# Usage: run_shell_prompt_on <bashrc>
+run_shell_prompt_on() {
+    fake_sudo_writing_bashrc
+    # shellcheck disable=SC2016
+    run env SHELL_PROMPT_BASHRC="$1" sh -c 'umask 027; exec "$1"' _ "${INSTALL_D}/shell-prompt"
+}
+
+# Prints the Starship block the step writes, taken from a run on an empty
+# bash.bashrc.
+starship_block() {
+    local _bashrc="${BATS_TEST_TMPDIR}/block-only.bashrc"
+    : > "${_bashrc}"
+    fake_sudo_writing_bashrc
+    SHELL_PROMPT_BASHRC="${_bashrc}" "${INSTALL_D}/shell-prompt" > /dev/null || return 1
+    cat "${_bashrc}"
+}
+
+# Asserts the given file holds exactly one BEGIN and one END marker line.
+# Usage: assert_one_starship_block <bashrc>
+assert_one_starship_block() {
+    [ "$(grep -cxF "${STARSHIP_BEGIN}" "$1")" -eq 1 ] || return 1
+    [ "$(grep -cxF "${STARSHIP_END}" "$1")" -eq 1 ]
+}
+
+@test "shell-prompt appends the Starship block once to a bash.bashrc that has none, leaving it world-readable" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc"
+    printf '%s\n' '# distro defaults' 'shopt -s checkwinsize' > "${_bashrc}"
+    # Another mode first, so 0644 afterwards is the one the step set.
+    chmod 0600 "${_bashrc}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Starship prompt installed"* ]]
+    assert_one_starship_block "${_bashrc}"
+    [ "$(head -n 2 "${_bashrc}")" = "$(printf '%s\n' '# distro defaults' 'shopt -s checkwinsize')" ]
+    [ "$(tail -n 1 "${_bashrc}")" = "${STARSHIP_END}" ]
+    [ "$(stat -c '%a' "${_bashrc}")" = 644 ]
+    assert_fake_called "^sudo install -m 0644 [^ ]+ ${_bashrc}$"
+}
+
+@test "shell-prompt replaces a stale Starship block in place, keeping everything around it" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc" _block
+    _block="$(starship_block)"
+    printf '%s\n' '# before' "${STARSHIP_BEGIN}" 'export STALE=1' "${STARSHIP_END}" '# after' > "${_bashrc}"
+    chmod 0600 "${_bashrc}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Starship prompt installed"* ]]
+    assert_one_starship_block "${_bashrc}"
+    [ "$(cat "${_bashrc}")" = "$(printf '%s\n%s\n%s' '# before' "${_block}" '# after')" ]
+    [ "$(stat -c '%a' "${_bashrc}")" = 644 ]
+}
+
+@test "shell-prompt leaves a bash.bashrc whose Starship block is already current untouched" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc" _before
+    printf '%s\n' '# before' > "${_bashrc}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    printf '%s\n' '# after' >> "${_bashrc}"
+    _before="$(cat "${_bashrc}")"
+    : > "${FAKE_BIN_LOG}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"up to date, skipping"* ]]
+    [[ "${output}" == *"Starship prompt installed"* ]]
+    [ "$(cat "${_bashrc}")" = "${_before}" ]
+    refute_fake_called "${_bashrc}$"
+}
+
+@test "shell-prompt stops without touching a bash.bashrc whose Starship markers are unpaired or repeated" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc" _before _case
+    for _case in begin-only end-only end-first two-blocks; do
+        case "${_case}" in
+            begin-only) printf '%s\n' '# before' "${STARSHIP_BEGIN}" 'export STALE=1' '# after' > "${_bashrc}" ;;
+            end-only) printf '%s\n' '# before' 'export STALE=1' "${STARSHIP_END}" '# after' > "${_bashrc}" ;;
+            end-first) printf '%s\n' "${STARSHIP_END}" '# between' "${STARSHIP_BEGIN}" > "${_bashrc}" ;;
+            two-blocks) printf '%s\n' "${STARSHIP_BEGIN}" "${STARSHIP_END}" "${STARSHIP_BEGIN}" "${STARSHIP_END}" > "${_bashrc}" ;;
+        esac
+        _before="$(cat "${_bashrc}")"
+        : > "${FAKE_BIN_LOG}"
+        run_shell_prompt_on "${_bashrc}"
+        assert_step_died "unpaired or repeated Starship BEGIN/END marker" "Starship prompt installed"
+        [ "$(cat "${_bashrc}")" = "${_before}" ]
+        refute_fake_called "${_bashrc}$"
+    done
+}
+
+@test "shell-prompt stops when writing the Starship block fails" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc"
+    : > "${_bashrc}"
+    run_step shell-prompt SHELL_PROMPT_BASHRC="${_bashrc}" FAKE_SUDO_FAIL="^install -m 0644 [^ ]+ ${_bashrc}$"
+    assert_step_died "Failed to write the Starship block to ${_bashrc}" "Starship prompt installed"
+}
+
+# Sources the given bash.bashrc in a non-interactive bash whose PATH starts
+# with the fakes, with HOME in the test's directory, then prints
+# STARSHIP_CONFIG and the two names the block uses for itself. Leading
+# VAR=value arguments are set in the shell's environment.
+# Usage: run_starship_block <bashrc> [<VAR=value> ...]
+run_starship_block() {
+    local _bashrc="$1"
+    shift
+    # shellcheck disable=SC2016
+    run env -u XDG_CONFIG_HOME -u STARSHIP_CONFIG -u _STARSHIP_DEFAULTED \
+        HOME="${BATS_TEST_TMPDIR}/shell-home" PATH="${FAKE_BIN_DIR}:/usr/bin:/bin" "$@" \
+        bash --norc --noprofile -c '. "$1"; printf "%s\n" "${STARSHIP_CONFIG-unset}" "${_starship_home-unset}" "${_starship_config_dir-unset}"' _ "${_bashrc}"
+}
+
+@test "the Starship block starts no id or cut, and runs getent only when XDG_CONFIG_HOME is unset" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc" _passwd_home="${BATS_TEST_TMPDIR}/passwd-home" _uid
+    : > "${_bashrc}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    _uid="$(id -u)"
+    setup_fake_bin id cut getent starship
+    printf 'someone:x:%s:%s:Some One:%s:/bin/bash\n' "${_uid}" "${_uid}" "${_passwd_home}" | seed_fake_output getent
+    mkdir -p "${BATS_TEST_TMPDIR}/shell-home" "${_passwd_home}/.config"
+
+    # The home getent gives, not HOME, holds the user's own config.
+    : > "${_passwd_home}/.config/starship.toml"
+    run_starship_block "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(printf '%s\n' unset unset unset)" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = "$(printf '%s\n' "getent passwd ${_uid}" 'starship init bash')" ]
+
+    # No config there: the system default.
+    rm "${_passwd_home}/.config/starship.toml"
+    : > "${FAKE_BIN_LOG}"
+    run_starship_block "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    [ "${lines[0]}" = /etc/starship.toml ]
+    refute_fake_called '^(id|cut) '
+
+    # XDG_CONFIG_HOME answers it without getent.
+    mkdir -p "${BATS_TEST_TMPDIR}/xdg"
+    : > "${BATS_TEST_TMPDIR}/xdg/starship.toml"
+    : > "${FAKE_BIN_LOG}"
+    run_starship_block "${_bashrc}" XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/xdg"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(printf '%s\n' unset unset unset)" ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'starship init bash' ]
+
+    # A STARSHIP_CONFIG set upstream is kept without looking anything up.
+    : > "${FAKE_BIN_LOG}"
+    run_starship_block "${_bashrc}" STARSHIP_CONFIG=/upstream.toml
+    [ "${status}" -eq 0 ]
+    [ "${lines[0]}" = /upstream.toml ]
+    [ "$(cat "${FAKE_BIN_LOG}")" = 'starship init bash' ]
+}
+
+@test "the Starship block falls back to HOME when getent does not know the user" {
+    local _bashrc="${BATS_TEST_TMPDIR}/bash.bashrc"
+    : > "${_bashrc}"
+    run_shell_prompt_on "${_bashrc}"
+    [ "${status}" -eq 0 ]
+    setup_fake_bin getent starship
+    mkdir -p "${BATS_TEST_TMPDIR}/shell-home/.config"
+    : > "${BATS_TEST_TMPDIR}/shell-home/.config/starship.toml"
+    run_starship_block "${_bashrc}" FAKE_EXIT_getent=2
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(printf '%s\n' unset unset unset)" ]
+    rm "${BATS_TEST_TMPDIR}/shell-home/.config/starship.toml"
+    run_starship_block "${_bashrc}" FAKE_EXIT_getent=2
+    [ "${lines[0]}" = /etc/starship.toml ]
 }
 
 @test "shell-prompt stops when installing starship fails" {

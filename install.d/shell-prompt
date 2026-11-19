@@ -6,27 +6,19 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # shellcheck source=../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
-install_shell_prompt() {
-    info "Installing Starship prompt"
-    sudo pacman -S --needed --noconfirm starship || die "Failed to install starship"
+# Overriding it is a test seam only, so a test can point the step at a file
+# of its own.
+SHELL_PROMPT_BASHRC="${SHELL_PROMPT_BASHRC:-/etc/bash.bashrc}"
 
-    info "Deploying Starship theme"
-    sudo install -m 0644 "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml || die "Failed to copy /etc/starship.toml"
+# Machines that already have the block find it by these exact lines, so
+# changing either would leave the old block behind next to a new one.
+STARSHIP_BLOCK_BEGIN="# BEGIN credfeto-systemd starship"
+STARSHIP_BLOCK_END="# END credfeto-systemd starship"
 
-    if grep -qF "# BEGIN credfeto-systemd starship" /etc/bash.bashrc 2>/dev/null; then
-        info "Starship block already present in /etc/bash.bashrc, skipping"
-    else
-        info "Enabling Starship prompt in /etc/bash.bashrc"
-        sudo tee -a /etc/bash.bashrc > /dev/null << 'STARSHIP_BLOCK' || die "Failed to add the Starship block to /etc/bash.bashrc"
+write_starship_block() {
+    cat << 'STARSHIP_BLOCK'
 # BEGIN credfeto-systemd starship
 if command -v starship >/dev/null 2>&1; then
-    # Resolve the real home directory from the effective UID rather than
-    # $HOME - `sudo -s`/`sudo bash` (unlike `sudo -i`/`su -`) does not reset
-    # HOME on Arch's default sudoers, so a root shell reached that way would
-    # otherwise check the invoking user's config instead of root's, silently
-    # losing the distinct root styling this block exists to guarantee.
-    _starship_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
-    _starship_config_dir="${XDG_CONFIG_HOME:-${_starship_home:-$HOME}/.config}"
     # Only set/keep the system default when the user has no config of their
     # own - starship's own unset-vs-set precedence is what actually governs
     # the per-user override, so this must not clobber it, or
@@ -36,6 +28,23 @@ if command -v starship >/dev/null 2>&1; then
     # config created after this variable was already exported into a parent
     # shell is still picked up by every new shell, not just a fresh login.
     if [ -z "${STARSHIP_CONFIG:-}" ] || [ -n "${_STARSHIP_DEFAULTED:-}" ]; then
+        if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+            _starship_config_dir=$XDG_CONFIG_HOME
+        else
+            # Resolve the real home directory from the effective UID rather
+            # than $HOME - `sudo -s`/`sudo bash` (unlike `sudo -i`/`su -`)
+            # does not reset HOME on Arch's default sudoers, so a root shell
+            # reached that way would otherwise check the invoking user's
+            # config instead of root's, silently losing the distinct root
+            # styling this block exists to guarantee. getent, not a read of
+            # /etc/passwd, so an account that only exists through NSS (LDAP,
+            # systemd-homed) still resolves; it is the one process this
+            # costs, and only when XDG_CONFIG_HOME is unset.
+            _starship_home=$(getent passwd "$EUID" 2>/dev/null)
+            _starship_home=${_starship_home#*:*:*:*:*:}
+            _starship_home=${_starship_home%%:*}
+            _starship_config_dir="${_starship_home:-$HOME}/.config"
+        fi
         if [ -f "${_starship_config_dir}/starship.toml" ]; then
             unset STARSHIP_CONFIG _STARSHIP_DEFAULTED
         else
@@ -48,7 +57,89 @@ if command -v starship >/dev/null 2>&1; then
 fi
 # END credfeto-systemd starship
 STARSHIP_BLOCK
+}
+
+# Prints the bashrc read from stdin with its Starship block replaced by the
+# block in the given file, or with that block appended when it has none.
+# Exits 2, having printed only part of the file, when the markers are not a
+# single BEGIN line followed later by a single END line: whatever lies
+# between unpaired markers cannot safely be told apart from the rest of the
+# file.
+# Usage: bashrc_with_starship_block <block-file> < <bashrc>
+bashrc_with_starship_block() {
+    awk -v begin="$STARSHIP_BLOCK_BEGIN" -v end="$STARSHIP_BLOCK_END" '
+        NR == FNR { block = block $0 "\n"; next }
+        $0 == begin {
+            if (found) { unpaired = 1; exit }
+            found = 1
+            inside = 1
+            printf "%s", block
+            next
+        }
+        $0 == end {
+            if (!inside) { unpaired = 1; exit }
+            inside = 0
+            next
+        }
+        inside { next }
+        { print }
+        END {
+            if (unpaired || inside) exit 2
+            if (!found) printf "%s", block
+        }
+    ' "$1" -
+}
+
+# Builds the whole bashrc the block should leave behind and deploys it only
+# when it differs from the current one, so a changed block reaches machines
+# that already have an older one and an unchanged block rewrites nothing.
+install_starship_block() {
+    STARSHIP_WORK_DIR="$(mktemp -d)" || die "Failed to create a temporary directory for $SHELL_PROMPT_BASHRC"
+    STARSHIP_BLOCK_FILE="$STARSHIP_WORK_DIR/starship-block"
+    STARSHIP_BASHRC_NEW="$STARSHIP_WORK_DIR/bash.bashrc"
+
+    if ! write_starship_block > "$STARSHIP_BLOCK_FILE"; then
+        rm -rf "$STARSHIP_WORK_DIR"
+        die "Failed to write the Starship block for $SHELL_PROMPT_BASHRC"
     fi
+
+    STARSHIP_BASHRC_CURRENT="$SHELL_PROMPT_BASHRC"
+    if [ ! -e "$STARSHIP_BASHRC_CURRENT" ]; then
+        STARSHIP_BASHRC_CURRENT=/dev/null
+    fi
+    bashrc_with_starship_block "$STARSHIP_BLOCK_FILE" < "$STARSHIP_BASHRC_CURRENT" > "$STARSHIP_BASHRC_NEW"
+    STARSHIP_REWRITE_STATUS=$?
+    if [ "$STARSHIP_REWRITE_STATUS" -eq 2 ]; then
+        rm -rf "$STARSHIP_WORK_DIR"
+        die "$SHELL_PROMPT_BASHRC has an unpaired or repeated Starship BEGIN/END marker; left unchanged, fix it by hand"
+    fi
+    if [ "$STARSHIP_REWRITE_STATUS" -ne 0 ]; then
+        rm -rf "$STARSHIP_WORK_DIR"
+        die "Failed to read $SHELL_PROMPT_BASHRC"
+    fi
+
+    if cmp -s "$STARSHIP_BASHRC_NEW" "$SHELL_PROMPT_BASHRC"; then
+        rm -rf "$STARSHIP_WORK_DIR"
+        info "Starship block in $SHELL_PROMPT_BASHRC is up to date, skipping"
+        return 0
+    fi
+
+    info "Writing the Starship block to $SHELL_PROMPT_BASHRC"
+    if ! sudo install -m 0644 "$STARSHIP_BASHRC_NEW" "$SHELL_PROMPT_BASHRC"; then
+        rm -rf "$STARSHIP_WORK_DIR"
+        die "Failed to write the Starship block to $SHELL_PROMPT_BASHRC"
+    fi
+    rm -rf "$STARSHIP_WORK_DIR"
+}
+
+install_shell_prompt() {
+    info "Installing Starship prompt"
+    sudo pacman -S --needed --noconfirm starship || die "Failed to install starship"
+
+    info "Deploying Starship theme"
+    sudo install -m 0644 "$BASEDIR/settings/starship/starship.toml" /etc/starship.toml || die "Failed to copy /etc/starship.toml"
+
+    install_starship_block
 
     success "Starship prompt installed"
 }
