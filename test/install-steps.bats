@@ -142,7 +142,7 @@ EOF
         assert_fake_called '^sudo install '
         # Nothing but 0644 deployments to a named file under /etc.
         run ! grep -vE '^0644 /etc/.*[^/]$' <(deployed_modes)
-        [ "$(deployed_modes | wc -l)" -eq "$(grep -c '^sudo install ' "${FAKE_BIN_LOG}")" ]
+        [ "$(deployed_modes | wc -l)" -eq "$(grep -c '^sudo install -m ' "${FAKE_BIN_LOG}")" ]
     done
 }
 
@@ -623,6 +623,19 @@ EOF
     assert_fake_called '^sudo install -m 0644 .*/spectacle-remove-firejail-wrapper\.hook /etc/pacman\.d/hooks/spectacle-remove-firejail-wrapper\.hook$'
 }
 
+@test "pacman-hooks creates the hooks directory with an explicit 0755 mode, before copying into it" {
+    run_step pacman-hooks
+    [ "${status}" -eq 0 ]
+    [ "$(grep '^sudo install ' "${FAKE_BIN_LOG}" | head -n 1)" = "sudo install -d -m 0755 /etc/pacman.d/hooks" ]
+    refute_fake_called '^sudo mkdir '
+}
+
+@test "pacman-hooks stops when creating the hooks directory fails" {
+    run_step pacman-hooks FAKE_SUDO_FAIL='^install -d -m 0755 /etc/pacman\.d/hooks$'
+    assert_step_died "Failed to create /etc/pacman.d/hooks" "Pacman hooks installed"
+    refute_fake_called '\.hook'
+}
+
 @test "pacman-hooks stops when copying a hook fails" {
     run_step pacman-hooks FAKE_SUDO_FAIL='^install -m 0644 .*/pacman-cache-cleanup\.hook '
     assert_step_died "Failed to copy /etc/pacman.d/hooks/pacman-cache-cleanup.hook" "Pacman hooks installed"
@@ -1069,6 +1082,17 @@ setup_harden_ssh_tree() {
     assert_fake_called '^sudo pacman -S --needed --noconfirm curl$'
     assert_fake_called '^hostnamectl --static$'
     refute_fake_called '^sudo tee '
+}
+
+@test "harden-ssh sets the key server config to an explicit 0644 mode after writing it" {
+    run_step harden-ssh
+    [ "${status}" -eq 0 ]
+    [ "$(tail -n 1 "${FAKE_BIN_LOG}")" = "sudo chmod 0644 ${SSHD_TARGET_DIR}/14_KeyServer.conf" ]
+}
+
+@test "harden-ssh stops when setting the key server config mode fails" {
+    run_step harden-ssh FAKE_SUDO_FAIL='^chmod 0644 /etc/ssh/sshd_config\.d/14_KeyServer\.conf$'
+    assert_step_died "Failed to set the mode of ${SSHD_TARGET_DIR}/14_KeyServer.conf" "SSH hardened"
 }
 
 @test "harden-ssh stops when writing the key server config fails" {

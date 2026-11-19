@@ -31,6 +31,8 @@ EOF
 AuthorizedKeysCommand /usr/bin/curl -sf --connect-timeout 5 --max-time 10 https://keys.markridgwell.com/keys/$HOSTNAME_VALUE/%u
 AuthorizedKeysCommandUser nobody
 EOF
+    # tee leaves the mode to the umask, or to whatever file was already there.
+    sudo chmod 0644 /etc/ssh/sshd_config.d/14_KeyServer.conf || die "Failed to set the mode of /etc/ssh/sshd_config.d/14_KeyServer.conf"
 
     success "SSH hardened"
 }
