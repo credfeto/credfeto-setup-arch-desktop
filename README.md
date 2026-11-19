@@ -88,6 +88,16 @@ systemd-tmpfiles --user --clean
 
 `install.d/enable-services` installs the system `pacman-sync.timer`, which runs `pacman-sync.service` to download, but not install, pending package updates with `checkupdates --download`. The service's `ExecCondition=` runs `/usr/local/bin/network-online`, so a tick that fires while offline is skipped quietly rather than marking the unit failed; with neither NetworkManager nor systemd-networkd active the unit still fails. `enable-services` links `/usr/local/bin/network-online` to the helper in the checkout it runs from before it installs or enables the units, and stops if that fails. A full `install` then runs `install.d/dev-scripts`, which relinks it to the root-owned installed copy.
 
+### auto-update
+
+`units/auto-update` holds a system `auto-update.timer` that runs `auto-update.service` 15 seconds after boot and then every hour, and the service installs every pending package update with `pacman -Syyu --noconfirm`. Unlike `pacman-sync`, which only downloads updates, this changes the system unattended, so `install` never sets it up. To opt in, run its installer by hand from a checkout of this repository:
+
+```sh
+units/auto-update/install
+```
+
+It calls `sudo` to copy both units into `/etc/systemd/system/`, reload the systemd manager and enable and start the timer, and stops with an error naming the step that failed.
+
 ### update
 
 The interactive `update` shell function updates system packages, then runs `install` from `~/work/reference/credfeto-setup-arch-desktop` when that clone exists, otherwise from `~/work/personal/credfeto-setup-arch-desktop`.

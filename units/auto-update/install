@@ -1,18 +1,25 @@
 #! /bin/sh
 
-die() {
-    echo
-    echo "$@"
-    exit 1
+SCRIPTDIR="$(dirname "$(readlink -f "$0")")"
+BASEDIR="$(dirname "$(dirname "$SCRIPTDIR")")"
+
+# shellcheck source=../../lib/common disable=SC1091
+. "$BASEDIR/lib/common"
+
+SYSTEM_UNIT_DIR="/etc/systemd/system"
+
+install_auto_update_units() {
+    info "Installing auto-update system units into ${SYSTEM_UNIT_DIR}"
+
+    for UNIT in auto-update.service auto-update.timer; do
+        sudo install -m 0644 "${SCRIPTDIR}/${UNIT}" "${SYSTEM_UNIT_DIR}/${UNIT}" || die "Failed to copy ${SYSTEM_UNIT_DIR}/${UNIT}"
+    done
+
+    sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
+
+    sudo systemctl enable --now auto-update.timer || die "Failed to enable auto-update.timer"
+
+    success "auto-update timer enabled"
 }
 
-BASEDIR="$(dirname "$(readlink -f "$0")")"
-echo "Script Dir: $BASEDIR"
-
-
-sudo install -m 0644 "$BASEDIR/auto-update.service" /etc/systemd/system/auto-update.service || die "Failed to copy /etc/systemd/system/auto-update.service"
-sudo install -m 0644 "$BASEDIR/auto-update.timer" /etc/systemd/system/auto-update.timer || die "Failed to copy /etc/systemd/system/auto-update.timer"
-
-sudo systemctl daemon-reload || die "Failed to reload the systemd manager"
-
-sudo systemctl enable --now auto-update.timer || die "Failed to enable auto-update.timer"
+install_auto_update_units
