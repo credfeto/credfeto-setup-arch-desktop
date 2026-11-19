@@ -377,12 +377,21 @@ EOF
     assert_fake_called '^sudo install -m 0644 .*/auto-update\.service /etc/systemd/system/auto-update\.service$'
     assert_fake_called '^sudo install -m 0644 .*/auto-update\.timer /etc/systemd/system/auto-update\.timer$'
     assert_fake_called '^sudo systemctl enable --now auto-update\.timer$'
+    [[ "${output}" == *"auto-update timer enabled"* ]]
+}
+
+@test "auto-update units install fails, naming the unit, when copying a unit fails" {
+    setup_fake_sudo
+    run --separate-stderr env FAKE_SUDO_FAIL='^install .*auto-update\.timer' "${REPO_DIR}/units/auto-update/install"
+    [ "${status}" -eq 1 ]
+    # Reported through lib/common's die, which writes to stderr.
+    [[ "${stderr}" == *"Failed to copy /etc/systemd/system/auto-update.timer"* ]]
+    refute_fake_called 'daemon-reload'
 }
 
 @test "auto-update units install fails, naming the step, when reloading systemd fails" {
     setup_fake_sudo
-    export FAKE_SUDO_FAIL='^systemctl daemon-reload'
-    run "${REPO_DIR}/units/auto-update/install"
+    run env FAKE_SUDO_FAIL='^systemctl daemon-reload' "${REPO_DIR}/units/auto-update/install"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to reload the systemd manager"* ]]
     refute_fake_called 'enable --now auto-update\.timer'
