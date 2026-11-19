@@ -109,6 +109,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update-dotnet-sdk no longer replaces global.json with an empty file when jq fails
 - buildtest, optimise-git, wallpaper, install-fp and the install-network-manager-dhcp-hook script now fail loudly when a step fails instead of reporting success, and their loops no longer run in pipe subshells that swallow failures; added bats tests covering failing steps (#55)
 - install-dotnet-tools and dev-update now print usage and exit 0 for --help and -h instead of failing
+- 78_socket-cli.sh now opts its out-of-repo source out of shellcheck
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
