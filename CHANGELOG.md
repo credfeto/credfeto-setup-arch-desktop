@@ -113,6 +113,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Made units/auto-update/install source lib/common instead of carrying its own die, and documented it as a manual opt-in step
 - harden-ssh and pacman-hooks now set an explicit mode on the key server config file and the pacman hooks directory instead of relying on the umask (#76)
 - Deploy settings/usbguard/99_adb.conf to /etc/usbguard/rules.d with the other usbguard rules in install.d/security-tools
+- wallpaper script now fails loudly when copying, linking or creating the Backgrounds directory fails, and uses --reflink=auto
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
