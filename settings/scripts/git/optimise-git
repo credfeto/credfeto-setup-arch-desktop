@@ -6,12 +6,57 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# Runs a git command against a repo, warning with the message when it fails.
+# stdin is /dev/null so nothing git starts (ssh for a remote prune, a hook)
+# can read the repo list the caller's loop is reading.
+# Usage: run_git_step <message> <repo> <git-arg> [<git-arg> ...]
+run_git_step() {
+  STEP_MESSAGE="$1"
+  STEP_REPO="$2"
+  shift 2
+  git -C "$STEP_REPO" "$@" </dev/null || {
+    warn "$STEP_MESSAGE"
+    return 1
+  }
+}
+
+# Stops at the first git command that fails, as the later steps would only
+# fail the same way on a broken repo.
+# Usage: optimise_repo <repo>
+optimise_repo() {
+  REPO_DIR="$1"
+
+  info "Pruning remotes..."
+  REMOTES=$(git -C "$REPO_DIR" remote </dev/null) || {
+    warn "Failed to list the remotes of ${REPO_DIR}"
+    return 1
+  }
+  for REMOTE in $REMOTES
+  do
+    info "Pruning ${REMOTE}..."
+    run_git_step "Failed to prune ${REMOTE} in ${REPO_DIR}" "$REPO_DIR" remote prune "$REMOTE" || return 1
+  done
+
+  info "Repacking..."
+  run_git_step "Failed to repack ${REPO_DIR}" "$REPO_DIR" repack || return 1
+  info "Pruning packed..."
+  run_git_step "Failed to prune packed objects in ${REPO_DIR}" "$REPO_DIR" prune-packed || return 1
+  info "Expiring reflog..."
+  run_git_step "Failed to expire the reflog of ${REPO_DIR}" "$REPO_DIR" reflog expire --expire=1.month.ago || return 1
+  info "Garbage collecting..."
+  run_git_step "Failed to garbage collect ${REPO_DIR}" "$REPO_DIR" gc --aggressive --prune 2>&1 || return 1
+}
+
 info "PWD: $(pwd)"
 
 REPOS=$(find "$(pwd)"/* -name '*.git' -print | sed "s|/.git$||" | sort -u | grep -v '\.cache')
 
-# Fed from a here-doc rather than a pipe so the loop runs in this shell and a
-# die inside it stops the whole script instead of just a subshell.
+# Newline-separated, so a repo path holding a space is kept whole.
+FAILED_REPOS=""
+
+# Best-effort over every repo, so one broken repo does not stop the rest being
+# optimised. Fed from a here-doc rather than a pipe so the loop runs in this
+# shell and FAILED_REPOS is still set after it.
 while IFS= read -r line
 do
   [ -n "$line" ] || continue
@@ -19,24 +64,25 @@ do
 
   info "Optimising ${CURRENT_DIR}..."
 
-  info "Pruning remotes..."
-  REMOTES=$(git -C "$CURRENT_DIR" remote) || die "Failed to list the remotes of ${CURRENT_DIR}"
-  for REMOTE in $REMOTES
-  do
-    info "Pruning ${REMOTE}..."
-    git -C "$CURRENT_DIR" remote prune "$REMOTE" || die "Failed to prune ${REMOTE} in ${CURRENT_DIR}"
-  done
-
-  info "Repacking..."
-  git -C "$CURRENT_DIR" repack || die "Failed to repack ${CURRENT_DIR}"
-  info "Pruning packed..."
-  git -C "$CURRENT_DIR" prune-packed || die "Failed to prune packed objects in ${CURRENT_DIR}"
-  info "Expiring reflog..."
-  git -C "$CURRENT_DIR" reflog expire --expire=1.month.ago || die "Failed to expire the reflog of ${CURRENT_DIR}"
-  info "Garbage collecting..."
-  git -C "$CURRENT_DIR" gc --aggressive --prune 2>&1 || die "Failed to garbage collect ${CURRENT_DIR}"
-
-  success "Done with ${CURRENT_DIR}"
+  if optimise_repo "$CURRENT_DIR"; then
+    success "Done with ${CURRENT_DIR}"
+  else
+    warn "Could not optimise ${CURRENT_DIR}"
+    FAILED_REPOS="${FAILED_REPOS}${CURRENT_DIR}
+"
+  fi
 done <<REPOS_EOF
 $REPOS
 REPOS_EOF
+
+[ -z "$FAILED_REPOS" ] && exit 0
+
+while IFS= read -r FAILED_REPO
+do
+  [ -n "$FAILED_REPO" ] || continue
+  warn "Not optimised: ${FAILED_REPO}"
+done <<FAILED_EOF
+$FAILED_REPOS
+FAILED_EOF
+
+die "One or more repositories could not be optimised"
