@@ -26,8 +26,8 @@ Direct AUR builds (i.e. cloning a PKGBUILD and running `makepkg`) are **prohibit
 The install script must explicitly remove known AUR helpers if present. Use `pacman -Qq` to check before attempting removal:
 
 ```sh
-pacman -Qq yay 2>/dev/null && sudo pacman -Rns --noconfirm yay
-pacman -Qq paru 2>/dev/null && sudo pacman -Rns --noconfirm paru
+pacman -Qq yay >/dev/null 2>&1 && sudo pacman -Rns --noconfirm yay
+pacman -Qq paru >/dev/null 2>&1 && sudo pacman -Rns --noconfirm paru
 ```
 
 If new AUR helpers are discovered in the wild, add them to this removal block and update this file.
