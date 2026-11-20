@@ -111,6 +111,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-dotnet-tools and dev-update now print usage and exit 0 for --help and -h instead of failing
 - 78_socket-cli.sh now opts its out-of-repo source out of shellcheck
 - Made units/auto-update/install source lib/common instead of carrying its own die, and documented it as a manual opt-in step
+- harden-ssh and pacman-hooks now set an explicit mode on the key server config file and the pacman hooks directory instead of relying on the umask (#76)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
