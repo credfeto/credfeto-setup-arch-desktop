@@ -119,7 +119,7 @@ make_wallpapers_clone() {
     [ ! -e "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
 }
 
-@test "wallpaper stops when updating the wallpapers clone fails" {
+@test "wallpaper continues when updating the wallpapers clone fails" {
     setup_fake_bin git cp
     make_wallpapers_clone
     printf 'fake-jpg-1' > "${WALLPAPERS_DIR}/one.jpg"
@@ -132,9 +132,9 @@ readlink -f "${WALLPAPERS_DIR}"
 exit 0
 EOF
     run "${GENERAL_DIR}/wallpaper"
-    [ "${status}" -eq 1 ]
+    [ "${status}" -eq 0 ]
     [[ "${output}" == *"Could not update"* ]]
-    refute_fake_called 'Selected wallpaper'
+    [[ "${output}" == *"Selected wallpaper:"* ]]
 }
 
 @test "wallpaper dies naming a wallpapers directory that is not a git clone, and never pulls" {
