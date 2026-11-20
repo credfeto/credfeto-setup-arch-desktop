@@ -38,6 +38,7 @@ Examples already applied:
 | --- | --- |
 | `install_shell_prompt` | `shell-prompt` |
 | `remove_aur_helpers` | `remove-aur-helpers` |
+| `disable_baloo` | `disable-baloo` |
 | `harden_system` | `harden-system` |
 | `install_pacman_hooks` | `pacman-hooks` |
 | `configure_pacman` | `configure-pacman` |
