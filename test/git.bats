@@ -962,25 +962,48 @@ EOF
     [[ "${output}" == *"Done with"*"repo-a"* ]]
 }
 
-@test "optimise-git stops on the first failing step and does not go on to later repos" {
-    make_bare_remote_and_clone repo-a
-    make_bare_remote_and_clone repo-b
-    cd "${BATS_TEST_TMPDIR}/repos"
-    # A git whose repack fails, every other subcommand passing through.
+# Puts a git on PATH that fails whenever its arguments match the case pattern,
+# every other call passing through to the real git.
+# Usage: setup_failing_git <case-pattern>
+setup_failing_git() {
     mkdir -p "${BATS_TEST_TMPDIR}/failing-git-bin"
     cat > "${BATS_TEST_TMPDIR}/failing-git-bin/git" <<EOF
 #!/bin/sh
 case "\$*" in
-    *" repack"*) exit 1 ;;
+    $1) exit 1 ;;
 esac
 exec "$(command -v git)" "\$@"
 EOF
     chmod +x "${BATS_TEST_TMPDIR}/failing-git-bin/git"
+}
+
+@test "optimise-git warns about a repo whose repack fails, goes on to the next, and exits non-zero" {
+    make_bare_remote_and_clone repo-a
+    make_bare_remote_and_clone repo-b
+    cd "${BATS_TEST_TMPDIR}/repos"
+    setup_failing_git '*"/repo-a repack"*'
     PATH="${BATS_TEST_TMPDIR}/failing-git-bin:${PATH}" run "${GIT_DIR_SCRIPTS}/optimise-git"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Failed to repack"*"repo-a"* ]]
-    [[ "${output}" != *"Done with"* ]]
-    [[ "${output}" != *"Optimising"*"repo-b"* ]]
+    [[ "${output}" != *"Done with ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"Done with ${BATS_TEST_TMPDIR}/repos/repo-b"* ]]
+    [[ "${output}" == *"Not optimised: ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" != *"Not optimised:"*"repo-b"* ]]
+    [[ "${output}" == *"One or more repositories could not be optimised"* ]]
+}
+
+@test "optimise-git warns about a repo whose remotes cannot be listed and skips its later steps" {
+    make_bare_remote_and_clone repo-a
+    make_bare_remote_and_clone repo-b
+    cd "${BATS_TEST_TMPDIR}/repos"
+    setup_failing_git '*"/repo-b remote"'
+    PATH="${BATS_TEST_TMPDIR}/failing-git-bin:${PATH}" run "${GIT_DIR_SCRIPTS}/optimise-git"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Done with ${BATS_TEST_TMPDIR}/repos/repo-a"* ]]
+    [[ "${output}" == *"Failed to list the remotes of ${BATS_TEST_TMPDIR}/repos/repo-b"* ]]
+    [[ "${output}" != *"Failed to list the remotes of"*"Repacking..."* ]]
+    [[ "${output}" != *"Done with ${BATS_TEST_TMPDIR}/repos/repo-b"* ]]
+    [[ "${output}" == *"Not optimised: ${BATS_TEST_TMPDIR}/repos/repo-b"* ]]
 }
 
 # ── rebase ───────────────────────────────────────────────────────────────────
