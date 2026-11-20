@@ -196,8 +196,9 @@ EOF
         '0640 /etc/audit/rules.d/01_security.rules' \
         '0640 /etc/audit/rules.d/02_audit-config.rules' \
         '0600 /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf' \
-        '0600 /etc/usbguard/rules.d/02_mass_storage.conf')" ]
-    [ "$(grep -c '^sudo install ' "${FAKE_BIN_LOG}")" -eq 5 ]
+        '0600 /etc/usbguard/rules.d/02_mass_storage.conf' \
+        '0600 /etc/usbguard/rules.d/99_adb.conf')" ]
+    [ "$(grep -c '^sudo install ' "${FAKE_BIN_LOG}")" -eq 6 ]
 }
 
 # ── btrfs-scrub ──────────────────────────────────────────────────────────────

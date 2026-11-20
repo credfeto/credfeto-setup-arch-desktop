@@ -25,6 +25,7 @@ install_security_tools() {
     sudo bash -c "[ -f /etc/usbguard/rules.d/00_base.conf ] || usbguard generate-policy > /etc/usbguard/rules.d/00_base.conf" || die "Failed to generate /etc/usbguard/rules.d/00_base.conf"
     sudo install -m 0600 "$BASEDIR/settings/usbguard/01_allow_keyboard_and_mouse.conf" /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf || die "Failed to copy /etc/usbguard/rules.d/01_allow_keyboard_and_mouse.conf"
     sudo install -m 0600 "$BASEDIR/settings/usbguard/02_mass_storage.conf" /etc/usbguard/rules.d/02_mass_storage.conf || die "Failed to copy /etc/usbguard/rules.d/02_mass_storage.conf"
+    sudo install -m 0600 "$BASEDIR/settings/usbguard/99_adb.conf" /etc/usbguard/rules.d/99_adb.conf || die "Failed to copy /etc/usbguard/rules.d/99_adb.conf"
     sudo bash -c "chmod 0600 /etc/usbguard/rules.d/*" || die "Failed to set the mode of the usbguard rules"
     sudo systemctl enable --now usbguard || die "Failed to enable usbguard"
 
