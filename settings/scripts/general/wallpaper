@@ -29,7 +29,7 @@ files=("$HOME"/work/thirdparty/wallpapers/*.jpg)
 [ "${#files[@]}" -gt 0 ] || die "Could not find any JPG wallpapers in $HOME/work/thirdparty/wallpapers"
 wallpaper=${files[RANDOM % ${#files[@]}]}
 info "Selected wallpaper: $wallpaper"
-cp --reflink -f "$wallpaper" "$HOME/Pictures/Backgrounds/dt.jpg" || die "Could not copy $wallpaper to $HOME/Pictures/Backgrounds/dt.jpg"
+cp --reflink=auto -f "$wallpaper" "$HOME/Pictures/Backgrounds/dt.jpg" || die "Could not copy $wallpaper to $HOME/Pictures/Backgrounds/dt.jpg"
 ln -s -f "$wallpaper" "$HOME/Pictures/Backgrounds/dt-link.jpg" || die "Could not link $HOME/Pictures/Backgrounds/dt-link.jpg"
 
 if [ -d "$HOME/.var/app/us.zoom.Zoom/.zoom/data/VirtualBkgnd_Custom" ]; then
@@ -38,7 +38,7 @@ if [ -d "$HOME/.var/app/us.zoom.Zoom/.zoom/data/VirtualBkgnd_Custom" ]; then
 
   if [ -n "$WP" ]; then
     info "Zoom virtual background: $WP"
-    cp --reflink -f "$wallpaper" "$WP" || die "Could not copy $wallpaper to $WP"
+    cp --reflink=auto -f "$wallpaper" "$WP" || die "Could not copy $wallpaper to $WP"
   fi
 
 fi

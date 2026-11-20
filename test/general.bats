@@ -86,7 +86,7 @@ make_wallpapers_clone() {
 }
 
 @test "wallpaper picks a random jpg, copies it to Pictures/Backgrounds" {
-    # cp is faked: the script deliberately uses `cp --reflink` (a real btrfs
+    # cp is faked: the script deliberately uses `cp --reflink=auto` (a real btrfs
     # CoW copy on the target desktop, not something to weaken), which errors
     # with "Operation not supported" on a non-CoW test filesystem (e.g. tmpfs
     # under BATS_TEST_TMPDIR), and a failed copy now stops the script.
@@ -102,7 +102,7 @@ make_wallpapers_clone() {
     run "${GENERAL_DIR}/wallpaper"
     [ "${status}" -eq 0 ]
     assert_fake_called '^git -C .*wallpapers pull'
-    assert_fake_called '^cp --reflink -f .*\.jpg .*/Pictures/Backgrounds/dt\.jpg$'
+    assert_fake_called '^cp --reflink=auto -f .*\.jpg .*/Pictures/Backgrounds/dt\.jpg$'
     [[ "${output}" == *"Selected wallpaper:"* ]]
     [ -L "${HOME}/Pictures/Backgrounds/dt-link.jpg" ]
 }
