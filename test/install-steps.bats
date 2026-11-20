@@ -280,6 +280,13 @@ EOF
     assert_fake_called '^sudo nmcli general reload$'
 }
 
+@test "configure-network does not leak the pacman -Qq package name into the output" {
+    seed_fake_output pacman <<< "leaked-package-name"
+    run_step configure-network
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"leaked-package-name"* ]]
+}
+
 @test "configure-network moves NetworkManager onto systemd-resolved before removing dnsmasq" {
     run_step configure-network
     [ "${status}" -eq 0 ]
@@ -690,6 +697,13 @@ EOF
     [[ "${output}" == *"AUR helpers removed"* ]]
     assert_fake_called '^sudo pacman -Rns --noconfirm yay$'
     assert_fake_called '^sudo pacman -Rns --noconfirm paru$'
+}
+
+@test "remove-aur-helpers does not leak the pacman -Qq package name into the output" {
+    seed_fake_output pacman <<< "leaked-package-name"
+    run_step remove-aur-helpers
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"leaked-package-name"* ]]
 }
 
 @test "remove-aur-helpers removes nothing when neither helper is installed" {

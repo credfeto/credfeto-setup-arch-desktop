@@ -51,7 +51,7 @@ configure_network() {
     if systemctl is-enabled dnsmasq >/dev/null 2>&1; then
         sudo systemctl disable --now dnsmasq || die "Failed to disable dnsmasq"
     fi
-    if pacman -Qq dnsmasq 2>/dev/null; then
+    if pacman -Qq dnsmasq >/dev/null 2>&1; then
         sudo pacman -Rns --noconfirm dnsmasq || die "Failed to remove dnsmasq"
     fi
 

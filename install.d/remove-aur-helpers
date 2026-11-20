@@ -8,10 +8,10 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 
 remove_aur_helpers() {
     info "Removing AUR helpers"
-    if pacman -Qq yay 2>/dev/null; then
+    if pacman -Qq yay >/dev/null 2>&1; then
         sudo pacman -Rns --noconfirm yay || die "Failed to remove yay"
     fi
-    if pacman -Qq paru 2>/dev/null; then
+    if pacman -Qq paru >/dev/null 2>&1; then
         sudo pacman -Rns --noconfirm paru || die "Failed to remove paru"
     fi
 
