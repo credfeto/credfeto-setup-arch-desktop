@@ -137,6 +137,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - The install-dotnet-tools tool list is now sorted alphabetically (ignoring case)
 - Failures in wallpaper, fetch and querydb are now reported as warnings on stderr
 - Starship bash.bashrc block no longer forks on shell start, and install.d/shell-prompt now replaces an existing block when its content differs
+- Docs: add disable-baloo to the install.d Naming Convention table (#64)
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
