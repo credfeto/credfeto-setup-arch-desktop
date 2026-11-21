@@ -1,8 +1,0 @@
-#! /bin/sh
-
-HOOK_DIR="$(dirname "$(readlink -f "$0")")"
-
-sudo install -m 0755 "$HOOK_DIR/10-update-timesyncd" /etc/NetworkManager/dispatcher.d/10-update-timesyncd || {
-    echo "Failed to install /etc/NetworkManager/dispatcher.d/10-update-timesyncd" >&2
-    exit 1
-}
