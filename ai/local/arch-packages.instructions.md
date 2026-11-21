@@ -17,7 +17,7 @@ AUR helpers (`yay`, `paru`, `trizen`, `aurman`, `pikaur`, or any other tool that
 Packages **must** only be installed from one of these sources:
 
 - Official Arch repositories (`pacman -S`)
-- [Chaotic AUR](https://aur.chaotic.cx/) — a pre-built binary mirror; install via `pacman -S` after the repo is configured
+- [Chaotic AUR](https://aur.chaotic.cx/): a pre-built binary mirror; install via `pacman -S` after the repo is configured
 
 Direct AUR builds (i.e. cloning a PKGBUILD and running `makepkg`) are **prohibited** in install scripts in this repo.
 
