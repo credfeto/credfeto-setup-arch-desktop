@@ -142,6 +142,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Starship bash.bashrc block no longer forks on shell start, and install.d/shell-prompt now replaces an existing block when its content differs
 - Docs: add disable-baloo to the install.d Naming Convention table (#64)
 - buildtest and buildcheck now use the shared is_ai_agent helper from lib/common instead of inline copies, so AI agent detection is defined in one place (#53)
+- CI - cache the shell-tests job's nvm checkout (#90)
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
