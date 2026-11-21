@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 
-if [ -f /etc/os-release ]; then
+if [ -f "${CREDFETO_TEST_ROOT:-}/etc/os-release" ]; then
     # Only the distro ID is taken, by reading the file with the shell's own
     # read. Sourcing /etc/os-release into the shell would also set a dozen
     # unrelated, generically-named variables (NAME, VERSION, LOGO, ...), and
@@ -16,7 +16,7 @@ if [ -f /etc/os-release ]; then
             _bashrc_d_os_release_value="${_bashrc_d_os_release_value#[\"\']}"
             LINUX_DISTRIBUTION="${_bashrc_d_os_release_value%[\"\']}"
         fi
-    done < /etc/os-release
+    done < "${CREDFETO_TEST_ROOT:-}/etc/os-release"
     unset _bashrc_d_os_release_key _bashrc_d_os_release_value
     export LINUX_DISTRIBUTION
 fi

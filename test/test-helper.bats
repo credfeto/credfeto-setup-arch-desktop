@@ -326,11 +326,11 @@ system=/dev/null" ]
 }
 
 @test "run_with_clean_tool_env clears the caller's tool settings and gives the command a minimal PATH" {
-    NVM_DIR=/caller/nvm GOPATH=/caller/go BUN_INSTALL=/caller/bun DOTNET_NOLOGO=caller DOTNET_ROOT=/caller/dotnet LINUX_DISTRIBUTION=caller \
+    NVM_DIR=/caller/nvm GOPATH=/caller/go BUN_INSTALL=/caller/bun DOTNET_NOLOGO=caller DOTNET_ROOT=/caller/dotnet LINUX_DISTRIBUTION=caller CREDFETO_TEST_ROOT=/caller/root \
         run run_with_clean_tool_env env
     [ "${status}" -eq 0 ]
     grep -qx 'PATH=/usr/bin:/bin' <<< "${output}"
-    run ! grep -E '^(NVM_DIR|GOPATH|BUN_INSTALL|DOTNET_NOLOGO|DOTNET_ROOT|LINUX_DISTRIBUTION)=' <<< "${output}"
+    run ! grep -E '^(NVM_DIR|GOPATH|BUN_INSTALL|DOTNET_NOLOGO|DOTNET_ROOT|LINUX_DISTRIBUTION|CREDFETO_TEST_ROOT)=' <<< "${output}"
 }
 
 @test "run_with_clean_tool_env points the XDG base directories at the test's HOME, whatever the caller has them set to" {
@@ -362,6 +362,12 @@ system=/dev/null" ]
     grep -qx 'XDG_CONFIG_HOME=/chosen/config' <<< "${output}"
 }
 
+@test "run_with_clean_tool_env passes on a CREDFETO_TEST_ROOT given as a VAR=value argument" {
+    CREDFETO_TEST_ROOT=/caller/root run run_with_clean_tool_env CREDFETO_TEST_ROOT=/chosen/root /usr/bin/env
+    [ "${status}" -eq 0 ]
+    grep -qx 'CREDFETO_TEST_ROOT=/chosen/root' <<< "${output}"
+}
+
 @test "run_with_clean_tool_env does not run the command when HOME is not the test's own" {
     local _marker="${BATS_TEST_TMPDIR}/ran"
     HOME=/nonexistent/real-home run --separate-stderr run_with_clean_tool_env touch "${_marker}"
@@ -371,191 +377,16 @@ system=/dev/null" ]
 }
 
 @test "70_nvm.sh run through the clean environment sets nvm up under the test's HOME, not where the caller's XDG_CONFIG_HOME points" {
-    local _package _section
+    local _package
     _package="$(setup_fake_nvm_package)"
-    _section="$(nvm_section_reading "${_package}")"
     # Stands in for the real ~/.config of whoever runs the suite, which
     # 20_xdg-dirs.sh exports on every machine this repo installs.
     # shellcheck disable=SC2016
-    XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/callers-config" run_section_shell non-interactive '. "$2"; printf "%s\n" "${NVM_DIR}"' "${_section}"
+    XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/callers-config" run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive '. "$1/70_nvm.sh"; printf "%s\n" "${NVM_DIR}"'
     [ "${status}" -eq 0 ]
     [ "${output}" = "${HOME}/.config/nvm" ]
     [ "$(readlink "${HOME}/.config/nvm/nvm.sh")" = "${_package}/nvm.sh" ]
     [ ! -e "${BATS_TEST_TMPDIR}/callers-config" ]
-}
-
-@test "section_reading substitutes a directory whose name holds sed's special characters literally" {
-    # An ampersand, the delimiter and a back-reference are what a sed
-    # replacement would act on; the space is what a shell would split on.
-    local _package="${BATS_TEST_TMPDIR}/R&D a|b\\1 c"
-    printf '%s\n' '[ -f /usr/share/pkg/load.sh ] && . /usr/share/pkg/load.sh' 'unrelated' > "${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh /usr/share/pkg "${_package}" "[ -f ${_package@Q}/load.sh ]"
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == "${BATS_TEST_TMPDIR}"/sections/*/section.sh ]]
-    [ "$(cat "${output}")" = "[ -f ${_package@Q}/load.sh ] && . ${_package@Q}/load.sh
-unrelated" ]
-}
-
-@test "section_reading leaves alone a directory the system directory only matches as a pattern" {
-    # The system directory's "." and "*" would match the second line as a
-    # regular expression and the third as a glob.
-    printf '%s\n' '. /opt/pkg.d*/load.sh' '. /opt/pkgXd/load.sh' '. /opt/pkg.dir/load.sh' > "${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run section_reading section.sh '/opt/pkg.d*' /elsewhere
-    [ "${status}" -eq 0 ]
-    [ "$(cat "${output}")" = ". '/elsewhere'/load.sh
-. /opt/pkgXd/load.sh
-. /opt/pkg.dir/load.sh" ]
-}
-
-@test "section_reading copies a section that reads a directory whose name holds a space, a glob, a quote and a dollar from that directory" {
-    # Each would change the copy's meaning if the directory went into it
-    # unquoted: split into two words, matched as a pattern, opened a quote,
-    # or expanded a variable.
-    local _package="${BATS_TEST_TMPDIR}/sp ace*glob'quote\"\$dollar" _copy _script
-    mkdir -p "${_package}"
-    printf '%s\n' 'MARKER=loaded' > "${_package}/load.sh"
-    printf '%s\n' listed > "${_package}/list"
-    # The section names the directory in every way the bash.bashrc.d sections
-    # do: a whole double-quoted word, a bare word, a bare word followed by
-    # more of a path, and a redirection's target.
-    cat > "${BATS_TEST_TMPDIR}/section.sh" <<'EOF'
-if [ -d "/usr/share/pkg" ]; then
-    export PKG_ROOT=/usr/share/pkg
-fi
-[ -f /usr/share/pkg/load.sh ] && . /usr/share/pkg/load.sh
-while IFS= read -r _line; do LISTED="${_line}"; done < /usr/share/pkg/list
-EOF
-    _copy="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg "${_package}")"
-    _script="$(cat <<'EOF'
-. "$2"
-printf '%s\n' "${PKG_ROOT-unset}" "${MARKER-unset}" "${LISTED-unset}"
-EOF
-)"
-
-    run_section_shell non-interactive "${_script}" "${_copy}"
-    [ "${status}" -eq 0 ]
-    [ "${output}" = "${_package}
-loaded
-listed" ]
-}
-
-@test "section_reading gives each copy of the same section its own path, each still naming its own directory" {
-    local _first _second
-    printf '%s\n' '[ -f /usr/share/pkg/load.sh ]' > "${BATS_TEST_TMPDIR}/section.sh"
-
-    _first="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg /first)"
-    _second="$(SECTIONS_DIR="${BATS_TEST_TMPDIR}" section_reading section.sh /usr/share/pkg /second)"
-    [ "${_first}" != "${_second}" ]
-    [ "${_first##*/}" = section.sh ]
-    [ "${_second##*/}" = section.sh ]
-    [ "$(cat "${_first}")" = "[ -f '/first'/load.sh ]" ]
-    [ "$(cat "${_second}")" = "[ -f '/second'/load.sh ]" ]
-}
-
-@test "section_reading fails for a section that names the system directory inside quotes with more beside it" {
-    # Neither the shell-quoted directory nor the directory as it is can go
-    # inside those quotes and still be read as one path.
-    printf '%s\n' '[ -f "/usr/share/pkg/load.sh" ]' > "${BATS_TEST_TMPDIR}/double.sh"
-    printf '%s\n' "[ -f '/usr/share/pkg/load.sh' ]" > "${BATS_TEST_TMPDIR}/single.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading double.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: double.sh line 1: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading single.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: single.sh line 1: names /usr/share/pkg inside a single-quoted string" ]
-}
-
-@test "section_reading fails, naming the line, for a section that names the system directory inside double quotes after other text" {
-    # Rewritten, each would name a path holding literal single quotes.
-    printf '%s\n' 'unrelated' 'echo "loading /usr/share/pkg/load.sh"' > "${BATS_TEST_TMPDIR}/message.sh"
-    printf '%s\n' "PATH=\"\$X:/usr/share/pkg\"" > "${BATS_TEST_TMPDIR}/path.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading message.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: message.sh line 2: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading path.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: path.sh line 1: names /usr/share/pkg inside a double-quoted string other than as the whole word" ]
-}
-
-@test "section_reading fails, naming the line, for a section that names the system directory inside a command substitution within double quotes" {
-    # The quotes nest, so the flat scan would take the inner quote as closing
-    # the outer string and rewrite the path without error.
-    printf '%s\n' "x=\"\$(cat \"/usr/share/pkg/ver\")\"" >"${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: section.sh line 1: names /usr/share/pkg inside a command substitution within a double-quoted string, where quotes nest" ]
-}
-
-@test "section_reading fails, naming the line, for a section that names the system directory inside single quotes after other text" {
-    printf '%s\n' "echo 'loading /usr/share/pkg/load.sh'" > "${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: section.sh line 1: names /usr/share/pkg inside a single-quoted string" ]
-}
-
-@test "section_reading fails, naming the line, for a section that names the system directory as part of a longer name" {
-    printf '%s\n' '. /usr/share/pkg-extra/load.sh' > "${BATS_TEST_TMPDIR}/after.sh"
-    printf '%s\n' ". \${ROOT}/usr/share/pkg/load.sh" > "${BATS_TEST_TMPDIR}/before.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading after.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: after.sh line 1: names /usr/share/pkg as part of a longer name, not a whole path component" ]
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading before.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: before.sh line 1: names /usr/share/pkg as part of a longer name, not a whole path component" ]
-}
-
-@test "section_reading fails, naming the line, for a section that names the system directory straight after a backslash" {
-    # The backslash's escaped character is skipped by the scan, so without
-    # the count each would be copied still naming the real directory.
-    printf '%s\n' '. \/usr/share/pkg/load.sh' > "${BATS_TEST_TMPDIR}/bare.sh"
-    printf '%s\n' 'echo "\/usr/share/pkg"' > "${BATS_TEST_TMPDIR}/double.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading bare.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: bare.sh line 1: names /usr/share/pkg where it cannot be replaced, such as straight after a backslash" ]
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading double.sh /usr/share/pkg /elsewhere
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: double.sh line 1: names /usr/share/pkg where it cannot be replaced, such as straight after a backslash" ]
-}
-
-@test "section_reading fails, saying which, when the copy lacks an expected line" {
-    printf '%s\n' '. /usr/share/pkg/load.sh' > "${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg /elsewhere "[ -f '/elsewhere'/load.sh ]"
-    [ "${status}" -eq 1 ]
-    [ -z "${output}" ]
-    [ "${stderr}" = "section_reading: section.sh line (any): the copy holds no line with: [ -f '/elsewhere'/load.sh ]" ]
-}
-
-@test "section_reading copies a section for a package directory whose own path holds the system directory" {
-    local _package="${BATS_TEST_TMPDIR}/usr/share/pkg"
-    # The comment's apostrophe is only text, and the second line's quotes do
-    # not reach the third.
-    printf '%s\n' "# The package's loader" 'if [ -d "/usr/share/pkg" ]; then echo "found"; fi' '. /usr/share/pkg/load.sh # see /usr/share/pkg' > "${BATS_TEST_TMPDIR}/section.sh"
-
-    SECTIONS_DIR="${BATS_TEST_TMPDIR}" run --separate-stderr section_reading section.sh /usr/share/pkg "${_package}" ". ${_package@Q}/load.sh"
-    [ "${status}" -eq 0 ]
-    [ -z "${stderr}" ]
-    [ "$(cat "${output}")" = "# The package's loader
-if [ -d ${_package@Q} ]; then echo \"found\"; fi
-. ${_package@Q}/load.sh # see ${_package@Q}" ]
 }
 
 # Prints how many times the directory the fakes live in is on PATH.

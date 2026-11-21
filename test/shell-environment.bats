@@ -392,30 +392,39 @@ printf "control=%s\n" "$((_test_control[10] - _test_after[10]))"
     [ "${lines[3]#control=}" -gt 0 ]
 }
 
-# Writes a copy of 00_shell-options.sh that reads the given file wherever the
-# section names /etc/os-release, so the parsing can be given any content. The
-# section itself has no way to be pointed at another file, and must not have
-# one: LINUX_DISTRIBUTION is only ever this machine's own. Fails unless the
-# existence test and the read both moved. Prints the copy's path.
-# Usage: shell_options_reading <os-release-file>
-shell_options_reading() {
-    section_reading 00_shell-options.sh /etc/os-release "$1" \
-        "[ -f ${1@Q} ]" "done < ${1@Q}"
+@test "00_shell-options.sh reads this machine's os-release when CREDFETO_TEST_ROOT is empty" {
+    [ -f /etc/os-release ] || skip "no /etc/os-release"
+    local _id
+    # shellcheck source=/dev/null
+    _id="$(. /etc/os-release && echo "${ID}")"
+    # shellcheck disable=SC2016
+    run_section_shell CREDFETO_TEST_ROOT= non-interactive '. "$1/00_shell-options.sh"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"'
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "<${_id}>" ]
 }
 
-# Sources 00_shell-options.sh reading an os-release with the given content,
-# written with printf so a test controls the line endings, and leaves
-# "<LINUX_DISTRIBUTION>" in $output, in angle brackets so stray white space
-# shows. Any VAR=value arguments are set in the shell's environment first.
-# Usage: run_shell_options_with_os_release <printf-format> [<VAR=value> ...]
-run_shell_options_with_os_release() {
-    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
+# Writes the given content, with printf so a test controls the line endings,
+# to the os-release under the stand-in root and prints that file's path.
+# Usage: write_stand_in_os_release <printf-format>
+write_stand_in_os_release() {
+    local _os_release
+    _os_release="$(stand_in_root)/etc/os-release"
+    mkdir -p "${_os_release%/*}"
     # The format is the test's own literal.
     # shellcheck disable=SC2059
     printf "$1" > "${_os_release}"
-    _copy="$(shell_options_reading "${_os_release}")"
+    printf '%s\n' "${_os_release}"
+}
+
+# Sources 00_shell-options.sh reading an os-release with the given content
+# from the stand-in root, and leaves "<LINUX_DISTRIBUTION>" in $output, in
+# angle brackets so stray white space shows. Any VAR=value arguments are set
+# in the shell's environment first.
+# Usage: run_shell_options_with_os_release <printf-format> [<VAR=value> ...]
+run_shell_options_with_os_release() {
+    write_stand_in_os_release "$1" > /dev/null
     # shellcheck disable=SC2016
-    run_section_shell "${@:2}" non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" "${@:2}" non-interactive '. "$1/00_shell-options.sh"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"'
 }
 
 @test "00_shell-options.sh takes the ID from among the other os-release lines, not a name that only contains ID" {
@@ -453,22 +462,18 @@ run_shell_options_with_os_release() {
 }
 
 @test "00_shell-options.sh leaves LINUX_DISTRIBUTION alone when there is no os-release" {
-    local _copy
-    _copy="$(shell_options_reading "${BATS_TEST_TMPDIR}/no-os-release")"
     # shellcheck disable=SC2016
-    run_section_shell non-interactive '. "$2"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"' "${_copy}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive '. "$1/00_shell-options.sh"; printf "<%s>\n" "${LINUX_DISTRIBUTION-unset}"'
     [ "${status}" -eq 0 ]
     [ -z "${stderr}" ]
     [ "${output}" = '<unset>' ]
 }
 
 @test "00_shell-options.sh sets nothing else from os-release and leaves no variable of its own behind" {
-    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy
-    printf '%s\n' 'NAME="Arch Linux"' 'ID=arch' 'ID_LIKE=other' 'BUILD_ID=rolling' 'LOGO=archlinux-logo' > "${_os_release}"
-    _copy="$(shell_options_reading "${_os_release}")"
+    write_stand_in_os_release 'NAME="Arch Linux"\nID=arch\nID_LIKE=other\nBUILD_ID=rolling\nLOGO=archlinux-logo\n' > /dev/null
     # Prints the names the section added to the shell.
     # shellcheck disable=SC2016
-    run_section_shell non-interactive 'before="$(compgen -v)"; . "$2"; comm -13 <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)' "${_copy}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive 'before="$(compgen -v)"; . "$1/00_shell-options.sh"; comm -13 <(printf "%s\n" "$before" before | sort) <(compgen -v | sort)'
     [ "${status}" -eq 0 ]
     grep -qx 'LINUX_DISTRIBUTION' <<< "${output}"
     run ! grep -xE 'NAME|ID|ID_LIKE|BUILD_ID|LOGO|_bashrc_d_.*' <<< "${output}"
@@ -476,17 +481,17 @@ run_shell_options_with_os_release() {
 
 @test "85_pacman.sh defines its aliases from the ID 00_shell-options.sh read, quoted or not, and not for another distribution" {
     # shellcheck disable=SC2016
-    local _script='. "$2"; . "$1/85_pacman.sh"; alias pacman'
-    local _os_release="${BATS_TEST_TMPDIR}/os-release" _copy _line
-    _copy="$(shell_options_reading "${_os_release}")"
+    local _script='. "$1/00_shell-options.sh"; . "$1/85_pacman.sh"; alias pacman'
+    local _root _line
+    _root="$(stand_in_root)"
     for _line in 'ID=arch' 'ID="cachyos"'; do
-        printf '%s\n' "${_line}" > "${_os_release}"
-        run_section_shell non-interactive "${_script}" "${_copy}"
+        write_stand_in_os_release "${_line}\n" > /dev/null
+        run_section_shell CREDFETO_TEST_ROOT="${_root}" non-interactive "${_script}"
         [ "${status}" -eq 0 ]
         [ "${output}" = "alias pacman='sudo pacman'" ]
     done
-    printf '%s\n' 'ID=debian' 'ID_LIKE=arch' > "${_os_release}"
-    run_section_shell non-interactive "${_script}" "${_copy}"
+    write_stand_in_os_release 'ID=debian\nID_LIKE=arch\n' > /dev/null
+    run_section_shell CREDFETO_TEST_ROOT="${_root}" non-interactive "${_script}"
     [ "${status}" -ne 0 ]
     [ -z "${output}" ]
 }
@@ -504,22 +509,59 @@ run_shell_options_with_os_release() {
     [ "${status}" -ne 0 ]
 }
 
+# Writes a stand-in bash-completion script at the given path under the
+# stand-in root, which leaves the given label in bash_completion_loaded.
+# Usage: write_fake_bash_completion <path-under-root> <label>
+write_fake_bash_completion() {
+    local _file
+    _file="$(stand_in_root)$1"
+    mkdir -p "${_file%/*}"
+    printf 'bash_completion_loaded=%s\n' "$2" > "${_file}"
+}
+
+# Sources 40_bash-completion.sh, then prints which stand-in it loaded.
+# shellcheck disable=SC2016
+BASH_COMPLETION_SECTION_SCRIPT='. "$1/40_bash-completion.sh"; printf "loaded=%s\n" "${bash_completion_loaded-none}"'
+
+@test "40_bash-completion.sh loads the bash-completion package's script, ahead of /etc/bash_completion, only in an interactive shell" {
+    write_fake_bash_completion /usr/share/bash-completion/bash_completion package
+    write_fake_bash_completion /etc/bash_completion etc
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" interactive "${BASH_COMPLETION_SECTION_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'loaded=package' ]
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive "${BASH_COMPLETION_SECTION_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'loaded=none' ]
+}
+
+@test "40_bash-completion.sh falls back to /etc/bash_completion when the package's script is missing" {
+    write_fake_bash_completion /etc/bash_completion etc
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" interactive "${BASH_COMPLETION_SECTION_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'loaded=etc' ]
+}
+
+@test "40_bash-completion.sh loads nothing and reports nothing when neither script exists" {
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" interactive "${BASH_COMPLETION_SECTION_SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ "${output}" = 'loaded=none' ]
+    [[ "${stderr}" != *bash_completion* ]]
+}
+
 @test "70_nvm.sh loads nvm's bash completion only in an interactive shell" {
-    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm" _section
+    local _nvm_dir="${BATS_TEST_TMPDIR}/nvm"
     write_fake_nvm "${_nvm_dir}" own
-    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
-    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive
     [ "${lines[2]}" = 'completion=own' ]
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${lines[2]}" = 'completion=none' ]
 }
 
 @test "70_nvm.sh loads the nvm package's bash completion only in an interactive shell" {
-    local _section
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
-    run_nvm_section interactive "${_section}"
+    setup_fake_nvm_package > /dev/null
+    run_nvm_section interactive
     [ "${lines[2]}" = 'completion=package' ]
-    run_nvm_section non-interactive "${_section}"
+    run_nvm_section non-interactive
     [ "${lines[2]}" = 'completion=none' ]
 }
 
@@ -551,38 +593,33 @@ run_shell_options_with_os_release() {
     [ "${status}" -ne 0 ]
 }
 
-# Sources the copy of 77_autojump.sh in $2, then prints the status it
-# returned, the j completion when there is one, and "hook" when
-# PROMPT_COMMAND calls autojump.
+# Sources 77_autojump.sh, then prints the status it returned, the j
+# completion when there is one, and "hook" when PROMPT_COMMAND calls autojump.
 # shellcheck disable=SC2016
 AUTOJUMP_SECTION_SCRIPT='
-. "$2"
+. "$1/77_autojump.sh"
 printf "status=%s\n" "$?"
 complete -p j 2> /dev/null
 [[ "${PROMPT_COMMAND[*]}" == *autojump_add_to_database* ]] && echo hook
 true'
 
 @test "77_autojump.sh registers autojump's completion and prompt hook only in an interactive shell" {
-    local _autojump_dir="${BATS_TEST_TMPDIR}/autojump" _section
-    write_fake_autojump "${_autojump_dir}"
-    _section="$(autojump_section_reading "${_autojump_dir}")"
-    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    write_fake_autojump "$(stand_in_root)/usr/share/autojump"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" interactive "${AUTOJUMP_SECTION_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = $'status=0\ncomplete -F _autojump j\nhook' ]
-    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive "${AUTOJUMP_SECTION_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = 'status=0' ]
     [ -z "${stderr}" ]
 }
 
 @test "77_autojump.sh registers nothing and reports nothing when autojump is not installed" {
-    local _section
-    _section="$(autojump_section_reading "${BATS_TEST_TMPDIR}/no-autojump")"
-    run_section_shell interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" interactive "${AUTOJUMP_SECTION_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = 'status=0' ]
     [[ "${stderr}" != *autojump* ]]
-    run_section_shell non-interactive "${AUTOJUMP_SECTION_SCRIPT}" "${_section}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive "${AUTOJUMP_SECTION_SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = 'status=0' ]
     [ -z "${stderr}" ]
@@ -606,27 +643,28 @@ true'
 # shell must load exactly one copy of it: the package's when that is
 # installed, and otherwise the one NVM_DIR holds.
 
-# Sources the copy of 70_nvm.sh in $2, then prints the status it returned,
-# NVM_DIR, which completion was loaded and whether NVM_DIR is exported.
+# Sources 70_nvm.sh, then prints the status it returned, NVM_DIR, which
+# completion was loaded and whether NVM_DIR is exported.
 # shellcheck disable=SC2016
 NVM_SECTION_SCRIPT='
-. "$2"
+. "$1/70_nvm.sh"
 printf "status=%s\n" "$?"
 printf "NVM_DIR=%s\n" "${NVM_DIR-unset}"
 printf "completion=%s\n" "${nvm_completion_loaded-none}"
 printf "exported=%s\n" "$(export -p | grep -c "^declare -x NVM_DIR=")"
 '
 
-# Usage: run_nvm_section [<VAR=value> ...] interactive|non-interactive <copy-of-70_nvm.sh>
+# Runs NVM_SECTION_SCRIPT reading the nvm package, if a test made one, from
+# the stand-in root.
+# Usage: run_nvm_section [<VAR=value> ...] interactive|non-interactive
 run_nvm_section() {
-    run_section_shell "${@:1:$#-1}" "${NVM_SECTION_SCRIPT}" "${@: -1}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" "${@:1:$#-1}" "${@: -1}" "${NVM_SECTION_SCRIPT}"
 }
 
 @test "70_nvm.sh loads the package's nvm.sh once and sets up NVM_DIR silently on a home that has none" {
-    local _package _section _nvm_dir="${HOME}/.config/nvm"
+    local _package _nvm_dir="${HOME}/.config/nvm"
     _package="$(setup_fake_nvm_package)"
-    _section="$(nvm_section_reading "${_package}")"
-    run_nvm_section non-interactive "${_section}"
+    run_nvm_section non-interactive
     [ "${status}" -eq 0 ]
     [ -z "${stderr}" ]
     [ "${output}" = "$(printf '%s\n' 'status=0' "NVM_DIR=${_nvm_dir}" 'completion=none' 'exported=1')" ]
@@ -636,13 +674,12 @@ run_nvm_section() {
 }
 
 @test "70_nvm.sh loads the package's nvm.sh once when NVM_DIR already links to it, and keeps the NVM_DIR it was given" {
-    local _package _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    local _package _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
     _package="$(setup_fake_nvm_package)"
-    _section="$(nvm_section_reading "${_package}")"
     mkdir -p "${_nvm_dir}"
     ln -s "${_package}/nvm.sh" "${_nvm_dir}/nvm.sh"
     ln -s "${_package}/nvm-exec" "${_nvm_dir}/nvm-exec"
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${status}" -eq 0 ]
     [ -z "${stderr}" ]
     [ "${lines[1]}" = "NVM_DIR=${_nvm_dir}" ]
@@ -651,33 +688,32 @@ run_nvm_section() {
 }
 
 @test "70_nvm.sh loads only the package's nvm.sh and completion when NVM_DIR holds copies of its own" {
-    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    setup_fake_nvm_package > /dev/null
     write_fake_nvm "${_nvm_dir}" own
-    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive
     [ "${lines[0]}" = 'status=0' ]
     [ "${lines[2]}" = 'completion=package' ]
     assert_nvm_loads package
 }
 
 @test "70_nvm.sh puts NVM_DIR in ~/.nvm when there is no XDG_CONFIG_HOME, and replaces an empty NVM_DIR" {
-    local _section
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
-    run_nvm_section XDG_CONFIG_HOME= non-interactive "${_section}"
+    setup_fake_nvm_package > /dev/null
+    run_nvm_section XDG_CONFIG_HOME= non-interactive
     [ "${lines[1]}" = "NVM_DIR=${HOME}/.nvm" ]
     [ -L "${HOME}/.nvm/nvm.sh" ]
-    run_nvm_section NVM_DIR= non-interactive "${_section}"
+    run_nvm_section NVM_DIR= non-interactive
     [ "${lines[1]}" = "NVM_DIR=${HOME}/.config/nvm" ]
     [ "${lines[3]}" = 'exported=1' ]
 }
 
 @test "70_nvm.sh reports a link it cannot make in NVM_DIR on stderr, and still loads the package's nvm.sh once" {
-    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    setup_fake_nvm_package > /dev/null
     # A regular file where NVM_DIR should be makes the links fail.
     mkdir -p "${_nvm_dir%/*}"
     : > "${_nvm_dir}"
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${lines[0]}" = 'status=0' ]
     [[ "${stderr}" == *"${_nvm_dir}/nvm.sh"* ]]
     [[ "${stderr}" == *"${_nvm_dir}/nvm-exec"* ]]
@@ -685,22 +721,21 @@ run_nvm_section() {
 }
 
 @test "70_nvm.sh replaces dangling links in NVM_DIR once, silently, and loads the package's nvm.sh once per source" {
-    local _package _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _gone="${BATS_TEST_TMPDIR}/nvm-moved-away"
+    local _package _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm" _gone="${BATS_TEST_TMPDIR}/nvm-moved-away"
     _package="$(setup_fake_nvm_package)"
-    _section="$(nvm_section_reading "${_package}")"
     # Links left by an nvm that lived somewhere that is no longer there.
     mkdir -p "${_nvm_dir}"
     ln -s "${_gone}/nvm.sh" "${_nvm_dir}/nvm.sh"
     ln -s "${_gone}/nvm-exec" "${_nvm_dir}/nvm-exec"
     [ ! -e "${_nvm_dir}/nvm.sh" ]
     [ ! -e "${_nvm_dir}/nvm-exec" ]
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${lines[0]}" = 'status=0' ]
     [ -z "${stderr}" ]
     [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
     [ "$(readlink "${_nvm_dir}/nvm-exec")" = "${_package}/nvm-exec" ]
     assert_nvm_loads package
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${lines[0]}" = 'status=0' ]
     [ -z "${stderr}" ]
     [ "$(readlink "${_nvm_dir}/nvm.sh")" = "${_package}/nvm.sh" ]
@@ -711,10 +746,9 @@ run_nvm_section() {
 }
 
 @test "70_nvm.sh loads the nvm.sh NVM_DIR holds once when the package is not installed, and links nothing" {
-    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
-    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
     write_fake_nvm "${_nvm_dir}" own
-    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" non-interactive
     [ "${status}" -eq 0 ]
     [ -z "${stderr}" ]
     [ "${output}" = "$(printf '%s\n' 'status=0' "NVM_DIR=${_nvm_dir}" 'completion=none' 'exported=1')" ]
@@ -723,9 +757,8 @@ run_nvm_section() {
 }
 
 @test "70_nvm.sh loads nothing and creates nothing when neither the package nor NVM_DIR has an nvm.sh" {
-    local _section _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
-    _section="$(nvm_section_reading "${BATS_TEST_TMPDIR}/no-nvm-package")"
-    run_nvm_section non-interactive "${_section}"
+    local _nvm_dir="${BATS_TEST_TMPDIR}/data/nvm"
+    run_nvm_section non-interactive
     [ "${status}" -eq 0 ]
     [ -z "${stderr}" ]
     [ "${output}" = "$(printf '%s\n' 'status=0' 'NVM_DIR=unset' 'completion=none' 'exported=0')" ]
@@ -734,7 +767,7 @@ run_nvm_section() {
     # A completion script with no nvm.sh beside it has nothing to complete.
     mkdir -p "${_nvm_dir}"
     echo 'nvm_completion_loaded=own' > "${_nvm_dir}/bash_completion"
-    run_nvm_section NVM_DIR="${_nvm_dir}" interactive "${_section}"
+    run_nvm_section NVM_DIR="${_nvm_dir}" interactive
     [ "${lines[0]}" = 'status=0' ]
     [ "${lines[2]}" = 'completion=none' ]
     assert_nvm_loads
