@@ -118,6 +118,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - pacman -Qq package presence checks no longer leak package names into install output
 - Removed em dashes from the buildtest, buildcheck and dacpac-only-solution script messages and comments, and from ai/local/arch-packages.instructions.md, so output and guidance use plain punctuation; a new bats test fails if an em dash appears in settings/scripts/development
 - configure-flatpak derives the flatpak filter path from HOME (overridable with FLATPAK_FILTER) instead of hardcoding /home/markr, and stops with a clear error when the filter file is missing (#58)
+- The rebase script now pushes with --force-with-lease instead of -f, so it no longer overwrites remote commits it has not fetched (#141)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
