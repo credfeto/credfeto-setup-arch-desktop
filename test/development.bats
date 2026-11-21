@@ -182,9 +182,8 @@ EOF
 # needs the FunFair.BuildCheck tool-list gate satisfied one way or another.
 
 @test "buildcheck dies with the AI-agent guidance when the required tool is missing and CLAUDECODE=1" {
-    export CLAUDECODE=1
     cd "${BATS_TEST_TMPDIR}"
-    run "${BUILDCHECK}"
+    run env CLAUDECODE=1 "${BUILDCHECK}"
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"Required package (FunFair.BuildCheck) is not installed"* ]]
 }
@@ -327,6 +326,16 @@ EOF
     assert_fake_called '^dotnet code-analysis globalconfig --ruleset .*/\.globalconfig'
     refute_fake_called '^dotnet restore'
     [ "$(cat .globalconfig)" = "original" ]
+}
+
+@test "buildtest dies with the AI-agent guidance when the override tool is missing and CLAUDECODE=1" {
+    setup_buildtest_ruleset_override
+    setup_fake_bin dotnet
+
+    run env CLAUDECODE=1 "${BUILDTEST}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Required package (Credfeto.DotNet.Code.Analysis.Overrides.Cmd) is not installed"* ]]
+    refute_fake_called '^dotnet code-analysis'
 }
 
 # ── benchmark-test-affected ─────────────────────────────────────────────────
