@@ -15,14 +15,6 @@ trap cleanup EXIT
 # signals into an exit to get the ruleset restored.
 trap 'exit 1' INT TERM HUP
 
-# Returns true (0) when running inside a Claude Code Bash-tool session.
-# Claude Code sets CLAUDECODE=1 in every shell it spawns via the Bash tool;
-# that value is inherited by subprocesses (e.g. git hooks).
-# Source: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables
-is_ai_agent() {
-    [ "${CLAUDECODE}" = "1" ]
-}
-
 # Returns 0 if $1 (command name) and $2 (package ID) match the same row in local or global dotnet tool list.
 dotnet_tool_installed() {
     dotnet tool list 2>/dev/null \
