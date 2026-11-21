@@ -15,6 +15,11 @@ INSTALL_D="${REPO_DIR}/install.d"
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
     mkdir -p "${HOME}"
+    # configure-flatpak stops unless the whitelist filter is checked out
+    # where it derives the path from HOME.
+    unset FLATPAK_FILTER
+    mkdir -p "${HOME}/work/personal/credfeto-flatpak-filter"
+    : > "${HOME}/work/personal/credfeto-flatpak-filter/flatpak.filter"
     # Empty, so every install-state flag in lib/common reads 0 unless a test
     # adds the binary it probes for.
     export INSTALL_STATE_BIN_DIR="${BATS_TEST_TMPDIR}/state-bin"
@@ -256,6 +261,22 @@ EOF
     run_step configure-flatpak FAKE_SUDO_FAIL='^flatpak remote-add .* flathub-verified '
     assert_step_died "Failed to add the flathub-verified flatpak remote" "Flatpak configured"
     refute_fake_called 'flathub-whitelist'
+}
+
+@test "configure-flatpak filters the whitelist remote with the filter under HOME" {
+    mark_installed flatpak
+    run_step configure-flatpak
+    [ "${status}" -eq 0 ]
+    assert_fake_called "^sudo flatpak remote-add .*--filter=${HOME}/work/personal/credfeto-flatpak-filter/flatpak.filter flathub-whitelist "
+    refute_fake_called '/home/markr'
+}
+
+@test "configure-flatpak stops before touching any remote when the filter file is missing" {
+    mark_installed flatpak
+    rm "${HOME}/work/personal/credfeto-flatpak-filter/flatpak.filter"
+    run_step configure-flatpak
+    assert_step_died "Flatpak filter file ${HOME}/work/personal/credfeto-flatpak-filter/flatpak.filter not found" "Flatpak configured"
+    refute_fake_called 'flatpak'
 }
 
 @test "configure-flatpak does nothing when flatpak is not installed" {

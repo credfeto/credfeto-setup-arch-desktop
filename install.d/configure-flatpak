@@ -6,8 +6,13 @@ BASEDIR="$(dirname "$SCRIPTDIR")"
 # shellcheck source=../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+# The whitelist lives in its own repository, cloned alongside this one; set
+# FLATPAK_FILTER to use a checkout somewhere else.
+FLATPAK_FILTER="${FLATPAK_FILTER:-${HOME}/work/personal/credfeto-flatpak-filter/flatpak.filter}"
+
 configure_flatpak() {
     [ "$FLATPAK_INSTALLED" = 1 ] || return 0
+    [ -f "$FLATPAK_FILTER" ] || die "Flatpak filter file ${FLATPAK_FILTER} not found; clone the credfeto-flatpak-filter repository so it exists"
 
     info "Configuring flatpak"
     REMOTES=$(flatpak remotes) || die "Failed to list flatpak remotes"
@@ -16,7 +21,7 @@ configure_flatpak() {
         sudo flatpak remote-delete flathub || die "Failed to delete the flathub flatpak remote"
     fi
     sudo flatpak remote-add --if-not-exists --subset=verified flathub-verified https://dl.flathub.org/repo || die "Failed to add the flathub-verified flatpak remote"
-    sudo flatpak remote-add --if-not-exists --filter=/home/markr/work/personal/credfeto-flatpak-filter/flatpak.filter flathub-whitelist https://dl.flathub.org/repo/ || die "Failed to add the flathub-whitelist flatpak remote"
+    sudo flatpak remote-add --if-not-exists "--filter=${FLATPAK_FILTER}" flathub-whitelist https://dl.flathub.org/repo/ || die "Failed to add the flathub-whitelist flatpak remote"
 
     # TODO: If can access https://flathub.markridgwell.com/repo/ then switch url
     sudo flatpak remote-modify --url=https://flathub.markridgwell.com/repo/ flathub-verified || die "Failed to point the flathub-verified flatpak remote at its mirror"
