@@ -1008,13 +1008,13 @@ EOF
 
 # ── rebase ───────────────────────────────────────────────────────────────────
 
-@test "rebase fetches, rebases onto origin/main, then force-pushes" {
+@test "rebase fetches, rebases onto origin/main, then pushes with --force-with-lease" {
     setup_fake_bin git
     run "${GIT_DIR_SCRIPTS}/rebase"
     [ "${status}" -eq 0 ]
     assert_fake_called '^git fetch'
     assert_fake_called '^git rebase origin/main'
-    assert_fake_called '^git push -f'
+    assert_fake_called '^git push --force-with-lease$'
 }
 
 @test "rebase stops after a failed fetch and does not rebase or push" {
