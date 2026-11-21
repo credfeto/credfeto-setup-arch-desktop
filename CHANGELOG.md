@@ -145,6 +145,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - CI - the shell-tests workflow now caches the nvm checkout with actions/cache, keyed on the pinned NVM_COMMIT, so the nvm clone is reused across runs and only fetched again when the pin changes (#90)
 - Shell sections (00_shell-options, 40_bash-completion, 70_nvm, 77_autojump) read system paths through an overridable CREDFETO_TEST_ROOT prefix, so the shell tests point them at fixtures instead of rewriting their source; the section_reading rewriting helpers were removed and run-dev-update clears the prefix (#91)
 - Docs: document the CREDFETO_TEST_ROOT test-prefix rule for shell sections (#91)
+- Name the timed-out or crashed bats test in the shell test report
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
