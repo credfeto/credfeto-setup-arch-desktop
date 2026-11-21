@@ -33,7 +33,7 @@ require_dotnet_tool() {
     if is_ai_agent; then
         _repo=$(git rev-parse --show-toplevel 2>/dev/null)
         if [ -n "$_repo" ] && { [ -f "$_repo/.config/dotnet-tools.json" ] || [ -f "$_repo/dotnet-tools.json" ]; }; then
-            die "dotnet-tools.json exists in this repository but $2 ($1) is not installed — add $2 to the manifest and run 'dotnet tool restore'. Do not install it directly."
+            die "dotnet-tools.json exists in this repository but $2 ($1) is not installed; add $2 to the manifest and run 'dotnet tool restore'. Do not install it directly."
         fi
         die "Required package ($2) is not installed so cannot run $1.  Operator needs to provide this to the environment.  Do not install it yourself"
     fi
@@ -44,6 +44,6 @@ require_dotnet_tool buildcheck FunFair.BuildCheck
 
 SOLUTION=$(find "$PWD" -type f -iname "*.sln" | head -1)
 [ -z "$SOLUTION" ] && SOLUTION=$(find "$PWD" -type f -iname "*.slnx" | head -1)
-[ -z "$SOLUTION" ] && { info "No solution file found — skipping"; exit 0; }
+[ -z "$SOLUTION" ] && { info "No solution file found, skipping"; exit 0; }
 
 dotnet buildcheck -Solution "$SOLUTION" -WarningAsErrors true -PreReleaseBuild true || die "Check failed"

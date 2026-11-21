@@ -438,3 +438,11 @@ EOF
     [[ "${output}" != *"Foo.Benchmark.Tests"* ]]
     [ -z "$(ls -A "${_tmp}")" ]
 }
+
+# ── text conventions ────────────────────────────────────────────────────────
+
+@test "development scripts contain no em dash characters" {
+    run grep -rlF "$(printf '\342\200\224')" "${DEV_DIR}"
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+}

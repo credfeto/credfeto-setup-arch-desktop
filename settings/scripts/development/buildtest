@@ -41,7 +41,7 @@ require_dotnet_tool() {
     if is_ai_agent; then
         _repo=$(git rev-parse --show-toplevel 2>/dev/null)
         if [ -n "$_repo" ] && { [ -f "$_repo/.config/dotnet-tools.json" ] || [ -f "$_repo/dotnet-tools.json" ]; }; then
-            die "dotnet-tools.json exists in this repository but $2 ($1) is not installed — add $2 to the manifest and run 'dotnet tool restore'. Do not install it directly."
+            die "dotnet-tools.json exists in this repository but $2 ($1) is not installed; add $2 to the manifest and run 'dotnet tool restore'. Do not install it directly."
         fi
         die "Required package ($2) is not installed so cannot run $1.  Operator needs to provide this to the environment.  Do not install it yourself"
     fi
@@ -51,11 +51,11 @@ require_dotnet_tool() {
 CLEAR="http-cache"
 
 CSPROJ=$(find "$PWD" -type f -iname "*.csproj" | head -1)
-[ -z "$CSPROJ" ] && { info "No .csproj files found — skipping"; exit 0; }
+[ -z "$CSPROJ" ] && { info "No .csproj files found, skipping"; exit 0; }
 
 SOLUTION=$(find "$PWD" -type f -iname "*.sln" | head -1)
 [ -z "$SOLUTION" ] && SOLUTION=$(find "$PWD" -type f -iname "*.slnx" | head -1)
-[ -z "$SOLUTION" ] && { info "No solution file found — skipping"; exit 0; }
+[ -z "$SOLUTION" ] && { info "No solution file found, skipping"; exit 0; }
 
 SOURCE_DIR=$(dirname "$SOLUTION")
 [ -z "$SOURCE_DIR" ] && die "No Solution dir found in $SOURCE_DIR"
@@ -126,7 +126,7 @@ dotnet build \
   "-p:Version=0.0.0.1-test" \
   -nodeReuse:False || die "######## Build Failed ########"
 
-# Fail if the build generated or modified any ApiCompatSuppressions.xml files —
+# Fail if the build generated or modified any ApiCompatSuppressions.xml files:
 # these indicate newly suppressed API compatibility breaks that must be reviewed,
 # staged and committed intentionally rather than silently auto-included.
 COMPAT_FILES=$(find "$SOURCE_DIR" -name "ApiCompatSuppressions.xml") || die "Could not search $SOURCE_DIR for ApiCompatSuppressions.xml files"
@@ -145,11 +145,11 @@ $COMPAT_FILES
 COMPAT_EOF
 COMPAT_CHANGED=$(printf '%s' "$COMPAT_CHANGED" | sed '/^$/d')
 if [ -n "$COMPAT_CHANGED" ]; then
-    die "ApiCompatSuppressions.xml was created or modified by the build — review, stage and commit it explicitly:$(printf '\n  %s' "$COMPAT_CHANGED")"
+    die "ApiCompatSuppressions.xml was created or modified by the build; review, stage and commit it explicitly:$(printf '\n  %s' "$COMPAT_CHANGED")"
 fi
 
 if "$DACPAC_ONLY_SCRIPT" "$SOURCE_DIR"; then
-  info "Only project in solution is a SQL Server database project (dacpac) — skipping tests, nothing testable"
+  info "Only project in solution is a SQL Server database project (dacpac); skipping tests, nothing testable"
 else
   info "Testing..."
   # Integration tests are always safe to skip in pre-commit. Every benchmark
@@ -183,7 +183,7 @@ else
     || die "######## Benchmark Affected Detection Failed ########"
 
   if [ -z "$AFFECTED_SPEC" ]; then
-    info "No benchmark tests affected by staged changes — skipping benchmark test step"
+    info "No benchmark tests affected by staged changes, skipping benchmark test step"
   else
     while IFS= read -r bench_project; do
         [ -n "$bench_project" ] || continue
@@ -194,7 +194,7 @@ else
         LATEST_FRAMEWORK=$("$LATEST_FRAMEWORK_SCRIPT" "$bench_project") \
           || die "######## Latest Target Framework Detection Failed ($bench_project) ########"
         if [ -n "$LATEST_FRAMEWORK" ]; then
-          info "Multiple target frameworks in $bench_project — testing only $LATEST_FRAMEWORK, assuming older frameworks work"
+          info "Multiple target frameworks in $bench_project; testing only $LATEST_FRAMEWORK, assuming older frameworks work"
           set -- --framework "$LATEST_FRAMEWORK"
         fi
 
@@ -228,7 +228,7 @@ if [ -n "$PUBLISHABLE" ]; then
 
     FRAMEWORKS=$(sed -n 's/.*<TargetFrameworks>\([^<]*\)<\/TargetFrameworks>.*/\1/p' "$project" | head -1)
     [ -z "$FRAMEWORKS" ] && FRAMEWORKS=$(sed -n 's/.*<TargetFramework>\([^<]*\)<\/TargetFramework>.*/\1/p' "$project" | head -1)
-    [ -z "$FRAMEWORKS" ] && die "No TargetFramework or TargetFrameworks found in $project — specify a TargetFramework"
+    [ -z "$FRAMEWORKS" ] && die "No TargetFramework or TargetFrameworks found in $project; specify a TargetFramework"
 
     FRAMEWORKS_NL=$(printf '%s' "$FRAMEWORKS" | tr ';' '\n')
     while IFS= read -r fw; do

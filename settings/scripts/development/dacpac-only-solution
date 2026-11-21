@@ -1,7 +1,7 @@
 #! /bin/sh
 # Exits 0 when the given solution directory contains exactly one project
 # (.csproj/.fsproj/.vbproj) and that project uses the MSBuild.Sdk.SqlProj SDK
-# (a DACPAC project has no testable code) — buildtest uses this to decide
+# (a DACPAC project has no testable code). buildtest uses this to decide
 # whether to skip `dotnet test`. Exits 1 otherwise (no project, more than one
 # project, or a single project that is not a dacpac).
 #
@@ -28,7 +28,7 @@ case "$SOLE_PROJECT" in
 esac
 
 # Only the root <Project ...> opening tag and any <Sdk .../> child elements
-# are inspected — never the whole file — so a comment merely mentioning the
+# are inspected, never the whole file, so a comment merely mentioning the
 # SDK name elsewhere in the project cannot cause a false match.
 PROJECT_OPEN=$(tr '\n' ' ' < "$SOLE_PROJECT" | grep -oE '<Project[^>]*>' | head -1)
 printf '%s' "$PROJECT_OPEN" | grep -qiF 'Sdk="MSBuild.Sdk.SqlProj' && exit 0
