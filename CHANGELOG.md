@@ -143,7 +143,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Docs: add disable-baloo to the install.d Naming Convention table (#64)
 - buildtest and buildcheck now use the shared is_ai_agent helper from lib/common instead of inline copies, so AI agent detection is defined in one place (#53)
 - CI - the shell-tests workflow now caches the nvm checkout with actions/cache, keyed on the pinned NVM_COMMIT, so the nvm clone is reused across runs and only fetched again when the pin changes (#90)
-- Shell sections read system locations through an overridable test prefix so tests source them unchanged
+- Shell sections (00_shell-options, 40_bash-completion, 70_nvm, 77_autojump) read system paths through an overridable CREDFETO_TEST_ROOT prefix, so the shell tests point them at fixtures instead of rewriting their source; the section_reading rewriting helpers were removed and run-dev-update clears the prefix (#91)
+- Docs: document the CREDFETO_TEST_ROOT test-prefix rule for shell sections (#91)
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
