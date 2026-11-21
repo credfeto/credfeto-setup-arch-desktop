@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Registers the j completion and a PROMPT_COMMAND hook, so interactive only.
-if [[ $- == *i* ]] && [ -f /usr/share/autojump/autojump.sh ]; then
+if [[ $- == *i* ]] && [ -f "${CREDFETO_TEST_ROOT:-}/usr/share/autojump/autojump.sh" ]; then
     # shellcheck source=/dev/null
-    . /usr/share/autojump/autojump.sh
+    . "${CREDFETO_TEST_ROOT:-}/usr/share/autojump/autojump.sh"
 fi

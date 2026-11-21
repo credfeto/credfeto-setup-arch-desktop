@@ -67,6 +67,7 @@ setup_run_dev_update_tree() {
     printf 'PATH=%s\n' "\${PATH}"
     printf 'BUN_INSTALL=%s\n' "\${BUN_INSTALL:-}"
     printf 'NVM_DIR=%s\n' "\${NVM_DIR:-}"
+    printf 'CREDFETO_TEST_ROOT=%s\n' "\${CREDFETO_TEST_ROOT-unset}"
 } > ${RECORDED_ENV@Q}
 exit 3
 EOF
@@ -84,14 +85,16 @@ recorded_path_has() {
 }
 
 @test "run-dev-update starts dev-update with the tool settings from every bash.bashrc.d section, silently, passing on its exit status" {
-    local _section
     local _gopath="${BATS_TEST_TMPDIR}/go-default"
     setup_run_dev_update_tree
     mkdir -p "${HOME}/.bun/bin"
     # nvm and Go are stand-ins, so what each section does when its tool is
     # there is checked whether or not the machine running the suite has it.
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
-    cp "${_section}" "${CLONE_SECTIONS_DIR}/70_nvm.sh"
+    # run-dev-update clears an inherited CREDFETO_TEST_ROOT, so a section of
+    # the clone's own, sorted first, points the rest at the stand-in root, as
+    # a plain shell variable that no child process sees.
+    setup_fake_nvm_package > /dev/null
+    printf 'CREDFETO_TEST_ROOT=%s\n' "$(stand_in_root)" > "${CLONE_SECTIONS_DIR}/00_00_test-root.sh"
     setup_fake_bin go
     seed_fake_output go <<< "${_gopath}"
     # run-dev-update sources the sections with the PATH it is started with,
@@ -119,6 +122,24 @@ recorded_path_has() {
     # machine this repo installs.
     grep -qx "NVM_DIR=${HOME}/.config/nvm" "${RECORDED_ENV}"
     assert_nvm_loads package
+    # No section exported the stand-in root to dev-update.
+    grep -qx 'CREDFETO_TEST_ROOT=unset' "${RECORDED_ENV}"
+}
+
+@test "run-dev-update clears an inherited CREDFETO_TEST_ROOT, so the sections and dev-update read this machine's own files" {
+    local _seen="${BATS_TEST_TMPDIR}/test-root-seen"
+    setup_run_dev_update_tree
+    mkdir -p "${HOME}/.bun/bin"
+    setup_fake_nvm_package > /dev/null
+    # Sorts ahead of every other section, so it sees what all of them see.
+    # shellcheck disable=SC2016
+    printf 'printf "%%s\\n" "${CREDFETO_TEST_ROOT-unset}" > %s\n' "${_seen@Q}" > "${CLONE_SECTIONS_DIR}/00_00_probe.sh"
+    run --separate-stderr run_with_clean_tool_env CREDFETO_TEST_ROOT="$(stand_in_root)" "${CLONE_RUN_DEV_UPDATE}" < /dev/null
+    [ "${status}" -eq 3 ]
+    [ "$(cat "${_seen}")" = unset ]
+    grep -qx 'CREDFETO_TEST_ROOT=unset' "${RECORDED_ENV}"
+    # The stand-in nvm under the inherited root was never loaded.
+    assert_nvm_loads
 }
 
 @test "run-dev-update adds no PATH entry twice when its caller has already loaded the sections" {
@@ -251,9 +272,60 @@ diff <(printf "%s\n" "${_units_test_before}") <(printf "%s\n" "${_units_test_aft
 true
 '
 
-# Usage: run_all_sections_non_interactively <sections-dir>
+# Any VAR=value arguments are set in the shell's environment first.
+# Usage: run_all_sections_non_interactively <sections-dir> [<VAR=value> ...]
 run_all_sections_non_interactively() {
-    run_section_shell non-interactive "${ALL_SECTIONS_SCRIPT}" "$1" "${BATS_TEST_TMPDIR}/interactive-state.diff"
+    run_section_shell "${@:2}" non-interactive "${ALL_SECTIONS_SCRIPT}" "$1" "${BATS_TEST_TMPDIR}/interactive-state.diff"
+}
+
+# Writes a stand-in for every package a section reads under the stand-in
+# root, so every section takes the branch it takes when its tool is there.
+setup_stand_in_packages() {
+    local _root
+    _root="$(stand_in_root)"
+    setup_fake_nvm_package > /dev/null
+    write_fake_autojump "${_root}/usr/share/autojump"
+    mkdir -p "${_root}/etc" "${_root}/usr/share/bash-completion"
+    printf 'ID=arch\n' > "${_root}/etc/os-release"
+    printf 'complete -W stand-in stand_in_tool\n' > "${_root}/usr/share/bash-completion/bash_completion"
+}
+
+@test "the bash.bashrc.d sections, sourced in order by a non-interactive bash with every stand-in package installed, write nothing and leave no completion or prompt hook behind" {
+    local _state="${BATS_TEST_TMPDIR}/interactive-state.diff"
+    mkdir -p "${HOME}/.bun/bin"
+    setup_stand_in_packages
+    run_all_sections_non_interactively "${SECTIONS_DIR}" CREDFETO_TEST_ROOT="$(stand_in_root)"
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+    [ -z "${stderr}" ]
+    [ -e "${_state}" ]
+    cat "${_state}"
+    [ ! -s "${_state}" ]
+    # The stand-ins were read, so the silence above is not vacuous.
+    assert_nvm_loads package
+}
+
+# Sets CREDFETO_TEST_ROOT to $3 as a plain shell variable, sources every
+# section of the bash.bashrc.d directory in $2 in filename order, then prints
+# how the variable is declared.
+# shellcheck disable=SC2016
+TEST_ROOT_EXPORT_SCRIPT='
+CREDFETO_TEST_ROOT="$3"
+for _units_test_section in "$2"/*.sh; do
+    . "${_units_test_section}"
+done
+declare -p CREDFETO_TEST_ROOT'
+
+@test "no bash.bashrc.d section exports CREDFETO_TEST_ROOT, in an interactive or a non-interactive bash" {
+    local _mode
+    mkdir -p "${HOME}/.bun/bin"
+    setup_stand_in_packages
+    setup_fake_bin stty
+    for _mode in interactive non-interactive; do
+        run_section_shell PATH="${PATH}" "${_mode}" "${TEST_ROOT_EXPORT_SCRIPT}" "${SECTIONS_DIR}" "$(stand_in_root)"
+        [ "${status}" -eq 0 ]
+        [ "${lines[-1]}" = "declare -- CREDFETO_TEST_ROOT=\"$(stand_in_root)\"" ]
+    done
 }
 
 @test "the bash.bashrc.d sections, sourced in order by a non-interactive bash, write nothing and leave no completion, prompt hook or shell option behind" {
@@ -287,10 +359,9 @@ EOF
 }
 
 @test "70_nvm.sh sets up nvm silently on a home that has no NVM_DIR yet" {
-    local _package _section
+    local _package
     _package="$(setup_fake_nvm_package)"
-    _section="$(nvm_section_reading "${_package}")"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive "${SOURCE_SECTION_SCRIPT}" "${SECTIONS_DIR}/70_nvm.sh"
     [ "${status}" -eq 0 ]
     [ -z "${output}" ]
     [ -z "${stderr}" ]
@@ -299,12 +370,11 @@ EOF
 }
 
 @test "70_nvm.sh still reports a failure to set up NVM_DIR on stderr" {
-    local _section
-    _section="$(nvm_section_reading "$(setup_fake_nvm_package)")"
+    setup_fake_nvm_package > /dev/null
     # A regular file where NVM_DIR should be makes the symlinks fail.
     mkdir -p "${HOME}/.config"
     : > "${HOME}/.config/nvm"
-    run_section_shell non-interactive "${SOURCE_SECTION_SCRIPT}" "${_section}"
+    run_section_shell CREDFETO_TEST_ROOT="$(stand_in_root)" non-interactive "${SOURCE_SECTION_SCRIPT}" "${SECTIONS_DIR}/70_nvm.sh"
     [ -z "${output}" ]
     [[ "${stderr}" == *"${HOME}/.config/nvm/nvm.sh"* ]]
 }

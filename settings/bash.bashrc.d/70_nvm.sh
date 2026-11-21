@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC1091
 # Depends on NVM_DIR from 25_xdg-tool-paths.sh, sourced ahead of this file.
-if [ -f /usr/share/nvm/nvm.sh ]; then
+if [ -f "${CREDFETO_TEST_ROOT:-}/usr/share/nvm/nvm.sh" ]; then
     # The package's init-nvm.sh is not sourced: it loads bash_completion in
     # every shell, interactive or not. Its set-up is done here instead, with
     # the same NVM_DIR default.
@@ -20,17 +20,17 @@ if [ -f /usr/share/nvm/nvm.sh ]; then
     # -e is also false for a dangling link, which -f replaces: without it ln
     # would fail on the link's name in every shell and never repair it.
     if [ ! -e "$NVM_DIR/nvm.sh" ]; then
-        ln -sf /usr/share/nvm/nvm.sh "$NVM_DIR/nvm.sh"
+        ln -sf "${CREDFETO_TEST_ROOT:-}/usr/share/nvm/nvm.sh" "$NVM_DIR/nvm.sh"
     fi
     if [ ! -e "$NVM_DIR/nvm-exec" ]; then
-        ln -sf /usr/share/nvm/nvm-exec "$NVM_DIR/nvm-exec"
+        ln -sf "${CREDFETO_TEST_ROOT:-}/usr/share/nvm/nvm-exec" "$NVM_DIR/nvm-exec"
     fi
 
     # shellcheck source=/dev/null
-    . /usr/share/nvm/nvm.sh
+    . "${CREDFETO_TEST_ROOT:-}/usr/share/nvm/nvm.sh"
     if [[ $- == *i* ]]; then
         # shellcheck source=/dev/null
-        . /usr/share/nvm/bash_completion
+        . "${CREDFETO_TEST_ROOT:-}/usr/share/nvm/bash_completion"
     fi
 elif [ -s "${NVM_DIR:-}/nvm.sh" ]; then
     # shellcheck source=/dev/null

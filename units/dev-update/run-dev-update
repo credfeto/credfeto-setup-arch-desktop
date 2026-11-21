@@ -31,6 +31,10 @@ readonly -a RUN_DEV_UPDATE_SECTIONS=("$RUN_DEV_UPDATE_SECTIONS_DIR"/*.sh)
 # not found" that does not point back here.
 [ -e "${RUN_DEV_UPDATE_SECTIONS[0]}" ] || die "No bash.bashrc.d sections found in $RUN_DEV_UPDATE_SECTIONS_DIR"
 
+# The sections read every system file under CREDFETO_TEST_ROOT, which only the
+# tests set, so a timer run always reads this machine's own files.
+unset CREDFETO_TEST_ROOT
+
 # The list was expanded when the loop started, so a section that assigns the
 # loop variable does not change which section comes next.
 for RUN_DEV_UPDATE_SECTION in "${RUN_DEV_UPDATE_SECTIONS[@]}"; do
