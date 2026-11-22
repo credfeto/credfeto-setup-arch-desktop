@@ -146,6 +146,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Shell sections (00_shell-options, 40_bash-completion, 70_nvm, 77_autojump) read system paths through an overridable CREDFETO_TEST_ROOT prefix, so the shell tests point them at fixtures instead of rewriting their source; the section_reading rewriting helpers were removed and run-dev-update clears the prefix (#91)
 - Docs: document the CREDFETO_TEST_ROOT test-prefix rule for shell sections (#91)
 - The shell test report now names the bats test that was running when bats timed out or crashed, so a hung or crashed shell test run points straight at the test to look at (#92)
+- Test helper ensure_fake_bin_dir keeps empty PATH entries
 ### Deprecated
 ### Removed
 - Removed yay and paru AUR helpers from install script; direct AUR package installs are prohibited
