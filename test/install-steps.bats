@@ -710,6 +710,81 @@ EOF
     assert_step_died "Failed to read ${BATS_TEST_TMPDIR}/missing.conf" "Pacman configured"
 }
 
+# An option made of the characters grep -E and sed read as syntax, so a
+# configure-pacman run that used it as anything but literal text would
+# change the wrong line or write a different one.
+SED_SPECIAL_OPTION='Foo.Bar/&\baz[*]^$'
+
+# Replaces the fake sudo with one that logs the command line and then runs
+# it, so the sed edits configure-pacman makes land in the test's own fixture.
+fake_sudo_runs_command() {
+    replace_fake sudo <<'EOF'
+#!/bin/sh
+printf 'sudo %s\n' "$*" >> "${FAKE_BIN_LOG}"
+exec "$@"
+EOF
+}
+
+# Writes each argument as a line of the given pacman.conf fixture.
+# Usage: write_pacman_conf <file> <line> ...
+write_pacman_conf() {
+    local _conf="$1"
+    shift
+    printf '%s\n' "$@" > "${_conf}"
+}
+
+# Runs configure-pacman against the given fixture for the given options,
+# with sudo running the edits.
+# Usage: run_configure_pacman_with <file> <option> ...
+run_configure_pacman_with() {
+    local _conf="$1"
+    shift
+    fake_sudo_runs_command
+    run env PACMAN_CONF="${_conf}" "${INSTALL_D}/configure-pacman" "$@"
+}
+
+@test "configure-pacman uncomments an option holding sed-special characters as literal text" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    write_pacman_conf "${_conf}" '[options]' "#${SED_SPECIAL_OPTION}"
+    run_configure_pacman_with "${_conf}" "${SED_SPECIAL_OPTION}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Pacman configured"* ]]
+    [ "$(cat "${_conf}")" = "$(printf '%s\n' '[options]' "${SED_SPECIAL_OPTION}")" ]
+}
+
+@test "configure-pacman adds an absent option holding sed-special characters as literal text" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    write_pacman_conf "${_conf}" '[options]' 'HoldPkg = pacman glibc'
+    run_configure_pacman_with "${_conf}" "${SED_SPECIAL_OPTION}"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${_conf}")" = "$(printf '%s\n' '[options]' "${SED_SPECIAL_OPTION}" 'HoldPkg = pacman glibc')" ]
+}
+
+@test "configure-pacman keeps the leading whitespace of an option it adds" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    write_pacman_conf "${_conf}" '[options]'
+    run_configure_pacman_with "${_conf}" "  ${SED_SPECIAL_OPTION}"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${_conf}")" = "$(printf '%s\n' '[options]' "  ${SED_SPECIAL_OPTION}")" ]
+}
+
+@test "configure-pacman leaves an already active option holding sed-special characters alone" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    write_pacman_conf "${_conf}" '[options]' "${SED_SPECIAL_OPTION}"
+    run_configure_pacman_with "${_conf}" "${SED_SPECIAL_OPTION}"
+    [ "${status}" -eq 0 ]
+    refute_fake_called '^sudo '
+    [ "$(cat "${_conf}")" = "$(printf '%s\n' '[options]' "${SED_SPECIAL_OPTION}")" ]
+}
+
+@test "configure-pacman matches an option only as literal text, never a line its characters would match as a pattern" {
+    local _conf="${BATS_TEST_TMPDIR}/pacman.conf"
+    write_pacman_conf "${_conf}" '[options]' 'FooXBar' '#FooXBar' '#Foo.Bar'
+    run_configure_pacman_with "${_conf}" 'Foo.Bar'
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${_conf}")" = "$(printf '%s\n' '[options]' 'FooXBar' '#FooXBar' 'Foo.Bar')" ]
+}
+
 # ── remove-aur-helpers ───────────────────────────────────────────────────────
 
 @test "remove-aur-helpers removes yay and paru when both are installed" {
