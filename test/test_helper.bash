@@ -115,14 +115,16 @@ ensure_fake_bin_dir() {
     # goes on the front, so a directory a test put ahead of it since the last
     # call cannot shadow a fake. This mirrors _bashrc_d_path_prepend rather
     # than sourcing it: that is code under test, and a fault in it must not
-    # take every fake down with it.
-    local rest=":${PATH}:"
-    while [[ "${rest}" == *":${FAKE_BIN_DIR}:"* ]]; do
-        rest="${rest%%":${FAKE_BIN_DIR}:"*}:${rest#*":${FAKE_BIN_DIR}:"}"
+    # take every fake down with it. An empty entry means the current
+    # directory, so it is kept; the trailing ':' sentinel makes a trailing
+    # empty entry, and an empty PATH, come out as an entry of their own.
+    local rest="${PATH}:" entry joined="${FAKE_BIN_DIR}"
+    while [ -n "${rest}" ]; do
+        entry="${rest%%:*}"
+        rest="${rest#*:}"
+        [ "${entry}" = "${FAKE_BIN_DIR}" ] || joined+=":${entry}"
     done
-    rest="${rest#:}"
-    rest="${rest%:}"
-    export PATH="${FAKE_BIN_DIR}${rest:+:${rest}}"
+    export PATH="${joined}"
 }
 
 # Creates fake executables on a PATH prefix, so a script under test invokes
