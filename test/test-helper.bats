@@ -460,10 +460,18 @@ EOF
 
 @test "ensure_fake_bin_dir puts the fake directory first exactly once wherever PATH holds it" {
     # Each case is a PATH to start from and the PATH that must follow. The
-    # names that only start or end like the fake directory must stay put.
+    # names that only start or end like the fake directory must stay put, and
+    # so must every empty entry, which stands for the current directory.
     local fake="${BATS_TEST_TMPDIR}/fakebin"
     local -a cases=(
-        "" "${fake}"
+        "" "${fake}:"
+        ":" "${fake}::"
+        "/a:" "${fake}:/a:"
+        ":/a" "${fake}::/a"
+        "/a::/b" "${fake}:/a::/b"
+        "${fake}:" "${fake}:"
+        ":${fake}" "${fake}:"
+        "${fake}::${fake}" "${fake}:"
         "${fake}" "${fake}"
         "${fake}:/a" "${fake}:/a"
         "/a:${fake}:/b" "${fake}:/a:/b"
