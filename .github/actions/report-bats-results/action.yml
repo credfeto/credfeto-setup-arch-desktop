@@ -1,14 +1,18 @@
 --- # Summarise a bats TAP results file and fail on a failed, skipped or missing test run
 name: "Report Bats Results"
-description: "Summarises a bats TAP results file and fails on a failed bats step, missing, empty or miscounted results, or any failed or skipped test"
+description: "Summarises a bats TAP results file and fails on a failed bats step, missing, empty or miscounted results, a failed or skipped test, or a timeout"
 
 inputs:
   results-file:
-    description: "Path to the TAP results file written by the bats step"
+    description: "Path to the TAP results file written by the bats step; written with --formatter cat, its begin lines name the test running when bats stopped"
     required: true
   bats-outcome:
     description: "Outcome of the step that ran bats (steps.<id>.outcome)"
     required: true
+  bats-exit-status:
+    description: "Exit status of the bats command (124 or 137 when timeout stopped it); empty when not recorded"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -18,6 +22,7 @@ runs:
       env:
         RESULTS_FILE: "${{inputs.results-file}}"
         BATS_OUTCOME: "${{inputs.bats-outcome}}"
+        BATS_EXIT_STATUS: "${{inputs.bats-exit-status}}"
       with:
         script: |
           const fs = require('fs');
@@ -46,6 +51,29 @@ runs:
             .filter(Boolean)
             .map(match => match[1]);
 
+          const batsOutcome = process.env.BATS_OUTCOME;
+          const exitStatus = process.env.BATS_EXIT_STATUS ?? '';
+          // bats writes "begin K <name>" as test K starts and its result line as it ends, so a begun test with no
+          // result is the one bats was running when it stopped; tests run one at a time, so there is at most one.
+          const reported = new Set(results.map(line => Number(line.match(/^(?:not )?ok (\d+) /)[1])));
+          const unfinished = lines
+            .map(line => line.match(/^begin (\d+) (.*)$/))
+            .filter(Boolean)
+            .map(match => ({index: Number(match[1]), name: match[2]}))
+            .find(test => !reported.has(test.index));
+          // timeout exits 124 when its TERM stopped bats, and 137 when it had to follow up with KILL.
+          const timedOut = exitStatus === '124' || exitStatus === '137';
+          const interrupted = batsOutcome === 'failure' && (timedOut || unfinished !== undefined);
+          const describeStop = () => {
+            if (timedOut) {
+              return `timed out (exit ${exitStatus})`;
+            }
+            return exitStatus === '' ? 'stopped (exit status not recorded)' : `crashed (exit ${exitStatus})`;
+          };
+          const interruption = interrupted
+            ? `bats ${describeStop()} ${unfinished ? `while running test ${unfinished.index}: ${unfinished.name}` : 'while no test was running'}`
+            : null;
+
           const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
           core.summary
@@ -62,13 +90,16 @@ runs:
           if (skipped.length > 0) {
             core.summary.addHeading('Skipped', 3).addList(skipped.map(escapeHtml));
           }
+          if (interruption !== null) {
+            core.summary.addHeading('Interrupted', 3).addList([escapeHtml(interruption)]);
+          }
           await core.summary.write();
 
-          const batsOutcome = process.env.BATS_OUTCOME;
           const countMismatch = planned !== null && planned !== results.length;
-          // A failed test or a result count that differs from the plan makes bats exit non-zero, so either accounts for a 'failure' outcome and for no other.
+          // A failed test, a result count that differs from the plan, a timeout or a test bats never finished makes bats
+          // exit non-zero, so any of them accounts for a 'failure' outcome and for no other.
           const outcomeExplained =
-            batsOutcome === 'success' || (batsOutcome === 'failure' && (failed.length > 0 || countMismatch));
+            batsOutcome === 'success' || (batsOutcome === 'failure' && (failed.length > 0 || countMismatch || interrupted));
 
           const problems = [];
           if (!resultsExist) {
@@ -81,6 +112,9 @@ runs:
           if (countMismatch) {
             problems.push(`bats planned ${planned} test(s) but ${results.length} reported a result`);
           }
+          if (interruption !== null) {
+            problems.push(interruption);
+          }
           if (failed.length > 0) {
             problems.push(`${failed.length} of ${results.length} test(s) failed`);
           }
@@ -89,7 +123,8 @@ runs:
             problems.push(`${skipped.length} test(s) skipped: ${skipped.join('; ')}`);
           }
           if (!outcomeExplained) {
-            problems.push(`the bats step did not succeed (${batsOutcome}) for a reason the test results do not show`);
+            const recordedExit = exitStatus === '' ? '' : `, exit ${exitStatus}`;
+            problems.push(`the bats step did not succeed (${batsOutcome}${recordedExit}) for a reason the test results do not show`);
           }
 
           if (problems.length > 0) {

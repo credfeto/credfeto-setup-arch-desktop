@@ -80,10 +80,15 @@ jobs:
 
       - name: "Run shell tests"
         id: run-tests
-        # A step timeout fails the step rather than cancelling the run, so a hung test still gets reported.
-        timeout-minutes: 10
+        # Backstop only: timeout stops bats first so its exit status is recorded; a step timeout records none.
+        timeout-minutes: 11
         shell: bash
-        run: bats --recursive --formatter tap test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}"
+        # The cat formatter is TAP plus a "begin" line as each test starts, which names a test bats never finished.
+        run: |
+          status=0
+          timeout --kill-after=10 600 bats --recursive --formatter cat test/ | tee "${RUNNER_TEMP}/${BATS_RESULTS}" || status=$?
+          echo "exit-status=${status}" >> "${GITHUB_OUTPUT}"
+          exit "${status}"
 
       - name: "Report shell test results"
         if: ${{ !cancelled() }}
@@ -91,3 +96,4 @@ jobs:
         with:
           results-file: "${{runner.temp}}/${{env.BATS_RESULTS}}"
           bats-outcome: "${{steps.run-tests.outcome}}"
+          bats-exit-status: "${{steps.run-tests.outputs.exit-status}}"
