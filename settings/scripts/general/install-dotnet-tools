@@ -57,11 +57,13 @@ fi
 ## Tools are kept sorted alphabetically, ignoring case, with no duplicates;
 ## test/general.bats checks the install order.
 TOOLS="Credfeto.Build.Dotnet.Server \
+       Credfeto.Build.Node.Server \
        Credfeto.Changelog.Cmd \
        Credfeto.Changelog.Mcp \
        Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
        Credfeto.DotNet.Repo.Formatter \
        Credfeto.DotNet.Repo.Tools.Cmd \
+       Credfeto.Git.Mcp \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
        dotnet-reportgenerator-globaltool \

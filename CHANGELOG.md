@@ -33,6 +33,8 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-dotnet-tools installs Credfeto.Changelog.Mcp, which provides the changelog-mcp server command for MCP clients, and microsoft.sqlpackage, for building and deploying SQL database projects
 - fetch runs codegraph init in each repo that has no .codegraph folder when the codegraph CLI is installed; whether or not the CLI is installed, it keeps any .codegraph index out of git by adding /.codegraph to that repo's local git exclude only when git does not already ignore .codegraph (the line also hides a .codegraph symlink; repos with an index are excluded before their status is read so they still rebase on the first run), treats a dangling .codegraph symlink as an existing index, and removes a half-made index when init fails or fetch is interrupted during init, so the next run tries again
 - install-dotnet-tools --reinstall uninstalls each tool already in the manifest and reinstalls it, so those tools also record rollForward; a tool that cannot be uninstalled is reported as a warning and still installed
+- Added Credfeto.Git.Mcp to the dotnet tools installed by install-dotnet-tools
+- Added Credfeto.Build.Node.Server to the dotnet tools installed by install-dotnet-tools
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script

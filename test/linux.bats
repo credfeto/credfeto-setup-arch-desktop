@@ -1387,7 +1387,7 @@ setup_dev_install_fixture() {
     local _ref="${HOME}/work/reference"
     grep -qxF "git clone git@github.com:dnyw4l3n13/claude.git ${_ref}/claude" "${FAKE_BIN_LOG}"
     refute_fake_called '^git clone git@github\.com:credfeto/claude\.git'
-    [ "$(grep -c '^git clone git@github\.com:credfeto/' "${FAKE_BIN_LOG}")" -eq 5 ]
+    [ "$(grep -c '^git clone git@github\.com:credfeto/' "${FAKE_BIN_LOG}")" -eq "$((${#REFERENCE_REPOS[@]} - 1))" ]
     [ "$(grep -c '^git clone git@github\.com:dnyw4l3n13/' "${FAKE_BIN_LOG}")" -eq 1 ]
     refute_fake_called 'https://'
 }
@@ -1474,7 +1474,7 @@ setup_dev_install_fixture() {
     refute_fake_called '^git clone .*/cs-template\.git'
     refute_fake_called '^git clone .*/claude\.git'
     assert_fake_called '^git clone git@github\.com:credfeto/credfeto-ai-skills\.git '
-    [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq 4 ]
+    [ "$(grep -c '^git clone ' "${FAKE_BIN_LOG}")" -eq "$((${#REFERENCE_REPOS[@]} - 2))" ]
 }
 
 @test "dev-install dies if a clone fails" {
