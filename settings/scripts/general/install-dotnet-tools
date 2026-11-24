@@ -62,6 +62,7 @@ TOOLS="Credfeto.Build.Dotnet.Server \
        Credfeto.DotNet.Code.Analysis.Overrides.Cmd \
        Credfeto.DotNet.Repo.Formatter \
        Credfeto.DotNet.Repo.Tools.Cmd \
+       Credfeto.Git.Mcp \
        Credfeto.Package.Push \
        Credfeto.Package.Update \
        dotnet-reportgenerator-globaltool \
