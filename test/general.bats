@@ -201,7 +201,7 @@ EOF
 # Every tool install-dotnet-tools installs, as the lower-case package ids
 # `dotnet tool list --local` prints for a manifest that already has them all.
 # TOOL_COUNT, derived from it, is how many tools every full run installs.
-ALL_TOOLS_IN_MANIFEST="credfeto.build.dotnet.server credfeto.changelog.cmd credfeto.changelog.mcp \
+ALL_TOOLS_IN_MANIFEST="credfeto.build.dotnet.server credfeto.build.node.server credfeto.changelog.cmd credfeto.changelog.mcp \
 credfeto.dotnet.code.analysis.overrides.cmd credfeto.dotnet.repo.formatter credfeto.dotnet.repo.tools.cmd \
 credfeto.git.mcp credfeto.package.push credfeto.package.update dotnet-reportgenerator-globaltool dotnet-script \
 funfair.buildcheck funfair.buildversion funfair.content.packager.cmd funfair.content.packagesigner.cmd \
@@ -215,6 +215,7 @@ TOOL_COUNT=$(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}")
     [ "${status}" -eq 0 ]
     refute_fake_called '^dotnet new tool-manifest'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward Credfeto\.Build\.Dotnet\.Server$'
+    assert_fake_called '^dotnet tool install --local --allow-roll-forward Credfeto\.Build\.Node\.Server$'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward Credfeto\.Changelog\.Cmd$'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward Credfeto\.Changelog\.Mcp$'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward Credfeto\.DotNet\.Code\.Analysis\.Overrides\.Cmd$'
@@ -270,7 +271,7 @@ TOOL_COUNT=$(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}")
     run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
-    [[ "${output}" == *"0 succeeded, ${TOOL_COUNT} failed: Credfeto.Build.Dotnet.Server Credfeto.Changelog.Cmd "* ]]
+    [[ "${output}" == *"0 succeeded, ${TOOL_COUNT} failed: Credfeto.Build.Dotnet.Server Credfeto.Build.Node.Server Credfeto.Changelog.Cmd "* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
