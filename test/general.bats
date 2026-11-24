@@ -200,11 +200,13 @@ EOF
 
 # Every tool install-dotnet-tools installs, as the lower-case package ids
 # `dotnet tool list --local` prints for a manifest that already has them all.
+# TOOL_COUNT, derived from it, is how many tools every full run installs.
 ALL_TOOLS_IN_MANIFEST="credfeto.build.dotnet.server credfeto.changelog.cmd credfeto.changelog.mcp \
 credfeto.dotnet.code.analysis.overrides.cmd credfeto.dotnet.repo.formatter credfeto.dotnet.repo.tools.cmd \
 credfeto.git.mcp credfeto.package.push credfeto.package.update dotnet-reportgenerator-globaltool dotnet-script \
 funfair.buildcheck funfair.buildversion funfair.content.packager.cmd funfair.content.packagesigner.cmd \
 ilspycmd microsoft.sqlpackage sleet tsqllint"
+TOOL_COUNT=$(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}")
 
 @test "install-dotnet-tools installs every tool once a manifest exists" {
     setup_fake_bin dotnet
@@ -231,7 +233,7 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     assert_fake_called '^dotnet tool install --local --allow-roll-forward microsoft\.sqlpackage$'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward sleet$'
     assert_fake_called '^dotnet tool install --local --allow-roll-forward TSQLLint$'
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     [[ "${output}" == *"Done"* ]]
     [[ "${output}" != *"failed"* ]]
 }
@@ -246,7 +248,7 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     # order and on any case-insensitive duplicate; LC_ALL=C keeps the
     # comparison the same on every machine.
     sed -n 's/^dotnet tool install --local --allow-roll-forward //p' "${FAKE_BIN_LOG}" > "${BATS_TEST_TMPDIR}/tools"
-    [ "$(wc -l < "${BATS_TEST_TMPDIR}/tools")" -eq 19 ]
+    [ "$(wc -l < "${BATS_TEST_TMPDIR}/tools")" -eq "${TOOL_COUNT}" ]
     run env LC_ALL=C sort -c -u -f "${BATS_TEST_TMPDIR}/tools"
     [ "${status}" -eq 0 ]
 }
@@ -256,9 +258,9 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     printf '{}' > "${HOME}/dotnet-tools.json"
     run env FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     assert_fake_called '^dotnet tool install --local --allow-roll-forward TSQLLint PWD='
-    [[ "${output}" == *"17 succeeded, 2 failed: ilspycmd sleet"* ]]
+    [[ "${output}" == *"$((TOOL_COUNT - 2)) succeeded, 2 failed: ilspycmd sleet"* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
@@ -267,8 +269,8 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     printf '{}' > "${HOME}/dotnet-tools.json"
     run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
-    [[ "${output}" == *"0 succeeded, 19 failed: Credfeto.Build.Dotnet.Server Credfeto.Changelog.Cmd "* ]]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
+    [[ "${output}" == *"0 succeeded, ${TOOL_COUNT} failed: Credfeto.Build.Dotnet.Server Credfeto.Changelog.Cmd "* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
@@ -279,8 +281,8 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     cd "${BATS_TEST_TMPDIR}/elsewhere"
     run "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 0 ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
-    [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
+    [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
 }
 
 @test "install-dotnet-tools creates the manifest from HOME when started from another folder" {
@@ -312,7 +314,7 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     printf '{}' > "${HOME}/dotnet-tools.json"
     run "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 0 ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     refute_fake_called '^dotnet tool uninstall '
     refute_fake_called '^dotnet tool list '
 }
@@ -325,8 +327,8 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     run env FAKE_DOTNET_LOCAL_TOOLS="${ALL_TOOLS_IN_MANIFEST}" "${GENERAL_DIR}/install-dotnet-tools" --reinstall
     [ "${status}" -eq 0 ]
     assert_fake_called "^dotnet tool list --local PWD=${HOME}\$"
-    [ "$(grep -c "^dotnet tool uninstall --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 19 ]
-    [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c "^dotnet tool uninstall --local [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
+    [ "$(grep -c "^dotnet tool install --local --allow-roll-forward [^ ]* PWD=${HOME}\$" "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     # Each tool's uninstall comes straight before its own install, so the
     # log alternates uninstall and install of the same tool, in TOOLS order.
     sed -n 's/^dotnet tool install --local --allow-roll-forward \([^ ]*\) .*/\1/p' "${FAKE_BIN_LOG}" > "${BATS_TEST_TMPDIR}/installed"
@@ -350,7 +352,7 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     [ "$(log_line_of '^dotnet tool uninstall --local Credfeto\.Changelog\.Cmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward Credfeto\.Changelog\.Cmd ')" ]
     [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
     refute_fake_called '^dotnet tool uninstall --local TSQLLint '
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     [[ "${output}" != *"Could not uninstall"* ]]
     [[ "${output}" == *"Done"* ]]
     [[ "${output}" != *"failed"* ]]
@@ -372,7 +374,7 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     [ "${status}" -eq 0 ]
     [ "$(log_line_of '^dotnet tool uninstall --local sleet ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward sleet ')" ]
     [ "$(log_line_of '^dotnet tool uninstall --local ilspycmd ')" -lt "$(log_line_of '^dotnet tool install --local --allow-roll-forward ilspycmd ')" ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
     [[ "${output}" == *"⚠ Could not uninstall sleet; installing it anyway"* ]]
     [[ "${output}" == *"Done"* ]]
     [[ "${output}" != *"failed"* ]]
@@ -383,9 +385,9 @@ ilspycmd microsoft.sqlpackage sleet tsqllint"
     printf '{}' > "${HOME}/dotnet-tools.json"
     run env FAKE_DOTNET_LOCAL_TOOLS="${ALL_TOOLS_IN_MANIFEST}" FAKE_DOTNET_FAIL='^tool install --local --allow-roll-forward (sleet|ilspycmd)$' "${GENERAL_DIR}/install-dotnet-tools" --reinstall
     [ "${status}" -eq 1 ]
-    [ "$(grep -c '^dotnet tool uninstall --local ' "${FAKE_BIN_LOG}")" -eq 19 ]
-    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq 19 ]
-    [[ "${output}" == *"17 succeeded, 2 failed: ilspycmd sleet"* ]]
+    [ "$(grep -c '^dotnet tool uninstall --local ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
+    [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
+    [[ "${output}" == *"$((TOOL_COUNT - 2)) succeeded, 2 failed: ilspycmd sleet"* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
