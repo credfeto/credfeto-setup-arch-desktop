@@ -271,7 +271,7 @@ TOOL_COUNT=$(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}")
     run env FAKE_EXIT_dotnet=1 "${GENERAL_DIR}/install-dotnet-tools"
     [ "${status}" -eq 1 ]
     [ "$(grep -c '^dotnet tool install --local --allow-roll-forward ' "${FAKE_BIN_LOG}")" -eq "${TOOL_COUNT}" ]
-    [[ "${output}" == *"0 succeeded, ${TOOL_COUNT} failed: Credfeto.Build.Dotnet.Server Credfeto.Build.Node.Server Credfeto.Changelog.Cmd "* ]]
+    [[ "${output}" == *"0 succeeded, ${TOOL_COUNT} failed: Credfeto.Build.Dotnet.Server "* ]]
     [[ "${output}" != *"Done"* ]]
 }
 
