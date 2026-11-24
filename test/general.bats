@@ -206,7 +206,7 @@ credfeto.dotnet.code.analysis.overrides.cmd credfeto.dotnet.repo.formatter credf
 credfeto.git.mcp credfeto.package.push credfeto.package.update dotnet-reportgenerator-globaltool dotnet-script \
 funfair.buildcheck funfair.buildversion funfair.content.packager.cmd funfair.content.packagesigner.cmd \
 ilspycmd microsoft.sqlpackage sleet tsqllint"
-TOOL_COUNT=$(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}")
+TOOL_COUNT=$(( $(wc -w <<< "${ALL_TOOLS_IN_MANIFEST}") ))
 
 @test "install-dotnet-tools installs every tool once a manifest exists" {
     setup_fake_bin dotnet
