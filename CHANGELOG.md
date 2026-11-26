@@ -36,6 +36,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Added Credfeto.Git.Mcp to the dotnet tools installed by install-dotnet-tools
 - Added Credfeto.Build.Node.Server to the dotnet tools installed by install-dotnet-tools
 - install: ignore .codegraph in a global git excludes file (core.excludesFile)
+- Regression test that install-latest-dotnet removes its temporary files when interrupted by a signal
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script
