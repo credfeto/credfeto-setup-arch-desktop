@@ -205,7 +205,9 @@ EOF
         printf '%s "%s" {\n    sleep 60\n}\n' '@test' 'hangs'
         printf '%s "%s" {\n    true\n}\n' '@test' 'never starts'
     } > "${_suite}"
-    timeout --kill-after=5 3 bats --formatter cat "${_suite}" > "${_stream}" 3>&- || _exit=$?
+    # Long enough that a loaded machine still reaches test 2 before the timeout,
+    # and still far shorter than the 60 second sleep the hung test does.
+    timeout --kill-after=5 15 bats --formatter cat "${_suite}" > "${_stream}" 3>&- || _exit=$?
     run_report failure "${_exit}" < "${_stream}"
     [[ "$(failure_message)" == *"bats timed out (exit ${_exit}) while running test 2: hangs"* ]]
 }
