@@ -71,7 +71,53 @@ install_git_environment() {
     git_config_global url."git@bitbucket.org:".insteadOf "https://bitbucket.org/"
     git_config_global url."https://aur.markridgwell.com/".insteadOf "https://aur.archlinux.org/"
 
+    ignore_codegraph_globally
+
     success "Git environment configured"
+}
+
+# Prints the global excludes file: the one already configured, which is kept
+# as the user chose it, or else the XDG default, which is then configured.
+global_excludes_file() {
+    # --type=path expands a leading ~/ exactly as git does when it reads it.
+    _configured="$(git config --global --type=path --get core.excludesFile)"
+    _status=$?
+    case "$_status" in
+        0)
+            [ -n "$_configured" ] || die "core.excludesFile is set but empty"
+            printf '%s\n' "$_configured"
+            ;;
+        1)
+            _default="${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore"
+            git_config_global core.excludesFile "$_default"
+            printf '%s\n' "$_default"
+            ;;
+        *)
+            die "Failed to read git config core.excludesFile"
+            ;;
+    esac
+}
+
+# Keeps every repository's .codegraph index (or a symlink to one) out of git.
+ignore_codegraph_globally() {
+    EXCLUDES_FILE="$(global_excludes_file)" || exit 1
+
+    mkdir -p "$(dirname "$EXCLUDES_FILE")" || die "Failed to create the directory for $EXCLUDES_FILE"
+    touch "$EXCLUDES_FILE" || die "Failed to create $EXCLUDES_FILE"
+
+    grep -qxF '/.codegraph' "$EXCLUDES_FILE"
+    case $? in
+        0) return 0 ;;
+        1) ;;
+        *) die "Failed to read $EXCLUDES_FILE" ;;
+    esac
+
+    # Appending straight after a last line with no newline would join the
+    # two into one pattern that matches neither.
+    if [ -s "$EXCLUDES_FILE" ] && [ -n "$(tail -c 1 "$EXCLUDES_FILE")" ]; then
+        printf '\n' >>"$EXCLUDES_FILE" || die "Failed to update $EXCLUDES_FILE"
+    fi
+    printf '/.codegraph\n' >>"$EXCLUDES_FILE" || die "Failed to update $EXCLUDES_FILE"
 }
 
 install_git_environment
