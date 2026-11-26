@@ -124,6 +124,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - configure-flatpak derives the flatpak filter path from HOME (overridable with FLATPAK_FILTER) instead of hardcoding /home/markr, and stops with a clear error when the filter file is missing (#58)
 - The rebase script now pushes with --force-with-lease instead of -f, so it no longer overwrites remote commits it has not fetched (#141)
 - Escape values interpolated into sed in the npm action and install.d/configure-pacman so special characters are treated literally (#87)
+- buildtest - clean up publish output folder when interrupted or publish fails (#142)
 ### Changed
 - Refactored install script into named functions for readability and easier future extraction into separate install.d/ scripts
 - Split the monolithic install script into standalone install.d/ scripts sharing lib/common, so each installation step can be run and understood independently
