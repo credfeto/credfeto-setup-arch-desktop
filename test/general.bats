@@ -634,7 +634,8 @@ EOF
 # - sudo runs what it is given as the test user, after logging it, unless the
 #   command line matches the grep -E pattern in $FAKE_SUDO_FAIL; when it
 #   matches the pattern in $FAKE_SUDO_SIGNAL it runs the command, then sends
-#   the script SIGTERM, as a Ctrl-C landing just as that command ends would;
+#   the script the signal named in $FAKE_SUDO_SIGNAL_NAME (default TERM), as a
+#   Ctrl-C landing just as that command ends would;
 # - mktemp runs the real mktemp, unless its template is outside
 #   $DOTNET_TEST_WORK_ROOT, when it fails without creating anything;
 # - df reports $FAKE_DF_AVAILABLE_KB (default 100 GiB) free on one filesystem;
@@ -685,7 +686,7 @@ fi
 if [ -n "${FAKE_SUDO_SIGNAL:-}" ] && printf '%s\n' "$*" | grep -qE "${FAKE_SUDO_SIGNAL}"; then
     "$@"
     status=$?
-    kill -TERM "${PPID}"
+    kill -"${FAKE_SUDO_SIGNAL_NAME:-TERM}" "${PPID}"
     exit "${status}"
 fi
 exec "$@"
@@ -1251,6 +1252,22 @@ DOTNET_TEST_SWITCH_OR_RESTORE='^mv -T [^ ]*/(dotnet\.tmp-link|dotnet-legacy-[^ ]
     assert_fake_called "^sudo mkdir .*/${DOTNET_TEST_NEW_INSTALL}$"
     refute_fake_called '^curl .*/dotnet-sdk-'
     assert_failed_run_left_previous_install
+}
+
+@test "install-latest-dotnet removes its work folder when interrupted by INT, TERM or HUP" {
+    local signal
+    for signal in INT TERM HUP; do
+        seed_previous_dotnet_install
+
+        # The work folder is made before the new install folder, so a signal
+        # just after the latter is made reaches the script with the former
+        # already on disk.
+        run_install_latest_dotnet FAKE_SUDO_SIGNAL='^mkdir ' FAKE_SUDO_SIGNAL_NAME="${signal}"
+        [ "${status}" -eq 1 ]
+        assert_fake_called "^sudo mkdir .*/${DOTNET_TEST_NEW_INSTALL}$"
+        work_root_has_no_work_dir
+        assert_failed_run_left_previous_install
+    done
 }
 
 @test "install-latest-dotnet removes the switch link when signalled just after making it" {
