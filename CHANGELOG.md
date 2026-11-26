@@ -35,6 +35,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - install-dotnet-tools --reinstall uninstalls each tool already in the manifest and reinstalls it, so those tools also record rollForward; a tool that cannot be uninstalled is reported as a warning and still installed
 - Added Credfeto.Git.Mcp to the dotnet tools installed by install-dotnet-tools
 - Added Credfeto.Build.Node.Server to the dotnet tools installed by install-dotnet-tools
+- install: ignore .codegraph in a global git excludes file (core.excludesFile)
 ### Fixed
 - Fixed missing trailing newlines in units/auto-update scripts
 - Use sudo when removing root-owned sysctl config files installed by the install script

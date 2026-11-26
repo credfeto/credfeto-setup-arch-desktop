@@ -14,6 +14,9 @@ setup() {
     # git-environment writes the global config, so it gets one of the test's
     # own in place of the none test_helper gives every suite.
     export GIT_CONFIG_GLOBAL="${BATS_TEST_TMPDIR}/gitconfig"
+    # git-environment writes the default global excludes file under it, so it
+    # must not name the real user's config directory.
+    export XDG_CONFIG_HOME="${HOME}/.config"
     # DEV_SCRIPTS_BIN_DIR is user-writable, so dev-scripts's sudo-avoidance
     # path is exercised - no real root/sudo needed for these tests.
     export DEV_SCRIPTS_BIN_DIR="${BATS_TEST_TMPDIR}/bin"
@@ -1096,4 +1099,117 @@ EOF
     [[ "${output}" == *"Failed to set git config user.name"* ]]
     [[ "${output}" != *"Git environment configured"* ]]
     refute_fake_called '^gpg '
+}
+
+# A fake gpg that reports a signing key, so git-environment runs to the end.
+setup_fake_gpg_with_key() {
+    setup_fake_bin gpg
+    seed_fake_output gpg <<'EOF'
+pub:u:4096:1:ABCDEF1234567890:1234567890:::u:::scESC::::::23::0:
+fpr:::::::::0123456789ABCDEF0123456789ABCDEF01234567:
+EOF
+}
+
+@test "git-environment creates the default global excludes file ignoring .codegraph" {
+    setup_fake_gpg_with_key
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"Git environment configured"* ]]
+
+    run git config --global core.excludesFile
+    [ "${output}" = "${XDG_CONFIG_HOME}/git/ignore" ]
+    [ "$(cat "${XDG_CONFIG_HOME}/git/ignore")" = "/.codegraph" ]
+}
+
+@test "git-environment adds the .codegraph entry only once when run again" {
+    setup_fake_gpg_with_key
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+
+    [ "$(grep -cxF '/.codegraph' "${XDG_CONFIG_HOME}/git/ignore")" -eq 1 ]
+    [ "$(git config --global --get-all core.excludesFile | wc -l)" -eq 1 ]
+}
+
+@test "git-environment keeps an existing core.excludesFile and appends to it" {
+    setup_fake_gpg_with_key
+    printf '*.swp\n' >"${HOME}/my-excludes"
+    # Single quotes keep the ~ for git to expand, as a user would write it.
+    # shellcheck disable=SC2088
+    git config --global core.excludesFile '~/my-excludes'
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+
+    run git config --global core.excludesFile
+    # shellcheck disable=SC2088
+    [ "${output}" = "~/my-excludes" ]
+    [ "$(cat "${HOME}/my-excludes")" = "$(printf '*.swp\n/.codegraph')" ]
+    [ ! -e "${XDG_CONFIG_HOME}/git/ignore" ]
+}
+
+@test "git-environment starts the .codegraph entry on its own line when the excludes file has no trailing newline" {
+    setup_fake_gpg_with_key
+    mkdir -p "${XDG_CONFIG_HOME}/git"
+    printf '*.swp' >"${XDG_CONFIG_HOME}/git/ignore"
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+
+    [ "$(od -An -c "${XDG_CONFIG_HOME}/git/ignore" | tr -d ' \n')" = '*.swp\n/.codegraph\n' ]
+}
+
+@test "git-environment dies when core.excludesFile is set but empty" {
+    setup_fake_gpg_with_key
+    git config --global core.excludesFile ''
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"core.excludesFile is set but empty"* ]]
+    [[ "${output}" != *"Git environment configured"* ]]
+}
+
+@test "git-environment dies when the global excludes file cannot be read" {
+    setup_fake_gpg_with_key
+    mkdir "${HOME}/excludes-dir"
+    git config --global core.excludesFile "${HOME}/excludes-dir"
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to read ${HOME}/excludes-dir"* ]]
+    [[ "${output}" != *"Git environment configured"* ]]
+}
+
+@test "git-environment dies when the global excludes file's directory cannot be created" {
+    setup_fake_gpg_with_key
+    : >"${HOME}/not-a-dir"
+    git config --global core.excludesFile "${HOME}/not-a-dir/ignore"
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"Failed to create the directory for ${HOME}/not-a-dir/ignore"* ]]
+    [[ "${output}" != *"Git environment configured"* ]]
+}
+
+@test "git-environment makes git ignore a .codegraph directory or symlink in any repository" {
+    setup_fake_gpg_with_key
+
+    run "${GIT_ENVIRONMENT}"
+    [ "${status}" -eq 0 ]
+
+    local _repo="${BATS_TEST_TMPDIR}/repo"
+    git init -q "${_repo}"
+
+    mkdir "${_repo}/.codegraph"
+    run git -C "${_repo}" check-ignore -q .codegraph
+    [ "${status}" -eq 0 ]
+
+    rmdir "${_repo}/.codegraph"
+    mkdir "${BATS_TEST_TMPDIR}/index"
+    ln -s "${BATS_TEST_TMPDIR}/index" "${_repo}/.codegraph"
+    run git -C "${_repo}" check-ignore -q .codegraph
+    [ "${status}" -eq 0 ]
 }
