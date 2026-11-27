@@ -7,12 +7,24 @@ BASEDIR="$(dirname "$(dirname "$(dirname "$SCRIPTDIR")")")"
 # shellcheck source=../../../lib/common disable=SC1091
 . "$BASEDIR/lib/common"
 
+OUTFOLDER=""
+
+remove_publish_output() {
+    if [ -n "$OUTFOLDER" ]
+    then
+        rm -rf -- "$OUTFOLDER"
+        OUTFOLDER=""
+    fi
+}
+
 cleanup() {
+    remove_publish_output
     [ "$RESTORE" = "1" ] && git checkout "$RULESET_FILE"
 }
 trap cleanup EXIT
 # dash does not run the EXIT trap when a signal kills the shell, so turn the
-# signals into an exit to get the ruleset restored.
+# signals into an exit to get the publish output removed and the ruleset
+# restored.
 trap 'exit 1' INT TERM HUP
 
 # Returns 0 if $1 (command name) and $2 (package ID) match the same row in local or global dotnet tool list.
@@ -249,7 +261,7 @@ if [ -n "$PUBLISHABLE" ]; then
         "-p:SolutionDir=$SOURCE_DIR/" \
         "-p:IsProduction=false" \
         --output "$OUTFOLDER" || die "Publish failed: $project (framework: $fw)"
-      rm -rf "$OUTFOLDER" || warn "Could not remove $OUTFOLDER"
+      remove_publish_output
     done <<FRAMEWORKS_EOF
 $FRAMEWORKS_NL
 FRAMEWORKS_EOF
