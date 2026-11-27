@@ -338,6 +338,56 @@ EOF
     refute_fake_called '^dotnet code-analysis'
 }
 
+# A repo with one publishable project, and a dotnet whose publish writes a
+# file into its --output folder. When $FAKE_PUBLISH_SIGNAL is set it instead
+# sends buildtest SIGTERM once the output is written, as a Ctrl-C landing
+# mid-publish would, and succeeds, so only the signal handling can remove the
+# output. TMPDIR points at an empty folder so leftover output is visible.
+setup_buildtest_publish() {
+    replace_fake dotnet <<'EOF'
+#!/bin/sh
+printf 'dotnet %s\n' "$*" >> "${FAKE_BIN_LOG}"
+if [ "$1" = "publish" ]; then
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--output" ]; then
+            printf 'published\n' > "$2/Foo"
+        fi
+        shift
+    done
+    if [ -n "${FAKE_PUBLISH_SIGNAL:-}" ]; then
+        kill -TERM "${PPID}"
+    fi
+fi
+exit 0
+EOF
+    export TMPDIR="${BATS_TEST_TMPDIR}/publish-tmp"
+    mkdir -p "${TMPDIR}" "${BATS_TEST_TMPDIR}/repo/src/Foo"
+    cd "${BATS_TEST_TMPDIR}/repo" || return 1
+    git init --quiet
+    printf '<Project></Project>' > src/Foo.slnx
+    printf '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><IsPublishable>true</IsPublishable></PropertyGroup></Project>' > src/Foo/Foo.csproj
+}
+
+@test "buildtest removes the publish output after publishing" {
+    setup_buildtest_publish
+
+    run "${BUILDTEST}"
+    [ "${status}" -eq 0 ]
+    assert_fake_called '^dotnet publish .*Foo\.csproj .*--output .*/publish-tmp/buildtest-publish\.'
+    [ -z "$(ls -A "${TMPDIR}")" ]
+}
+
+@test "buildtest removes the publish output when it is sent SIGTERM during publish" {
+    setup_buildtest_publish
+    export FAKE_PUBLISH_SIGNAL=1
+
+    run "${BUILDTEST}"
+    [ "${status}" -ne 0 ]
+    assert_fake_called '^dotnet publish .*Foo\.csproj'
+    [[ "${output}" != *"Completed"* ]]
+    [ -z "$(ls -A "${TMPDIR}")" ]
+}
+
 # ── benchmark-test-affected ─────────────────────────────────────────────────
 
 BENCHMARK_TEST_AFFECTED="${DEV_DIR}/benchmark-test-affected"
