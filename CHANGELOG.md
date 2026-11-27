@@ -159,6 +159,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - Removed dead ~/work/personal/scripts/* PATH entries from the shell environment config; that directory was never populated and the repo's own dev-scripts are already installed onto PATH via /usr/local/bin
 - install-dotnet-tools no longer installs PowerShell as a dotnet tool, so new setups no longer get a tool nothing in them uses
 - Removed hooks/networkmanager/install-network-manager-dhcp-hook, duplicated by install.d/configure-network - #56
+- Removed unreferenced hooks/networkmanager/install-network-manager-dhcp-hook script and its tests; install.d/configure-network deploys the hook
 ### Deployment Changes
 
 <!--
